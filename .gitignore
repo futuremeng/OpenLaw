@@ -1,0 +1,21 @@
+# 数据目录整体可迁移，内容严禁提交（开发文档 7、9.1）；仅保留目录骨架
+data/**
+!data/**/
+!data/**/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+
+# 签名私钥严禁进入仓库（开发文档 16.2）
+*.key
+keys/
+
+# 构建产物
+bin/
+dist/
+
+# 系统与编辑器
+.DS_Store
+.idea/
+*.log
+.vscode/settings.local.json
