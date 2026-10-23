@@ -28,6 +28,11 @@ func main() {
 		maxSize    = flag.Int64("max-size", 64<<20, "响应体大小上限（字节）")
 		timeout    = flag.Duration("timeout", 30*time.Second, "请求超时")
 
+		// 批量模式（19 章）：两阶段，先出候选清单（可人工审阅），再限速下载
+		listURL   = flag.String("list", "", "批量①：公报目录页 URL → 生成 data/incoming/candidates.csv（不下载 PDF）")
+		batchFile = flag.String("batch", "", "批量②：按候选清单 csv 逐条下载进暂存区（默认 2s/条限速）")
+		delay     = flag.Duration("delay", 2*time.Second, "批量下载间隔（礼貌限速，不建议低于 2s）")
+
 		// 以下与 openlaw-ingest 相同：提供 -md 时抓取后继续导入
 		md      = flag.String("md", "", "解析后的 Markdown 正文路径（可选；留空且提供 -law-id 时自动提取 PDF 文本层）")
 		lawID   = flag.String("law-id", "", "法规标识（-md 时必填）")
@@ -45,10 +50,6 @@ func main() {
 	)
 	flag.Parse()
 
-	if *url_ == "" || *docID == "" {
-		fmt.Fprintln(os.Stderr, "必须提供 -url 与 -doc-id")
-		os.Exit(1)
-	}
 	if err := os.MkdirAll(filepath.Join(*dataDir, "db"), 0o755); err != nil {
 		fatal(err)
 	}
@@ -66,7 +67,55 @@ func main() {
 			Timeout:    *timeout,
 		},
 	}
-	fetched, err := fetcher.Fetch(context.Background(), *url_, *docID)
+	ctx := context.Background()
+
+	// 批量模式①：目录页 → 候选清单（不下载 PDF，供人工审阅）
+	if *listURL != "" {
+		cands, err := fetcher.ListCandidates(ctx, *listURL)
+		if err != nil {
+			fatal(err)
+		}
+		outPath := filepath.Join(*dataDir, "incoming", "candidates.csv")
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			fatal(err)
+		}
+		if err := ingest.WriteCandidatesCSV(outPath, cands); err != nil {
+			fatal(err)
+		}
+		fmt.Printf("候选清单 %d 条 → %s\n人工审阅（删改行）后运行: openlaw-fetch -batch %s -allow-hosts <域名>\n",
+			len(cands), outPath, outPath)
+		return
+	}
+
+	// 批量模式②：候选清单 → 限速逐条下载（每条独立过策略并写 import_log）
+	if *batchFile != "" {
+		cands, err := ingest.ReadCandidatesCSV(*batchFile)
+		if err != nil {
+			fatal(err)
+		}
+		items := fetcher.BatchFetch(ctx, cands, *delay)
+		var okCount int
+		for _, it := range items {
+			if it.Status == "success" {
+				okCount++
+			}
+		}
+		out, _ := json.MarshalIndent(map[string]any{
+			"total": len(items), "success": okCount, "failed": len(items) - okCount, "items": items,
+		}, "", "  ")
+		fmt.Println(string(out))
+		fmt.Println("下一步：对暂存区 PDF 运行 openlaw-ingest（自动文本层提取），全部转人工确认。")
+		if okCount < len(items) {
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *url_ == "" || *docID == "" {
+		fmt.Fprintln(os.Stderr, "必须提供 -url 与 -doc-id（或使用 -list / -batch 批量模式）")
+		os.Exit(1)
+	}
+	fetched, err := fetcher.Fetch(ctx, *url_, *docID)
 	if err != nil {
 		fatal(err)
 	}

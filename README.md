@@ -47,7 +47,7 @@ OpenLaw/
   element/      # 构成要件加载/比对、脱敏
   cmd/
     openlaw-ingest/   # CLI：PDF → 哈希 → 溯源 → 文本层提取/拆分 → 入库 → 断链检测
-    openlaw-fetch/    # CLI：显式触发的抓取（白名单/HTTPS/大小限制 → 暂存区 → 人工确认）
+    openlaw-fetch/    # CLI：显式触发的抓取（robots/白名单/大小限制 → 暂存区 → 人工确认；含公报批量两阶段模式）
     openlaw-pack/     # CLI：离线更新包 build / verify / import（失败保留旧数据）
     openlaw-check/    # 每日哈希重算 + 签名校验 + 断链清单
   data/         # pdf/ md/ db/ provenance/ logs/ manifest/ incoming/（gitignore）

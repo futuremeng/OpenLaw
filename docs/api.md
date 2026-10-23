@@ -82,7 +82,14 @@ Data：text（脱敏后）、restore_map（本地还原映射，**不得写入�
 
 | 命令 | 用途 | 退出码 |
 |---|---|---|
-| `openlaw-fetch` | 显式触发抓取：策略检查（HTTPS/白名单/大小/Content-Type）→ 暂存区 → import_log；提供 `-md` 时继续导入闭环 | 0 成功 / 1 失败 |
+| `openlaw-fetch` | 显式触发抓取：策略检查（HTTPS/robots/白名单/禁止名单/大小/Content-Type）→ 暂存区 → import_log；提供 `-md` 或 `-law-id` 时继续导入闭环 | 0 成功 / 1 失败 |
+| `openlaw-fetch -list <目录页URL>` | 批量①：抓公报目录页 → `data/incoming/candidates.csv` 候选清单（不下载 PDF，供人工审阅） | 0 / 1 |
+| `openlaw-fetch -batch <candidates.csv>` | 批量②：逐条限速下载进暂存区（默认 2s/条），单条失败不中断，全部写 import_log | 0 全部成功 / 1 有失败 |
+
+**数据源策略（18/19 章，2026-10 复核）**：
+- `flk.npc.gov.cn`（国家法律法规数据库）robots.txt 全文 `Disallow: /` 且明确「禁止使用任何自动化工具、脚本、爬虫程序采集或复制网站数据」→ **硬禁止名单**，任何配置下不得自动抓取；需要其文本时人工下载放入 `data/incoming/`
+- `www.gov.cn/gongbao/`（国务院公报）robots 允许 → 可批量源：目录页 → candidates.csv → 限速下载；整期 PDF 较大（约 30MB），建议 `-timeout 180s`
+- robots 判定：404/403=无限制；网络错误/5xx=fail-closed 拒绝；最长前缀匹配，同长度 Allow 优先
 | `openlaw-ingest` | 导入 PDF+MD → 哈希 → 溯源 → 入库 → 断链检测 | 0 成功 / 1 失败（已回滚） |
 | `openlaw-check -gen-key -key <path>` | 生成签名私钥（勿入仓库/数据目录） | 0 / 1 |
 | `openlaw-check -build-manifest -key <path>` | 重算哈希生成 manifest 并签名 | 0 / 1 |
