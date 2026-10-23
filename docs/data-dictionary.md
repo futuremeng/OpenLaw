@@ -55,8 +55,8 @@ MD5 仅判下载损坏；防篡改用 SHA-256/SHA-512/SM3。
 | FR-01 版本解析 | store、validate.ResolveVersion | TestActiveAtBoundary、TestVersionExpiryFlow | ✅ |
 | FR-02 引用校验 | validate.citation | TestClosedLoop（命中/OL-1004） | ✅ |
 | FR-03 反查 PDF | sdk.Trace（doc_id + pdf_path） | TestClosedLoop（Trace 断言） | ✅（界面定位按钮由上层实现） |
-| FR-04 关联查询 | relation 表、sdk.FindRelation | 待补 | ⏳ |
-| FR-05 要件比对 | element.loader/matcher、sdk.AnalyzeElements | 待补 | ⏳ |
+| FR-04 关联查询 | relation 表、sdk.FindRelation | TestFR04FindRelation（pending 告警/confirmed 不告警/双向查询） | ✅ |
+| FR-05 要件比对 | element.loader/matcher、sdk.AnalyzeElements | TestFR05AnalyzeElements（covered/missing 分组、突破方向、风险假设告警） | ✅ |
 | FR-06 离线更新包 | pack（build/verify/import）、cmd/openlaw-pack | TestBuildVerifyRoundtrip、TestVerifyDetectsTamper、TestImportPackFailNoOverwrite、TestImportPackSuccess | ✅ |
 | FR-07 混合检索 | search.fts（FTS5+LIKE） | TestSearchChineseFallback | 部分（向量待后续） |
 | FR-08 脱敏 | element.desensitize | TestDesensitizeCoverage | ✅ |

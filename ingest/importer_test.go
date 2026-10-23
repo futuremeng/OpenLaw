@@ -3,6 +3,7 @@ package ingest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/futuremeng/OpenLaw/store"
@@ -139,5 +140,42 @@ func TestImportExpireBeforeEffective(t *testing.T) {
 	req.ExpireDate = "2018-10-26" // 与生效同日，右开导致空区间
 	if _, err := im.Import(req); err == nil {
 		t.Fatal("失效日期不晚于生效日期应报错")
+	}
+}
+
+// TestImportAutoExtractFromPDF MDPath 留空：自动提取 PDF 文本层 → 规范化 → 拆分入库，
+// 提取结果落盘 md/（可追溯）；扫描件（无文本层）必须报错拒绝。
+func TestImportAutoExtractFromPDF(t *testing.T) {
+	im, dir := setupImporter(t)
+	req := Request{
+		DocID: "law_pdftext_2018", LawID: "law_pdftext", LawName: "文本层测试法",
+		VersionNo: "2018版", EffectiveDate: "2018-01-01", SourceType: "测试样例",
+		PDFPath: filepath.Join("..", "testdata", "text_layer.pdf"),
+	}
+	res, err := im.Import(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.ArticleIDs) != 2 {
+		t.Fatalf("应拆出 2 条，实际 %d", len(res.ArticleIDs))
+	}
+	mdPath := filepath.Join(dir, "md", "law_pdftext_2018.md")
+	b, err := os.ReadFile(mdPath)
+	if err != nil || !strings.Contains(string(b), "公司股东") {
+		t.Fatalf("提取正文应落盘 md/ 且含关键内容: %v", err)
+	}
+	if res.ChainIssues == nil {
+		// manifest 未生成时应有断链提示，至少不为 nil 语义（空切片亦可），仅验证不 panic
+		_ = res
+	}
+
+	// 扫描件路径：非 PDF/无文本层 → 拒绝导入
+	im2, _ := setupImporter(t)
+	req2 := req
+	req2.DocID = "law_scan_2018"
+	req2.LawID = "law_scan"
+	req2.PDFPath = filepath.Join("..", "testdata", "fake_law.pdf")
+	if _, err := im2.Import(req2); err == nil {
+		t.Fatal("无文本层应拒绝导入（转 OCR/人工）")
 	}
 }

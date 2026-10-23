@@ -31,7 +31,7 @@ type Request struct {
 	ConfirmStatus string // confirmed / pending（默认 pending）
 	Notes         string
 	PDFPath       string // 待导入 PDF
-	MDPath        string // 解析后的 Markdown 正文
+	MDPath        string // 解析后的 Markdown 正文；留空则自动从 PDF 文本层提取
 }
 
 // Result 导入成功后的产出。
@@ -65,10 +65,21 @@ func (im *Importer) Import(req Request) (*Result, error) {
 	}
 
 	// 2) 解析正文、拆分条文（空结果视为失败，禁止静默入库）
-	mdBytes, err := os.ReadFile(req.MDPath)
-	if err != nil {
-		im.logImport(req, "failed", fmt.Sprintf("读取正文失败: %v", err))
-		return nil, fmt.Errorf("读取正文失败: %w", err)
+	// MDPath 留空时自动提取 PDF 文本层（无文本层 = 扫描件，报错转 OCR/人工）
+	var mdBytes []byte
+	if req.MDPath != "" {
+		mdBytes, err = os.ReadFile(req.MDPath)
+		if err != nil {
+			im.logImport(req, "failed", fmt.Sprintf("读取正文失败: %v", err))
+			return nil, fmt.Errorf("读取正文失败: %w", err)
+		}
+	} else {
+		text, xerr := parse.ExtractPDFText(req.PDFPath)
+		if xerr != nil {
+			im.logImport(req, "failed", xerr.Error())
+			return nil, xerr
+		}
+		mdBytes = []byte(parse.NormalizePDFText(text))
 	}
 	arts := parse.SplitArticles(string(mdBytes))
 	if len(arts) == 0 {
@@ -89,7 +100,12 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		im.logImport(req, "failed", err.Error())
 		return nil, err
 	}
-	if err := copyFile(req.MDPath, dstMD); err != nil {
+	if req.MDPath != "" {
+		if err := copyFile(req.MDPath, dstMD); err != nil {
+			im.logImport(req, "failed", err.Error())
+			return nil, err
+		}
+	} else if err := os.WriteFile(dstMD, mdBytes, 0o644); err != nil {
 		im.logImport(req, "failed", err.Error())
 		return nil, err
 	}
@@ -154,8 +170,6 @@ func (im *Importer) validateRequest(req *Request) error {
 		return fmt.Errorf("缺少版本号")
 	case req.PDFPath == "":
 		return fmt.Errorf("缺少 PDF 路径")
-	case req.MDPath == "":
-		return fmt.Errorf("缺少 Markdown 正文路径")
 	}
 	if req.ConfirmStatus == "" {
 		req.ConfirmStatus = "pending"

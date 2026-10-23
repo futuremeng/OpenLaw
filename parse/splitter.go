@@ -9,7 +9,13 @@ import "regexp"
 const ParserVersion = "openlaw-parse/0.1.0"
 
 // articleRe 匹配「第X条」条文标记（中文数字与阿拉伯数字均可）。
-var articleRe = regexp.MustCompile(`(?m)^(第[一二三四五六七八九十百千零〇两0-9]+条)`)
+// articleMarkerRe 不带行首锚点：用于在连写文本中定位条文标记以重插换行锚点。
+var articleMarkerRe = regexp.MustCompile(`第[一二三四五六七八九十百千零〇两0-9\x{2e80}-\x{2fdf}]+条`)
+
+// articleRe 匹配条文标记行首「第X条」。
+// 附加 \x{2e80}-\x{2fdf}（部首补充/楷体部首区）：PDF 文本层提取可能把
+// 「二/人」等映射为部首码位「⼆/⼈」，标记识别须容忍，正文保真由人工确认兜底。
+var articleRe = regexp.MustCompile(`(?m)^(第[一二三四五六七八九十百千零〇两0-9\x{2e80}-\x{2fdf}]+条)`)
 
 // Article 拆分出的单个条文。
 type Article struct {

@@ -32,7 +32,7 @@ func main() {
 		pub     = flag.String("publish", "", "公布日期")
 		confirm = flag.String("confirm", "pending", "确认状态：confirmed/pending")
 		pdf     = flag.String("pdf", "", "PDF 路径（必填）")
-		md      = flag.String("md", "", "Markdown 正文路径（必填）")
+		md      = flag.String("md", "", "Markdown 正文路径（留空则自动提取 PDF 文本层；扫描件须先 OCR）")
 	)
 	flag.Parse()
 

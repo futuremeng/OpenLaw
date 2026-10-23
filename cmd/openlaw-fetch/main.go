@@ -29,7 +29,7 @@ func main() {
 		timeout    = flag.Duration("timeout", 30*time.Second, "请求超时")
 
 		// 以下与 openlaw-ingest 相同：提供 -md 时抓取后继续导入
-		md      = flag.String("md", "", "解析后的 Markdown 正文路径（可选；提供则抓取后继续导入）")
+		md      = flag.String("md", "", "解析后的 Markdown 正文路径（可选；留空且提供 -law-id 时自动提取 PDF 文本层）")
 		lawID   = flag.String("law-id", "", "法规标识（-md 时必填）")
 		lawName = flag.String("law-name", "", "法规名称（-md 时必填）")
 		short   = flag.String("short-name", "", "法规简称")
@@ -83,12 +83,13 @@ func main() {
 	}, "", "  ")
 	fmt.Println(string(out))
 
-	if *md == "" {
-		fmt.Println("下一步：解析正文（人工或解析器），再运行 openlaw-ingest 导入并转人工确认。")
+	if *md == "" && *lawID == "" {
+		fmt.Println("下一步：解析正文（人工或 openlaw-ingest 自动文本层提取），再运行 openlaw-ingest 导入并转人工确认。")
 		return
 	}
 
-	// 显式提供正文时，继续走与 openlaw-ingest 完全相同的导入闭环
+	// 显式提供 -md 或 -law-id 时，继续走与 openlaw-ingest 完全相同的导入闭环
+	// （未提供 -md 则自动提取 PDF 文本层；扫描件会被拒绝导入）
 	im := &ingest.Importer{DataDir: *dataDir, DB: db}
 	res, err := im.Import(ingest.Request{
 		DocID: *docID, LawID: *lawID, LawName: *lawName, ShortName: *short,
