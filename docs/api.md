@@ -87,3 +87,6 @@ Data：text（脱敏后）、restore_map（本地还原映射，**不得写入�
 | `openlaw-check -gen-key -key <path>` | 生成签名私钥（勿入仓库/数据目录） | 0 / 1 |
 | `openlaw-check -build-manifest -key <path>` | 重算哈希生成 manifest 并签名 | 0 / 1 |
 | `openlaw-check` | 签名校验 + 断链清单 | 0 完好 / 2 验签失败 / 3 有断链 |
+| `openlaw-pack build -pack <dir> -key <path>` | 生成离线更新包（manifest + 签名 + changes.csv） | 0 / 1 |
+| `openlaw-pack verify -pack <dir>` | 校验包（签名/哈希/未收录文件） | 0 / 2 校验失败 |
+| `openlaw-pack import -pack <dir> -data <dir>` | 先校验后导入；失败拒绝整包保留旧数据 | 0 / 1 |

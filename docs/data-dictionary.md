@@ -57,6 +57,6 @@ MD5 仅判下载损坏；防篡改用 SHA-256/SHA-512/SM3。
 | FR-03 反查 PDF | sdk.Trace（doc_id + pdf_path） | TestClosedLoop（Trace 断言） | ✅（界面定位按钮由上层实现） |
 | FR-04 关联查询 | relation 表、sdk.FindRelation | 待补 | ⏳ |
 | FR-05 要件比对 | element.loader/matcher、sdk.AnalyzeElements | 待补 | ⏳ |
-| FR-06 离线更新包 | validate.manifest（签名先行） | TestManifestTampered | 部分（包体 build/verify 待补） |
+| FR-06 离线更新包 | pack（build/verify/import）、cmd/openlaw-pack | TestBuildVerifyRoundtrip、TestVerifyDetectsTamper、TestImportPackFailNoOverwrite、TestImportPackSuccess | ✅ |
 | FR-07 混合检索 | search.fts（FTS5+LIKE） | TestSearchChineseFallback | 部分（向量待后续） |
 | FR-08 脱敏 | element.desensitize | TestDesensitizeCoverage | ✅ |
