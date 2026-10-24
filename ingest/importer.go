@@ -219,12 +219,15 @@ func (im *Importer) validateRequest(req *Request) error {
 func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string, arts []parse.Article) ([]string, string, error) {
 	chainNote := ""
 	if req.AutoExpirePrior {
-		n, cerr := chainPrior(tx, &req)
+		closed, rechained, cerr := chainPrior(tx, &req)
 		if cerr != nil {
 			return nil, "", cerr
 		}
-		if n > 0 {
-			chainNote = fmt.Sprintf("自动接续版本链: %d 个既有开放版本已闭合", n)
+		if closed+rechained > 0 {
+			chainNote = fmt.Sprintf("自动接续版本链: %d 个既有开放版本已闭合", closed)
+			if rechained > 0 {
+				chainNote += fmt.Sprintf("，%d 个既有闭合集区间前移（新版落于其区间内）", rechained)
+			}
 		}
 	}
 	// 区间重叠检查（13.3）：必须在事务内做，防止同日双版本命中
@@ -274,13 +277,15 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 // chainPrior 版本链自动接续（批量场景，AutoExpirePrior=true）：
 //
 //	既有开放版本早于待导入版本 → 其 expire_date 置为待导入生效日（旧版闭合）；
-//	既有开放版本晚于待导入版本（回填历史版本）→ 待导入版本 expire 置为其中最早生效日；
+//	既有闭合区间跨过待导入生效日（旧版曾被拉长覆盖新版，如存量分批到达）
+//	  → 其 expire_date 前移到待导入生效日（区间重链，仅批量模式，留痕）；
+//	既有开放版本晚于待导入版本（回填历史版本）→ 待导入版本 expire 置为其中最近生效日；
 //	同生效日双版本 → 真冲突，拒绝。全部调整与插入同事务。
-func chainPrior(tx *sql.Tx, req *Request) (int, error) {
+func chainPrior(tx *sql.Tx, req *Request) (int, int, error) {
 	rows, err := tx.Query(`SELECT version_id, effective_date, expire_date FROM law_version
 		WHERE law_id = ?`, req.LawID)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	type ver struct {
 		id     string
@@ -293,7 +298,7 @@ func chainPrior(tx *sql.Tx, req *Request) (int, error) {
 		var exp any
 		if err := rows.Scan(&v.id, &v.eff, &exp); err != nil {
 			rows.Close()
-			return 0, err
+			return 0, 0, err
 		}
 		if exp != nil {
 			v.expire, _ = exp.(string)
@@ -302,24 +307,31 @@ func chainPrior(tx *sql.Tx, req *Request) (int, error) {
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return 0, err
+		return 0, 0, err
 	}
 	rows.Close()
 	if len(vers) == 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
-	n := 0
+	closed, rechained := 0, 0
 	for _, v := range vers {
 		switch {
 		case v.eff == req.EffectiveDate:
-			return 0, fmt.Errorf("同生效日 %s 已存在版本 %s（真冲突，须人工裁定）", req.EffectiveDate, v.id)
+			return 0, 0, fmt.Errorf("同生效日 %s 已存在版本 %s（真冲突，须人工裁定）", req.EffectiveDate, v.id)
 		case v.eff < req.EffectiveDate:
-			if v.expire == "" { // 开放的旧版 → 闭合到待导入生效日
+			switch {
+			case v.expire == "": // 开放的旧版 → 闭合到待导入生效日
 				if _, err := tx.Exec(`UPDATE law_version SET expire_date = ? WHERE version_id = ? AND expire_date IS NULL`,
 					req.EffectiveDate, v.id); err != nil {
-					return 0, err
+					return 0, 0, err
 				}
-				n++
+				closed++
+			case v.expire > req.EffectiveDate: // 闭合集跨过新版 → 区间前移重链
+				if _, err := tx.Exec(`UPDATE law_version SET expire_date = ? WHERE version_id = ? AND expire_date = ?`,
+					req.EffectiveDate, v.id, v.expire); err != nil {
+					return 0, 0, err
+				}
+				rechained++
 			}
 		default: // 既有版本更新：待导入为其历史版本 → 闭合到最近更新版本的生效日
 			if req.ExpireDate == "" || v.eff < req.ExpireDate {
@@ -327,7 +339,7 @@ func chainPrior(tx *sql.Tx, req *Request) (int, error) {
 			}
 		}
 	}
-	return n, nil
+	return closed, rechained, nil
 }
 
 // checkOverlap 在事务内执行版本时效区间重叠检查（左闭右开）。

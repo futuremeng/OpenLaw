@@ -126,6 +126,21 @@ func TestImportAutoExpireChain(t *testing.T) {
 	if err := im.DB.QueryRow(`SELECT expire_date FROM law_version WHERE version_id='law_chain_1990-03-01'`).Scan(&exp); err != nil || exp != "1997-06-29" {
 		t.Fatalf("回填版本应闭合到 1997-06-29，实际 %q (%v)", exp, err)
 	}
+	// 分批到达插链：1997 版此前被闭合到 2020（当时未见中间版），
+	// 中间版 2005 到达 → 1997 版区间前移到 2005，2005 版闭合到 2020
+	if err := mk("chain_2005", "2005-01-01", true); err != nil {
+		t.Fatalf("中间版插链应成功: %v", err)
+	}
+	if err := im.DB.QueryRow(`SELECT expire_date FROM law_version WHERE version_id='law_chain_1997-06-29'`).Scan(&exp); err != nil || exp != "2005-01-01" {
+		t.Fatalf("1997 版区间应前移到 2005-01-01，实际 %q (%v)", exp, err)
+	}
+	if err := im.DB.QueryRow(`SELECT expire_date FROM law_version WHERE version_id='law_chain_2005-01-01'`).Scan(&exp); err != nil || exp != "2020-11-25" {
+		t.Fatalf("2005 版应闭合到 2020-11-25，实际 %q (%v)", exp, err)
+	}
+	var rn int
+	if err := im.DB.QueryRow(`SELECT COUNT(*) FROM import_log WHERE result='success' AND reason LIKE '%前移%'`).Scan(&rn); err != nil || rn != 1 {
+		t.Fatalf("区间前移应留痕，实际 %d (%v)", rn, err)
+	}
 	// 同生效日双版本：真冲突仍拒绝
 	if err := mk("chain_dup", "2020-11-25", true); err == nil || !strings.Contains(err.Error(), "同生效日") {
 		t.Fatalf("同生效日应拒绝，实际: %v", err)

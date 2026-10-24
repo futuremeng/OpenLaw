@@ -32,22 +32,41 @@
 ## 后续处理路线
 
 - **.docx（25,671）**：✅ 已批量导入（openlaw-batch，见下）。
-- **.doc（5,943）**：遗留二进制格式，先经 macOS `textutil -convert docx` 批量转换（本地离线转换，不触网），再走 docx 路线；转换后重新哈希。
-- **601 重复**：导入时按 scan_report 的 sha256 去重（batch 已实现，skip_dup_report 601 条）。
+- **.doc（5,943）**：✅ 经 macOS `textutil -convert docx` 离线转换（5,927 个成功，1 个同名合并；`/Volumes/HDD/law/converted/`）→ openlaw-scan 散文件盘点 → 批量导入。溯源线索：converted_report.csv 的 zip 列=`(散文件)`；原始 .doc 仍保留于 extracted/ 供追溯。
+- **601 重复**：导入时按 scan_report 的 sha256 去重（skip_dup_report 601 条）。
 - 全部条目 `confirm_status=pending`，人工确认后生效（保真度要求不变）。
 
 ## 批量导入结果（openlaw-batch 全量实跑，2026-10-24）
 
+### docx 批次（scan_report.csv → batch_report_docx.csv）
+
 | 项 | 数值 |
 |---|---|
-| 入库文档 | 20,518（.docx，全部 confirm_status=pending） |
-| 入库条文 | 821,953（FTS5 已同步） |
-| 版本链自动闭合的历史版本 | 4,526 |
+| 入库文档 | 20,597（首轮 20,518 + 区间前移重链修复后 79） |
 | 报告内 sha 重复跳过 | 601 |
-| .doc 未转换跳过 | 5,944 |
+| docx 无文本跳过 | 73 |
 | 文件名无日期跳过 | 3,312（flk 文件名 `名称_.docx` 无日期段，须人工补元数据） |
-| 无条文标记失败 | 1,088（决定/决议/名单类，无「第X条」结构，转人工定夺入库形态） |
-| 真冲突失败 | 79（同生效日双版本等，须人工裁定） |
+| .doc 跳过（转转换批） | 5,944 |
+| 无条文标记失败 | 1,088（决定/决议/名单类，无「第X条」结构） |
 
-报告：`/Volumes/HDD/law/batch_report.csv`（doc_id,law_id,name,date,status,articles,detail）。
-失败清单从该报告按 `status=fail` 过滤即得。
+### .doc 转换批（converted_report.csv → batch_report_converted.csv）
+
+| 项 | 数值 |
+|---|---|
+| 入库文档 | 5,100（首轮 4,643 + 重链修复后 457） |
+| 文件名无日期跳过 | 624 |
+| 无条文标记失败 | 203 |
+
+### 数据库合计（flk 语料，全部 pending）
+
+| 指标 | 数值 |
+|---|---|
+| law | 18,634 |
+| document | 25,697 |
+| article | 1,042,266（FTS5 已同步） |
+| 已闭合历史版本（版本链） | 7,063 |
+
+版本冲突消解：.doc 与 .docx 分两批到达导致 536 个「中间版缺失」区间冲突，由 **区间前移重链**（AutoExpirePrior，expire 前移 + import_log 留痕）自动消解；同生效日真冲突仍拒绝转人工。
+
+失败清单（转人工，绝不静默假入库）：无条文标记 1,291 / 文件名无日期 3,936 / docx 无文本 73。
+报告：`/Volumes/HDD/law/batch_report_docx.csv`、`batch_report_converted.csv`（doc_id,law_id,name,date,status,articles,detail），按 `status=fail` 过滤即得人工队列。
