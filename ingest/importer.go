@@ -34,6 +34,9 @@ type Request struct {
 	PDFPath         string // 待导入源文件（PDF/docx/txt）
 	MDPath          string // 解析后的 Markdown 正文；留空则按扩展名自动提取
 	AutoExpirePrior bool   // 批量场景：自动接续版本链（见 chainPrior）；单文件导入默认关闭
+	// EffectiveDateInferred 生效日期为推断值（如正文落款提取）：写入溯源 JSON，
+	// 人工确认前不得视为已证事实。
+	EffectiveDateInferred bool
 }
 
 // Result 导入成功后的产出。
@@ -134,7 +137,7 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		HashComputedBy: "openlaw-ingest/" + versionTag,
 		SourceURL:      req.SourceURL, SourceType: req.SourceType, IsGongbao: req.IsGongbao,
 		PublishDate: req.PublishDate, EffectiveDate: req.EffectiveDate, ExpireDate: req.ExpireDate,
-		EffectiveDateInferred: false,
+		EffectiveDateInferred: req.EffectiveDateInferred,
 		MDPath:                filepath.Join("md", req.DocID+".md"),
 		ConfirmStatus:         req.ConfirmStatus,
 		MD5:                   md5Hex, Notes: req.Notes,

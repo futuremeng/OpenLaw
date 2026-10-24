@@ -1,6 +1,7 @@
 package pack
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -161,6 +162,87 @@ func TestImportPackFailNoOverwrite(t *testing.T) {
 	var n int
 	if err := tdb.QueryRow(`SELECT COUNT(*) FROM document`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("失败导入不得写入任何数据，实际 %d 条", n)
+	}
+}
+
+// TestBuildVerifyImportDocxLayer docx 原始层必须完整走 pack 闭环：
+// manifest 收录 docx/<doc_id>.docx、包内复制、verify 通过、导入空目录后按 docx 提取入库。
+func TestBuildVerifyImportDocxLayer(t *testing.T) {
+	dir, db, key := setupSource(t)
+
+	// 追加一份 docx 文档（最小 OOXML：zip 容器 + word/document.xml）
+	src := filepath.Join(t.TempDir(), "docx测试条例_20200101.docx")
+	writeMinimalDocx(t, src, "第一条　docx 正文测试。")
+	im := &ingest.Importer{DataDir: dir, DB: db}
+	if _, err := im.Import(ingest.Request{
+		DocID: "law_packdocx_2020", LawID: "law_packdocx", LawName: "docx测试条例",
+		EffectLevel: "法律", VersionNo: "2020版", EffectiveDate: "2020-01-01",
+		SourceType: "测试样例", PDFPath: src,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	packDir := filepath.Join(t.TempDir(), "pack-docx")
+	if err := Build(db, dir, packDir, key, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"docx/law_packdocx_2020.docx", "provenance/law_packdocx_2020.json"} {
+		if _, err := os.Stat(filepath.Join(packDir, f)); err != nil {
+			t.Fatalf("包内缺少 %s", f)
+		}
+	}
+	if err := Verify(packDir); err != nil {
+		t.Fatalf("docx 层完整包应校验通过: %v", err)
+	}
+
+	// 导入空目录：pack 侧必须找到 docx 源并完成提取入库
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, "db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tdb, err := store.Open(filepath.Join(target, "db", "openlaw.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.Close()
+	if _, err := Import(tdb, target, packDir); err != nil {
+		t.Fatalf("docx 包导入失败: %v", err)
+	}
+	var n int
+	if err := tdb.QueryRow(`SELECT COUNT(*) FROM article WHERE doc_id='law_packdocx_2020'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("docx 条文应入库 1 条，实际 %d (%v)", n, err)
+	}
+	var fp string
+	if err := tdb.QueryRow(`SELECT file_path FROM document WHERE doc_id='law_packdocx_2020'`).Scan(&fp); err != nil || fp != "docx/law_packdocx_2020.docx" {
+		t.Fatalf("file_path 应为 docx 层，实际 %q (%v)", fp, err)
+	}
+}
+
+func writeMinimalDocx(t *testing.T, path, para string) {
+	t.Helper()
+	docXML := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+		`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+		`<w:p><w:r><w:t>` + para + `</w:t></w:r></w:p></w:body></w:document>`
+	zf, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zf.Close()
+	zw := zip.NewWriter(zf)
+	for _, e := range [][2]string{
+		{"[Content_Types].xml", `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>`},
+		{"word/document.xml", docXML},
+	} {
+		fw, err := zw.Create(e[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fw.Write([]byte(e[1])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

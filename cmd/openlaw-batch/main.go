@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/futuremeng/OpenLaw/ingest"
+	"github.com/futuremeng/OpenLaw/parse"
 	"github.com/futuremeng/OpenLaw/store"
 )
 
@@ -79,6 +80,7 @@ func main() {
 		_ = zipF
 		status, artN, detail := "ok", 0, ""
 		docID, lawID, dateISO := "", "", ""
+		notes := ""
 		switch {
 		case rowExt != *ext:
 			status, detail = "skip_ext", ""
@@ -90,13 +92,34 @@ func main() {
 			status, detail = "skip_no_file", outPath
 		default:
 			base := strings.TrimSuffix(filepath.Base(entry), filepath.Ext(entry))
+			var name, pubISO string
+			inferred := true // 批量通道日期一律 inferred（文件名/正文落款皆非官方元数据直取）
 			m := nameDateRe.FindStringSubmatch(base)
-			if m == nil {
-				status, detail = "skip_no_date", base
-				break
+			if m != nil {
+				d8 := m[2]
+				name = m[1]
+				dateISO = d8[0:4] + "-" + d8[4:6] + "-" + d8[6:8]
+				pubISO, notes = dateISO, "batch：生效日期暂按文件名日期填充、效力等级待人工确认"
+			} else {
+				// 兜底：正文落款保守提取日期（parse.InferDates；无命中仍 skip 转人工）
+				txt, xerr := parse.ExtractDocxText(outPath)
+				pub, eff, ok := "", "", false
+				if xerr == nil {
+					pub, eff, ok = parse.InferDates(txt)
+				}
+				if !ok {
+					status, detail = "skip_no_date", base
+					if xerr != nil {
+						detail = base + " | " + xerr.Error()
+					}
+					break
+				}
+				name, dateISO, pubISO = base, eff, pub
+				if pubISO == "" {
+					pubISO = eff
+				}
+				notes = "batch：日期取自正文落款提取（inferred）、效力等级待人工确认"
 			}
-			name, d8 := m[1], m[2]
-			dateISO = d8[0:4] + "-" + d8[4:6] + "-" + d8[6:8]
 			var n int
 			if err := db.QueryRow(`SELECT COUNT(*) FROM document WHERE sha256 = ?`, sha).Scan(&n); err != nil {
 				status, detail = "fail", err.Error()
@@ -108,18 +131,23 @@ func main() {
 			}
 			sum := sha256.Sum256([]byte(name))
 			lawID = fmt.Sprintf("flk_%x", sum[:6])
-			docID = lawID + "_" + d8
+			docID = lawID + "_" + strings.Replace(dateISO, "-", "", -1)
 			res, ierr := im.Import(ingest.Request{
 				DocID: docID, LawID: lawID, LawName: name,
-				VersionNo: dateISO, EffectiveDate: dateISO, PublishDate: dateISO,
+				VersionNo: dateISO, EffectiveDate: dateISO, PublishDate: pubISO,
 				SourceType: "flk 批量下载（用户提供存量）", ConfirmStatus: "pending",
-				Notes:   "batch：生效日期暂按文件名日期填充、效力等级待人工确认",
+				Notes: notes, EffectiveDateInferred: inferred,
 				PDFPath: outPath, AutoExpirePrior: true,
 			})
 			if ierr != nil {
 				status, detail = "fail", ierr.Error()
 			} else {
 				artN = len(res.ArticleIDs)
+				status = "ok"
+				if m == nil {
+					status = "ok_inferred"
+					detail = "date from text: pub=" + pubISO + " eff=" + dateISO
+				}
 			}
 		}
 		cnt[status]++
