@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/futuremeng/OpenLaw/compare"
 )
@@ -29,6 +30,13 @@ func main() {
 	rep, err := compare.CompareFiles(*fileA, *fileB)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "核验失败: %v\n", err)
+		if strings.Contains(err.Error(), "无文本层") {
+			fmt.Fprintln(os.Stderr, "\n该侧为扫描图像版 PDF，文本级核验的替代路径（按推荐顺序）：")
+			fmt.Fprintln(os.Stderr, "  1. flk 来源：浏览器打开该法规的在线浏览页（有全文文字），")
+			fmt.Fprintln(os.Stderr, "     手动复制/另存为 .txt 放入 data/incoming/，再以其为 -a/-b 参数重跑本命令；")
+			fmt.Fprintln(os.Stderr, "  2. gov.cn 公报来源：改用公报单文档 HTML 页（正文在 UCAP-CONTENT 容器，本工具自动提取）；")
+			fmt.Fprintln(os.Stderr, "  3. 两侧均为扫描件且无 HTML 文字源时：只能先 OCR（本项目暂未实现），绝不静默入库。")
+		}
 		os.Exit(2)
 	}
 

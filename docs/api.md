@@ -85,7 +85,7 @@ Data：text（脱敏后）、restore_map（本地还原映射，**不得写入�
 | `openlaw-fetch` | 显式触发抓取：策略检查（HTTPS/robots/白名单/禁止名单/大小/Content-Type）→ 暂存区 → import_log；提供 `-md` 或 `-law-id` 时继续导入闭环 | 0 成功 / 1 失败 |
 | `openlaw-fetch -list <目录页URL>` | 批量①：抓公报目录页 → `data/incoming/candidates.csv` 候选清单（不下载 PDF，供人工审阅） | 0 / 1 |
 | `openlaw-fetch -batch <candidates.csv>` | 批量②：逐条限速下载进暂存区（默认 2s/条），单条失败不中断，全部写 import_log | 0 全部成功 / 1 有失败 |
-| `openlaw-compare -a FILE -b FILE` | 跨来源同一法律一致性核验：字节级（SHA-256）+ 文本级（去空白/部首折叠/正文容器提取/句段覆盖）；支持 .pdf/.html/.htm/.md/.txt，`-json` 输出报告 | 0 文本一致 / 1 实质差异 / 2 错误 |
+| `openlaw-compare -a FILE -b FILE` | 跨来源同一法律一致性核验：字节级（SHA-256）+ 文本级（去空白/部首折叠/正文容器提取/句段覆盖）；支持 .pdf/.html/.htm/.md/.txt，`-json` 输出报告；扫描版 PDF（无文本层）报错并给出替代路径（flk 在线浏览页手动存 .txt / 公报单文档 HTML / OCR） | 0 文本一致 / 1 实质差异 / 2 错误 |
 
 **数据源策略（18/19 章，2026-10 复核）**：
 - `flk.npc.gov.cn`（国家法律法规数据库）robots.txt 全文 `Disallow: /` 且明确「禁止使用任何自动化工具、脚本、爬虫程序采集或复制网站数据」→ **硬禁止名单**，任何配置下不得自动抓取；需要其文本时人工下载放入 `data/incoming/`

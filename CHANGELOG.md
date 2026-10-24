@@ -6,7 +6,7 @@
 
 ### 新增
 - **跨源一致性核验（compare/ + cmd/openlaw-compare）**：同一法律在不同官方来源的双重复核——字节级（SHA-256，仅作记录）+ 文本级（去全部空白、Kangxi 部首 214 码位折叠、TRS 正文容器 `UCAP-CONTENT` 提取）；判定 bytes_identical / identical / contained（单行法 ⊂ 整期）/ covered（句段全覆盖，容忍分页页眉页码插入噪声）/ different（给出首个差异位点、上下文与未命中句段样例）。退出码 0=一致 / 1=实质差异 / 2=错误
-- **重要发现（实网核验）**：国务院公报**整期 PDF 为扫描图像版**（无文本层，触发 OL-1009 拒绝）——公报正文入库应走**单文档 HTML 页**（`gongbao/<年>/issue_<id>/<月>/content_<id>.html`，正文在 UCAP-CONTENT 容器）；整期 PDF 仅作原始出处存档，如需其文本须走 OCR
+- **重要发现（实网核验）**：国务院公报**整期 PDF 为扫描图像版**（无文本层，触发 OL-1009 拒绝）——公报正文入库应走**单文档 HTML 页**（`gongbao/<年>/issue_<id>/<月>/content_<id>.html`，正文在 UCAP-CONTENT 容器）；整期 PDF 仅作原始出处存档，如需其文本须走 OCR。另据用户确认：**flk 的单行 PDF 亦有一部分为扫描版**——文本核验替代路径：flk 在线浏览页手动复制全文存 `.txt`（浏览器手动操作，合规）、或改用两侧 HTML 文字源；两侧皆扫描时只能转 OCR（暂未实现）。`openlaw-compare` 遇无文本层 PDF 会报错并输出上述替代路径指引
 - **更新包（pack/ + cmd/openlaw-pack）**：FR-06 闭环——build（复制 pdf/md/provenance + changes.csv + manifest + Ed25519 签名）、verify（签名/逐文件哈希/拒绝未收录文件）、import（先校验后导入，失败拒绝整包保留旧数据；条目 confirm_status=pending 转人工）
 - **PDF 文本层提取（parse/pdftext）**：基于 ledongthuc/pdf（纯 Go，与 OpenCourt 同款依赖）——`openlaw-ingest` 的 `-md` 转为可选，留空自动提取文本层→去碎片化→条文锚点重插→拆分入库；无文本层（扫描件）明确拒绝并提示转 OCR（OL-1009），绝不静默入库；部首码位映射（⼆≠二）等保真问题由 confirm_status=pending 人工确认兜底
 - **批量抓取（ingest/harvest + robots + openlaw-fetch -list/-batch）**：robots.txt 强制执行（404/403=无限制、5xx/网络错误=fail-closed 拒绝、最长前缀匹配、同长度 Allow 优先）；`flk.npc.gov.cn` 因 robots 明确禁止任何自动化采集列入**硬禁止名单**；国务院公报 `www.gov.cn/gongbao/` 为可批量源——两阶段：目录页→candidates.csv（人工审阅）→限速下载（默认 2s/条，单条失败不中断，全部写 import_log）。实网验证：当期公报整期 PDF（约 30MB）成功入暂存区
