@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/futuremeng/OpenLaw/parse"
@@ -30,6 +31,7 @@ func main() {
 		out     = flag.String("out", "", "报告 CSV 路径（默认 <src>/scan_report.csv）")
 		extract = flag.String("extract", "", "解压目标目录（留空=只盘点不解压）")
 		limit   = flag.Int("limit", 0, "只处理前 N 个 zip（0=全部，试跑用）")
+		jobs    = flag.Int("jobs", 4, "并行处理的 zip 数")
 	)
 	flag.Parse()
 	if *src == "" {
@@ -57,28 +59,63 @@ func main() {
 	w := csv.NewWriter(f)
 	_ = w.Write([]string{"zip", "entry", "out", "ext", "size", "sha256", "text", "dup_of"})
 
-	seen := map[string]string{} // sha256 -> first out
-	agg := struct{ files, dup, yes, no, na int }{}
-	byExt := map[string]int{}
-	for zi, zp := range zips {
-		if err := scanZip(zp, *extract, w, seen, &agg, byExt); err != nil {
-			fmt.Fprintf(os.Stderr, "警告: 跳过 %s: %v\n", filepath.Base(zp), err)
-		}
-		fmt.Fprintf(os.Stderr, "进度: %d/%d %s\n", zi+1, len(zips), filepath.Base(zp))
-		w.Flush()
+	ctx := &scanCtx{w: w, seen: map[string]string{}, byExt: map[string]int{}}
+	var wg sync.WaitGroup
+	ch := make(chan string)
+	njobs := *jobs
+	if njobs < 1 {
+		njobs = 1
 	}
-	w.Flush()
-	fmt.Printf("盘点完成: zip=%d 文件=%d 重复=%d 文本=%d 无文本/扫描=%d 未识别=%d\n",
-		len(zips), agg.files, agg.dup, agg.yes, agg.no, agg.na)
-	for ext, n := range byExt {
+	for j := 0; j < njobs; j++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for zp := range ch {
+				if err := scanZip(zp, *extract, ctx); err != nil {
+					fmt.Fprintf(os.Stderr, "警告: 跳过 %s: %v\n", filepath.Base(zp), err)
+				}
+				n := ctx.doneInc()
+				fmt.Fprintf(os.Stderr, "进度: %d/%d %s\n", n, len(zips), filepath.Base(zp))
+				ctx.flush()
+			}
+		}()
+	}
+	for _, zp := range zips {
+		ch <- zp
+	}
+	close(ch)
+	wg.Wait()
+	ctx.flush()
+	agg := ctx.agg
+	fmt.Printf("盘点完成: zip=%d 文件=%d 重复=%d 文本=%d 无文本/扫描=%d 未识别=%d 错误=%d\n",
+		len(zips), agg.files, agg.dup, agg.yes, agg.no, agg.na, agg.errs)
+	for ext, n := range ctx.byExt {
 		fmt.Printf("  %-6s %d\n", ext, n)
 	}
 	fmt.Println("报告:", *out)
 }
 
+// scanCtx 并行共享状态：CSV、去重表、计数（互斥保护）。
+type scanCtx struct {
+	mu    sync.Mutex
+	w     *csv.Writer
+	seen  map[string]string
+	byExt map[string]int
+	agg   struct{ files, dup, yes, no, na, errs int }
+	done  int
+}
+
+func (c *scanCtx) doneInc() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.done++
+	return c.done
+}
+func (c *scanCtx) flush() { c.mu.Lock(); c.w.Flush(); c.mu.Unlock() }
+
 // scanZip 盘点单个 zip：GBK 文件名解码 → 哈希 → 可选解压 → 文本探测 → CSV 行。
-func scanZip(zp, extractDir string, w *csv.Writer, seen map[string]string,
-	agg *struct{ files, dup, yes, no, na int }, byExt map[string]int) error {
+// 单条目失败（如写盘错误）不中断：记 out=ERROR:... 并继续（errs 计数）。
+func scanZip(zp, extractDir string, ctx *scanCtx) error {
 	zr, err := zip.OpenReader(zp)
 	if err != nil {
 		return err
@@ -103,34 +140,40 @@ func scanZip(zp, extractDir string, w *csv.Writer, seen map[string]string,
 		}
 		sum := sha256.Sum256(data)
 		sha := hex.EncodeToString(sum[:])
-		dupOf := ""
-		if first, ok := seen[sha]; ok {
-			dupOf = first
-			agg.dup++
-		} else {
-			seen[sha] = name
-		}
 		outPath := ""
 		if extractDir != "" {
 			outPath, err = writeFile(filepath.Join(extractDir, zipBase, name), data)
 			if err != nil {
-				return fmt.Errorf("%s: 解压失败: %w", name, err)
+				outPath = "ERROR:" + err.Error()
 			}
 		}
 		text := textOK(ext, data, outPath)
+		dupOf := ""
+		ctx.mu.Lock()
+		if first, ok := ctx.seen[sha]; ok {
+			dupOf = first
+			ctx.agg.dup++
+		} else {
+			ctx.seen[sha] = name
+		}
+		ctx.agg.files++
 		switch text {
 		case "yes":
-			agg.yes++
+			ctx.agg.yes++
 		case "no":
-			agg.no++
+			ctx.agg.no++
 		default:
-			agg.na++
+			ctx.agg.na++
 		}
-		agg.files++
-		byExt[ext]++
-		if err := w.Write([]string{filepath.Base(zp), fh.Name, outPath, ext,
-			fmt.Sprint(len(data)), sha, text, dupOf}); err != nil {
-			return err
+		if strings.HasPrefix(outPath, "ERROR:") {
+			ctx.agg.errs++
+		}
+		ctx.byExt[ext]++
+		cerr := ctx.w.Write([]string{filepath.Base(zp), fh.Name, outPath, ext,
+			fmt.Sprint(len(data)), sha, text, dupOf})
+		ctx.mu.Unlock()
+		if cerr != nil {
+			return cerr
 		}
 	}
 	return nil
@@ -148,7 +191,9 @@ func decodeName(raw string, nonUTF8 bool) string {
 	return string(dec)
 }
 
-// sanitize 只保留基名并清除路径分隔与控制字符（zip 条目防穿越）。
+// sanitize 只保留基名并清除路径分隔与控制字符（zip 条目防穿越）；
+// 超长名在 rune 边界截断至 200 字节（保留扩展名）——APFS/ext4 单段名上限 255 字节，
+// flk 存在超长法规名（如澳门基本法附件决定），不截断会整条写入失败。
 func sanitize(name string) string {
 	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
 	var b strings.Builder
@@ -158,10 +203,25 @@ func sanitize(name string) string {
 		}
 		b.WriteRune(r)
 	}
-	if s := b.String(); s != "" && s != "." && s != ".." {
-		return s
+	s := b.String()
+	if s == "" || s == "." || s == ".." {
+		return "unnamed"
 	}
-	return "unnamed"
+	if len(s) > 200 {
+		ext := filepath.Ext(s)
+		if len(ext) > 8 {
+			ext = ""
+		}
+		var t strings.Builder
+		for _, r := range strings.TrimSuffix(s, ext) {
+			if t.Len()+len(string(r)) > 190-len(ext) {
+				break
+			}
+			t.WriteRune(r)
+		}
+		s = t.String() + ext
+	}
+	return s
 }
 
 // writeFile 防覆盖落盘（同名追加 -1/-2），返回实际路径。
@@ -192,7 +252,7 @@ func textOK(ext string, data []byte, extractedPath string) string {
 		return docxTextOK(data)
 	case ".pdf":
 		p := extractedPath
-		if p == "" {
+		if p == "" || strings.HasPrefix(p, "ERROR:") {
 			tmp, err := os.CreateTemp("", "scan-*.pdf")
 			if err != nil {
 				return "n/a"
