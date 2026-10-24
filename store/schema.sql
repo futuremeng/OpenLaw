@@ -126,6 +126,18 @@ CREATE TABLE IF NOT EXISTS import_log (
   reason TEXT,
   created_at TEXT NOT NULL
 );
+-- review_log 人工确认审计（confirm 流程）：谁在何时依据什么把哪个文档确认/驳回/重置。
+-- 批量确认必须写明过滤条件与理由；绝不允许无审计痕迹的整库确认。
+CREATE TABLE IF NOT EXISTS review_log (
+  review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id TEXT NOT NULL REFERENCES document(doc_id),
+  action TEXT NOT NULL CHECK (action IN ('confirm','reject','reset')),
+  from_status TEXT NOT NULL,
+  to_status TEXT NOT NULL,
+  reviewer TEXT NOT NULL,
+  reason TEXT,
+  created_at TEXT NOT NULL
+);
 
 -- validate_log 校验日志
 CREATE TABLE IF NOT EXISTS validate_log (
@@ -140,6 +152,8 @@ CREATE TABLE IF NOT EXISTS validate_log (
 
 CREATE INDEX IF NOT EXISTS idx_version_law_date ON law_version(law_id, effective_date, expire_date);
 CREATE INDEX IF NOT EXISTS idx_article_version ON article(version_id);
+CREATE INDEX IF NOT EXISTS idx_article_doc ON article(doc_id);      -- 按文档反查条文（复核清单/断链检测热点）
+CREATE INDEX IF NOT EXISTS idx_document_confirm ON document(confirm_status); -- pending 队列统计与抽样
 CREATE INDEX IF NOT EXISTS idx_element_case ON element(case_type);
 CREATE INDEX IF NOT EXISTS idx_relation_src ON relation(src_law_id);
 

@@ -40,6 +40,9 @@ relation_type：修改/废止/解释/配套；confirm_status 默认 pending—�
 导入结果：success/failed/rolled_back；校验结果：pass/fail + 原因。
 注意：import_log.doc_id 有外键，document 未入库的失败场景 doc_id 置 NULL，标识保留在 reason 中。
 
+### review_log 人工确认审计
+confirm 流程（openlaw-confirm）的状态流转留痕：doc_id、action（confirm/reject/reset）、from_status→to_status、reviewer（必须署名）、reason（确认依据；批量流转必含过滤条件与依据）、created_at。**绝不允许无审计痕迹的状态变更**；provenance JSON 的 confirm_status 随流转同步。
+
 ## 3. 溯源文件（provenance/<doc_id>.json）
 
 必填：doc_id、file_name、file_size、sha256、hash_algo_used、hash_computed_at、hash_computed_by、source_url、source_type、is_gongbao、publish_date、effective_date、expire_date、effective_date_inferred、md_path、confirm_status。

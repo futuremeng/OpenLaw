@@ -5,6 +5,7 @@
 ## Unreleased（v0.1.0 开发中）
 
 ### 新增
+- **人工确认流程（openlaw-confirm + review_log 审计）**：pending 语料的抽样→复核→落判→审计闭环。`stats`（进度与风险面，风险标记取自 provenance 持久事实：日期推断/全文即一节/缺公布日）、`sample`（复核清单 CSV：高风险优先+效力等级轮转，附 sha256/原文路径/正文首尾摘要供与官方页比对，可直接填 verdict/reviewer/note 回填）、`apply`（清单落判：署名必填、未填行跳过、单行失败不中断、幂等）、`bulk`（条件批量：默认 dry-run，执行必须 -yes+署名+依据，起始状态按裁决限定——confirm/reject 从 pending、reset 从 confirmed/rejected）。一切流转写 review_log（谁/何时/依据什么）并同步 provenance JSON confirm_status；绝不允许无审计痕迹的确认。实跑风险面：日期推断 5,162、全文即一节 1,451 强制进队列最前。附带性能修复：`article(doc_id)`/`document(confirm_status)` 索引（SQLite 不为外键自动建索引，复核清单相关子查询曾全扫 118 万行）
 - **全文即一节通道（whole-text ingest）**：无「第X条」结构的文档（决定/决议/公告/名单类）以单条 article 承载全文——`article_no="全文"`（约定值）、`parser_version` 带 `+whole` 后缀、import_log 留痕；可全文检索但语义为整份文档而非条文，条文级功能（引用校验/要件分析）按后缀整体排除（docs/data-dictionary.md 已定义）。`ingest.Request.WholeTextMode`（单文件导入保持严格默认关闭）；pack changes.csv 增 `whole` 列（旧格式向后兼容）；batch 报告状态 `ok_whole`/`ok_whole_inferred`。实跑：1,451 个决定/决议类入库，批量通道 fail 清零（仅剩 2 个同名同日不同文本真冲突转人工）
 - **日期推断通道（parse.InferDates + batch 兜底）**：文件名无日期段的存量（flk `名称_.docx`）从正文落款保守推断——生效日=日期后紧跟「(起)施行/生效/执行」、公布日=窗口内「通过/批准/公布/发布/签署/修订/修正」，均取文末命中；无命中仍转人工绝不猜。推断写溯源 `effective_date_inferred=true`（批量通道日期一律 inferred，含文件名日期），报告状态 `ok_inferred`。实跑：4,560 个无日期存量 → 3,711 推断入库，82 仍转人工
 - **pack docx 层闭环测试**：manifest 收录/包内复制/verify/导入空目录按 docx 提取入库全链路单测

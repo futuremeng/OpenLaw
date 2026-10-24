@@ -186,6 +186,9 @@ func (im *Importer) Import(req Request) (*Result, error) {
 	if wholeText {
 		succReason = strings.TrimSuffix(succReason+"; 全文即一节（无条文结构，whole-text 模式）", "; ")
 	}
+	if req.EffectiveDateInferred {
+		succReason = strings.TrimSuffix(succReason+"; 日期为正文推断（effective_date_inferred）", "; ")
+	}
 	im.logImport(req, "success", succReason)
 
 	// 6) 触发断链检测（6.1）。断链不抛异常，随结果返回由上层提示。

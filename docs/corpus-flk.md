@@ -92,3 +92,25 @@
 | 同名同日但文本不同（doc_id 冲突） | 2 | 人工裁定哪份文本为准 |
 
 报告：`/Volumes/HDD/law/batch_report_docx.csv`、`batch_report_converted.csv`（doc_id,law_id,name,date,status,articles,detail），按 `status=fail` 过滤即得人工队列。
+
+## 人工确认流程（openlaw-confirm，2026-10-25）
+
+30,859 条存量全部 `confirm_status=pending`。确认流程原则：**机器绝不自动确认；一切状态流转必须落 review_log（谁/何时/依据什么）**。
+
+```
+openlaw-confirm stats  -data data                       # 进度与风险面
+openlaw-confirm sample -data data -out queue.csv -n 200 # 复核清单（风险优先+效力等级轮转）
+#   人工在 queue.csv 填 verdict(confirm/reject)/reviewer/note 三列
+openlaw-confirm apply  -data data -in queue.csv         # 落判（未填行跳过、署名必填、单行失败不中断）
+openlaw-confirm bulk   -data data -source 'flk%' -verdict confirm   # 默认 dry-run 计数
+openlaw-confirm bulk   ... -yes -reviewer 张三 -reason "逐条比对 flk 在线页"  # 执行（署名+依据必填）
+```
+
+- **风险标记**（持久事实取自 provenance，批量报告仅补充）：`inferred_date`（生效日为正文推断）、`whole_text`（全文即一节）、`no_publish_date`。实跑风险面：**日期推断 5,162 | 全文即一节 1,451**——高风险文档强制进复核队列最前。
+- 清单附带复核材料：元数据、sha256、原文路径、条文数、正文首尾 160 字摘要——供人工与 flk 在线页（浏览器手动浏览，合规）比对。
+- `reset` 裁决可把误确认回流 pending；bulk 的起始状态按裁决自动限定（confirm/reject 从 pending，reset 从 confirmed/rejected），重跑幂等。
+- 状态流转同步 provenance JSON 的 confirm_status（对外事实文件与库一致）。
+- 附带性能修复：`article(doc_id)`、`document(confirm_status)` 索引补齐（SQLite 不为外键自动建索引，复核清单生成的相关子查询曾全扫 118 万行）。
+
+**确认策略建议**：先清高风险队列（5,162）；低风险长尾按效力等级批量抽验，达到目标错误率后再对同层用 bulk（依据写抽样结论+样本量）。
+

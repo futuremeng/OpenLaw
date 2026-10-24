@@ -52,6 +52,7 @@ OpenLaw/
     openlaw-pack/     # CLI：离线更新包 build / verify / import（失败保留旧数据）
     openlaw-scan/     # CLI：存量批量下载包盘点（zip/GBK 解码/SHA-256/文本探测/CSV 报告）
     openlaw-batch/    # CLI：从盘点报告批量导入存量（docx 正文提取/三层去重/版本链自动接续）
+    openlaw-confirm/  # CLI：pending 语料人工确认（风险抽样/清单落判/条件批量，全程 review_log 审计）
     openlaw-check/    # 每日哈希重算 + 签名校验 + 断链清单
   data/         # pdf/ md/ db/ provenance/ logs/ manifest/ incoming/（gitignore）
   testdata/     # 样例法规与测试数据
