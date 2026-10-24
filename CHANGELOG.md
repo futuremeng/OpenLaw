@@ -5,6 +5,7 @@
 ## Unreleased（v0.1.0 开发中）
 
 ### 新增
+- **存量盘点（cmd/openlaw-scan）**：批量下载 zip 盘点与分类——GBK 文件名解码（flk 等中文站点 zip 条目名非 UTF-8）、可选解压（防路径穿越、防覆盖）、逐文件 SHA-256（导入时复用判篡改）+ 重复检测、文本可用性探测（docx 取 `word/document.xml` 的 `<w:t>` 正文；pdf 走文本层提取；扫描/空/未识别分类计数）；产出 CSV 报告（zip,entry,out,ext,size,sha256,text,dup_of）供人工审阅与后续批量导入。盘点层与导入层分离：不写 SQLite。实网存量实测：317 个 flk 批量下载 zip（848MB，.docx 为主）
 - **欧盟法律元数据接入（ingest/cellar + cmd/openlaw-eu）**：欧盟出版局 Cellar SPARQL（官方开放程序化入口，robots `Allow: /`，与 flk 的「禁止自动化」性质相反）——CELEX → work named graph → ELI/CELEX/类型/生效日+适用日（欧盟特有双日期）/官方公报出处/**显式废止与依据关系**；`openlaw-eu -celex 32016R0679` 一条命令完成 law 主表 upsert + 关系挂载（仅挂已入库目标法，一律 pending 人工确认；目标未入库计数跳过、可重跑补齐）；原始三元组 JSON 落 `data/incoming/eu_<celex>_work.json` 留证，每次 SPARQL 访问进 import_log（默认 2s 礼貌限速；fail-closed）。数据模型 v2：`law +eli/celex`、`effect_level +欧盟条例/指令/决定`、`law_version +application_date/lang`、`document +lang`、`relation_type +依据`——v1 库自动原地迁移（重建表保数据）。全文文本不在本通道：EUR-Lex 网页有 CloudFront WAF 挑战（等同 flk 只能人工保存），已实网核实（docs/sources-eu.md）
 - **更新包共享合规（pack）**：manifest 新增 `license/attribution` 字段（随 Ed25519 签名保护，verify 无需改动）——欧盟等来源要求重使用署名；`openlaw-pack build -license/-attribution` 可覆写，默认「公有领域+署名出处」声明
 - **跨源一致性核验（compare/ + cmd/openlaw-compare）**：同一法律在不同官方来源的双重复核——字节级（SHA-256，仅作记录）+ 文本级（去全部空白、Kangxi 部首 214 码位折叠、TRS 正文容器 `UCAP-CONTENT` 提取）；判定 bytes_identical / identical / contained（单行法 ⊂ 整期）/ covered（句段全覆盖，容忍分页页眉页码插入噪声）/ different（给出首个差异位点、上下文与未命中句段样例）。退出码 0=一致 / 1=实质差异 / 2=错误
