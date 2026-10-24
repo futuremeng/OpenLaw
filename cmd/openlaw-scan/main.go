@@ -39,13 +39,30 @@ func main() {
 		os.Exit(2)
 	}
 	zips, err := filepath.Glob(filepath.Join(*src, "*.zip"))
-	if err != nil || len(zips) == 0 {
-		fmt.Fprintf(os.Stderr, "错误: %s 下未找到 *.zip: %v\n", *src, err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误: 扫描 %s 失败: %v\n", *src, err)
 		os.Exit(2)
 	}
+	// 散文件（如 textutil 转换产物目录）：顶层非 zip 具名格式文件同样盘点
+	loose := []string{}
+	for _, pat := range []string{"*.docx", "*.doc", "*.pdf", "*.txt", "*.md"} {
+		g, _ := filepath.Glob(filepath.Join(*src, pat))
+		loose = append(loose, g...)
+	}
 	sort.Strings(zips)
-	if *limit > 0 && *limit < len(zips) {
-		zips = zips[:*limit]
+	sort.Strings(loose)
+	if len(zips) == 0 && len(loose) == 0 {
+		fmt.Fprintf(os.Stderr, "错误: %s 下未找到 *.zip 或散文件\n", *src)
+		os.Exit(2)
+	}
+	if *limit > 0 {
+		if n := *limit; n < len(zips)+len(loose) {
+			if n <= len(zips) {
+				zips, loose = zips[:n], nil
+			} else {
+				loose = loose[:n-len(zips)]
+			}
+		}
 	}
 	if *out == "" {
 		*out = filepath.Join(*src, "scan_report.csv")
@@ -61,7 +78,11 @@ func main() {
 
 	ctx := &scanCtx{w: w, seen: map[string]string{}, byExt: map[string]int{}}
 	var wg sync.WaitGroup
-	ch := make(chan string)
+	type item struct {
+		zip, loose string
+	}
+	total := len(zips) + len(loose)
+	ch := make(chan item)
 	njobs := *jobs
 	if njobs < 1 {
 		njobs = 1
@@ -70,25 +91,36 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for zp := range ch {
-				if err := scanZip(zp, *extract, ctx); err != nil {
-					fmt.Fprintf(os.Stderr, "警告: 跳过 %s: %v\n", filepath.Base(zp), err)
+			for it := range ch {
+				if it.zip != "" {
+					if err := scanZip(it.zip, *extract, ctx); err != nil {
+						fmt.Fprintf(os.Stderr, "警告: 跳过 %s: %v\n", filepath.Base(it.zip), err)
+					}
+				} else if err := scanLoose(it.loose, ctx); err != nil {
+					fmt.Fprintf(os.Stderr, "警告: 跳过 %s: %v\n", filepath.Base(it.loose), err)
 				}
 				n := ctx.doneInc()
-				fmt.Fprintf(os.Stderr, "进度: %d/%d %s\n", n, len(zips), filepath.Base(zp))
+				name := filepath.Base(it.zip)
+				if it.zip == "" {
+					name = filepath.Base(it.loose)
+				}
+				fmt.Fprintf(os.Stderr, "进度: %d/%d %s\n", n, total, name)
 				ctx.flush()
 			}
 		}()
 	}
 	for _, zp := range zips {
-		ch <- zp
+		ch <- item{zip: zp}
+	}
+	for _, lp := range loose {
+		ch <- item{loose: lp}
 	}
 	close(ch)
 	wg.Wait()
 	ctx.flush()
 	agg := ctx.agg
-	fmt.Printf("盘点完成: zip=%d 文件=%d 重复=%d 文本=%d 无文本/扫描=%d 未识别=%d 错误=%d\n",
-		len(zips), agg.files, agg.dup, agg.yes, agg.no, agg.na, agg.errs)
+	fmt.Printf("盘点完成: zip=%d 散文件=%d 文件=%d 重复=%d 文本=%d 无文本/扫描=%d 未识别=%d 错误=%d\n",
+		len(zips), len(loose), agg.files, agg.dup, agg.yes, agg.no, agg.na, agg.errs)
 	for ext, n := range ctx.byExt {
 		fmt.Printf("  %-6s %d\n", ext, n)
 	}
@@ -177,6 +209,41 @@ func scanZip(zp, extractDir string, ctx *scanCtx) error {
 		}
 	}
 	return nil
+}
+
+// scanLoose 盘点顶层散文件（转换产物等）：不复制、out 即原路径；其余同 scanZip。
+func scanLoose(path string, ctx *scanCtx) error {
+	name := sanitize(filepath.Base(path))
+	ext := strings.ToLower(filepath.Ext(name))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(data)
+	sha := hex.EncodeToString(sum[:])
+	text := textOK(ext, data, path)
+	dupOf := ""
+	ctx.mu.Lock()
+	if first, ok := ctx.seen[sha]; ok {
+		dupOf = first
+		ctx.agg.dup++
+	} else {
+		ctx.seen[sha] = name
+	}
+	ctx.agg.files++
+	switch text {
+	case "yes":
+		ctx.agg.yes++
+	case "no":
+		ctx.agg.no++
+	default:
+		ctx.agg.na++
+	}
+	ctx.byExt[ext]++
+	cerr := ctx.w.Write([]string{"(散文件)", filepath.Base(path), path, ext,
+		fmt.Sprint(len(data)), sha, text, dupOf})
+	ctx.mu.Unlock()
+	return cerr
 }
 
 // decodeName zip 条日名解码：非 UTF-8 标记（flk 等中文站点常见）按 GBK 转。
