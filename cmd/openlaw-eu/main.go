@@ -73,6 +73,7 @@ func main() {
 		"application_date": w.ApplicationDate(), "expire_date": w.ExpireDate(),
 		"official_journal": w.OJRef, "graph": w.GraphURI,
 		"repeals_total":            len(w.Repeals) + len(w.ImplicitRepeal),
+		"relations_total":          len(w.Repeals) + len(w.ImplicitRepeal) + len(w.BasedOnLegal),
 		"relations_linked_pending": linked, "relations_skipped_no_dst": skipped,
 		"treaties": len(w.Treaties),
 		"note":     "仅元数据入库（law + pending 关系）；全文须人工保存 EUR-Lex 后走 openlaw-ingest",
@@ -89,8 +90,8 @@ func main() {
 			fmt.Printf("适用日        %s（欧盟特有：生效≠适用）\n", a)
 		}
 		fmt.Printf("官方公报      %s\n", w.OJRef)
-		fmt.Printf("废止关系      元数据共 %d 条：已挂 pending %d，目标未入库跳过 %d\n",
-			len(w.Repeals)+len(w.ImplicitRepeal), linked, skipped)
+		fmt.Printf("关系        元数据共 %d 条（废止+依据）：已挂 pending %d，目标未入库跳过 %d\n",
+			len(w.Repeals)+len(w.ImplicitRepeal)+len(w.BasedOnLegal), linked, skipped)
 		fmt.Printf("留证          data/incoming/eu_%s_work.json（查询已进 import_log）\n", w.Celex)
 		fmt.Println("下一步        全文人工保存（EUR-Lex 有 WAF）→ openlaw-ingest 建版本与条文")
 	}
