@@ -45,17 +45,33 @@ func ExtractPDFText(path string) (string, error) {
 }
 
 // NormalizePDFText 将提取文本规整为可拆分的正文：
-// 去除全部空白（修复逐字换行碎片），再在每个条文标记前重插换行锚点。
+// 去除全部空白（修复逐字换行碎片），再在条文标记前重插换行锚点。
 // 注：中文场景去空白安全；纯西文文本会被连写，属已知限制。
+//
+// 序列过滤：只有条号严格递增的「第X条」才被提升为条文起点；
+// 「违反本规定第七条、第八条的」等交叉引用不满足递增，保留在正文内——
+// 否则同一 article_no 会被拆出多次，触发 UNIQUE 冲突（实网 flk 存量实测）。
 func NormalizePDFText(text string) string {
 	collapsed := strings.Join(strings.Fields(text), "")
-	var b strings.Builder
-	last := 0
+	var keep []int
+	last := 0 // 已采纳条号（0=尚未采纳任何标记）
 	for _, loc := range articleMarkerRe.FindAllStringIndex(collapsed, -1) {
-		b.WriteString(collapsed[last:loc[0]])
-		b.WriteString("\n")
-		last = loc[0]
+		body := strings.TrimSuffix(strings.TrimPrefix(collapsed[loc[0]:loc[1]], "第"), "条")
+		n, ok := articleNoValue(body)
+		if !ok || n > last {
+			keep = append(keep, loc[0])
+			if ok {
+				last = n
+			}
+		}
 	}
-	b.WriteString(collapsed[last:])
+	var b strings.Builder
+	prev := 0
+	for _, i := range keep {
+		b.WriteString(collapsed[prev:i])
+		b.WriteString("\n")
+		prev = i
+	}
+	b.WriteString(collapsed[prev:])
 	return b.String()
 }

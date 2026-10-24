@@ -96,6 +96,15 @@ func Build(db *store.DB, dataDir, outDir, keyPath, license, attribution string) 
 			return err
 		}
 	}
+	for _, sub := range []string{"docx", "txt"} { // 可选原始层（docx 存量导入后出现）
+		src := filepath.Join(dataDir, sub)
+		if _, err := os.Stat(src); err != nil {
+			continue
+		}
+		if err := copyTree(src, filepath.Join(outDir, sub)); err != nil {
+			return err
+		}
+	}
 	if err := writeChanges(db, filepath.Join(outDir, "changes.csv")); err != nil {
 		return err
 	}
@@ -314,9 +323,22 @@ func Import(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error
 			return done, fmt.Errorf("%w: 第 %d 行 action=%q（当前仅支持 add，失效/废止关系须人工确认）",
 				ErrBadChange, i+2, c.Action)
 		}
-		pdf := filepath.Join(packDir, "pdf", c.DocID+".pdf")
+		srcFile := ""
+		for _, cand := range []string{
+			filepath.Join(packDir, "pdf", c.DocID+".pdf"),
+			filepath.Join(packDir, "docx", c.DocID+".docx"),
+			filepath.Join(packDir, "txt", c.DocID+".txt"),
+		} {
+			if _, err := os.Stat(cand); err == nil {
+				srcFile = cand
+				break
+			}
+		}
+		if srcFile == "" {
+			return done, fmt.Errorf("包内缺少 %s 的原始文件（pdf/docx/txt 均无）", c.DocID)
+		}
 		md := filepath.Join(packDir, "md", c.DocID+".md")
-		for _, f := range []string{pdf, md, filepath.Join(packDir, "provenance", c.DocID+".json")} {
+		for _, f := range []string{md, filepath.Join(packDir, "provenance", c.DocID+".json")} {
 			if _, err := os.Stat(f); err != nil {
 				return done, fmt.Errorf("包内缺少 %s: %w", filepath.Base(f), err)
 			}
@@ -327,7 +349,7 @@ func Import(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error
 			EffectiveDate: c.EffectiveDate, ExpireDate: c.ExpireDate,
 			SourceURL: c.SourceURL, SourceType: c.SourceType, IsGongbao: c.IsGongbao,
 			PublishDate: c.PublishDate, ConfirmStatus: "pending", Notes: c.Notes,
-			PDFPath: pdf, MDPath: md,
+			PDFPath: srcFile, MDPath: md,
 		})
 		if err != nil {
 			return done, fmt.Errorf("导入 %s 失败（第 %d/%d 条）: %w", c.DocID, i+1, len(changes), err)

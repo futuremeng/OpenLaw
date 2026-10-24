@@ -64,3 +64,32 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+func TestNormalizeSequenceFilterCrossRef(t *testing.T) {
+	// 交叉引用（罚则引用他条）不得被提升为条文起点——flk 存量实测的 UNIQUE 冲突根因
+	in := "第一条　为规范测试，制定本法。第二条 违反第一条、第二条的，予以处罚。第三条 本法自2020年1月1日起施行。"
+	arts := SplitArticles(NormalizePDFText(in))
+	if len(arts) != 3 {
+		t.Fatalf("应为 3 条（交叉引用不拆），实际 %d: %+v", len(arts), arts)
+	}
+	if !strings.Contains(arts[1].Content, "违反第一条、第二条的") {
+		t.Fatalf("交叉引用应保留在第二条正文内: %q", arts[1].Content)
+	}
+}
+
+func TestArticleNoValue(t *testing.T) {
+	if n := len([]rune(kangxiTargets)); n != 214 {
+		t.Fatalf("Kangxi 映射表应为 214 项，实际 %d", n)
+	}
+	for s, want := range map[string]int{
+		"一": 1, "十": 10, "二十": 20, "二十三": 23, "一百二十三": 123,
+		"二百": 200, "一千零五": 1005, "23": 23, "⼆": 2, // ⼆ = Kangxi 部首「二」
+	} {
+		if n, ok := articleNoValue(s); !ok || n != want {
+			t.Fatalf("articleNoValue(%q) = %d,%v want %d", s, n, ok, want)
+		}
+	}
+	if _, ok := articleNoValue("甲乙"); ok {
+		t.Fatal("非数字应拒绝")
+	}
+}

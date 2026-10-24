@@ -26,27 +26,9 @@ import (
 // 替代路径：flk 用浏览器在线浏览页手动复制全文存为 .txt；gov.cn 用公报单文档 HTML 页；
 // 两侧皆扫描且无 HTML 文字源时只能转 OCR（暂未实现），绝不静默入库。
 
-// kangxiTargets：Kangxi Radicals（U+2F00..U+2FDF）共 214 个码位的 CJK 正文对应用字，
-// 按码位顺序排列。PDF 文本层常把 二 输出为 ⼆（U+2F06）等部首码位，归一化后两侧可比。
-const kangxiTargets = "一丨丶丿乙亅二亠人儿入八冂冖冫几凵刀力勹匕匚匸十卜卩厂厶又口囗土士夂夊夕大女子宀寸小尢尸屮山巛工己巾干幺广廴廾弋弓彐彡彳心戈戶手支攴文斗斤方无日曰月木欠止歹殳毋比毛氏气水火爪父爻爿片牙牛犬玄玉瓜瓦甘生用田疋疒癶白皮皿目矛矢石示禸禾穴立竹米糸缶网羊羽老而耒耳聿肉臣自至臼舌舛舟艮色艸虍虫血行衣襾見角言谷豆豕豸貝赤走足身車辛辰辵邑酉釆里金長門阜隶隹雨靑非面革韋韭音頁風飛食首香馬骨高髟鬥鬯鬲鬼魚鳥鹵鹿麥麻黃黍黑黹黽鼎鼓鼠鼻齊齒龍龜龠"
-
-var kangxiMap = buildKangxiMap()
-
-func buildKangxiMap() map[rune]rune {
-	m := make(map[rune]rune, 214)
-	r := 0x2F00
-	for _, t := range kangxiTargets {
-		if r > 0x2FDF {
-			break
-		}
-		m[rune(r)] = t
-		r++
-	}
-	return m
-}
-
 // Normalize 文本级归一化：去除全部空白字符，并把 Kangxi 部首码位映射为 CJK 用字。
 // 不做其他折叠（标点、繁简、异体字差异会如实保留为差异）。
+// 部首码位表已下沉至 parse（parse.FoldKangxi），此处复用避免双表漂移。
 func Normalize(text string) string {
 	b := strings.Builder{}
 	b.Grow(len(text))
@@ -54,14 +36,9 @@ func Normalize(text string) string {
 		if unicode.IsSpace(r) {
 			continue
 		}
-		if r >= 0x2F00 && r <= 0x2FDF {
-			if t, ok := kangxiMap[r]; ok {
-				r = t
-			}
-		}
 		b.WriteRune(r)
 	}
-	return b.String()
+	return parse.FoldKangxi(b.String())
 }
 
 var (

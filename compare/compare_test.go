@@ -8,10 +8,7 @@ import (
 )
 
 func TestKangxiTableSize(t *testing.T) {
-	if n := len([]rune(kangxiTargets)); n != 214 {
-		t.Fatalf("Kangxi 映射表应为 214 项，实际 %d", n)
-	}
-	// ⼆（U+2F06）应折叠为 二
+	// 表本体已下沉 parse，此处仅验证折叠行为经 Normalize 仍生效
 	if got := Normalize("⼆"); got != "二" {
 		t.Fatalf("部首码位折叠失败: %q", got)
 	}

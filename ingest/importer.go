@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/futuremeng/OpenLaw/hashutil"
@@ -65,7 +66,10 @@ func (im *Importer) Import(req Request) (*Result, error) {
 	}
 
 	// 2) 解析正文、拆分条文（空结果视为失败，禁止静默入库）
-	// MDPath 留空时自动提取 PDF 文本层（无文本层 = 扫描件，报错转 OCR/人工）
+	// MDPath 留空时按源文件扩展名自动提取：
+	//   .pdf  文本层提取（扫描件报错转 OCR/人工）
+	//   .docx 正文提取（flk 批量下载存量主格式；.doc 遗留格式报错转 textutil 转换）
+	//   .txt/.md 直接读取（人工保存的在线全文等）
 	var mdBytes []byte
 	if req.MDPath != "" {
 		mdBytes, err = os.ReadFile(req.MDPath)
@@ -74,7 +78,7 @@ func (im *Importer) Import(req Request) (*Result, error) {
 			return nil, fmt.Errorf("读取正文失败: %w", err)
 		}
 	} else {
-		text, xerr := parse.ExtractPDFText(req.PDFPath)
+		text, xerr := extractByExt(req.PDFPath)
 		if xerr != nil {
 			im.logImport(req, "failed", xerr.Error())
 			return nil, xerr
@@ -88,15 +92,26 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		return nil, err
 	}
 
-	// 3) 文件落位：pdf/<doc_id>.pdf、md/<doc_id>.md（原始层只读，重复 doc_id 拒绝）
-	dstPDF := filepath.Join(im.DataDir, "pdf", req.DocID+".pdf")
+	// 3) 文件落位：<kind>/<doc_id>.<ext>（pdf/docx/txt…按真实格式；原始层只读，重复 doc_id 拒绝）
+	ext, kind := srcExtKind(req.PDFPath)
+	dstSrc := filepath.Join(im.DataDir, kind, req.DocID+ext)
 	dstMD := filepath.Join(im.DataDir, "md", req.DocID+".md")
-	if _, err := os.Stat(dstPDF); err == nil {
-		err := fmt.Errorf("doc_id 已存在，禁止覆盖原始层: %s", req.DocID)
-		im.logImport(req, "failed", err.Error())
-		return nil, err
+	orphanReplaced := false
+	if _, err := os.Stat(dstSrc); err == nil {
+		var n int
+		if qerr := im.DB.QueryRow(`SELECT COUNT(*) FROM document WHERE doc_id = ?`, req.DocID).Scan(&n); qerr != nil {
+			im.logImport(req, "failed", qerr.Error())
+			return nil, qerr
+		}
+		if n > 0 {
+			err := fmt.Errorf("doc_id 已存在，禁止覆盖原始层: %s", req.DocID)
+			im.logImport(req, "failed", err.Error())
+			return nil, err
+		}
+		// 库内无行 = 此前失败运行事务回滚后遗留的孤儿层 → 允许覆盖替换（重跑可恢复），成功日志中留痕
+		orphanReplaced = true
 	}
-	if err := copyFile(req.PDFPath, dstPDF); err != nil {
+	if err := copyFile(req.PDFPath, dstSrc); err != nil {
 		im.logImport(req, "failed", err.Error())
 		return nil, err
 	}
@@ -113,7 +128,7 @@ func (im *Importer) Import(req Request) (*Result, error) {
 	// 4) 溯源 JSON（必填字段齐全才允许继续）
 	now := time.Now().UTC().Format(time.RFC3339)
 	prov := &Provenance{
-		DocID: req.DocID, FileName: filepath.Base(dstPDF), FileSize: size,
+		DocID: req.DocID, FileName: filepath.Base(dstSrc), FileSize: size,
 		SHA256: sha, HashAlgoUsed: "SHA-256", HashComputedAt: now,
 		HashComputedBy: "openlaw-ingest/" + versionTag,
 		SourceURL:      req.SourceURL, SourceType: req.SourceType, IsGongbao: req.IsGongbao,
@@ -147,7 +162,11 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		im.logImport(req, "rolled_back", err.Error())
 		return nil, fmt.Errorf("提交失败: %w", err)
 	}
-	im.logImport(req, "success", "")
+	succReason := ""
+	if orphanReplaced {
+		succReason = "覆盖孤儿层（此前失败运行回滚遗留，库内无行）"
+	}
+	im.logImport(req, "success", succReason)
 
 	// 6) 触发断链检测（6.1）。断链不抛异常，随结果返回由上层提示。
 	res := &Result{
@@ -169,7 +188,7 @@ func (im *Importer) validateRequest(req *Request) error {
 	case req.VersionNo == "":
 		return fmt.Errorf("缺少版本号")
 	case req.PDFPath == "":
-		return fmt.Errorf("缺少 PDF 路径")
+		return fmt.Errorf("缺少源文件路径（PDF/docx/txt）")
 	}
 	if req.ConfirmStatus == "" {
 		req.ConfirmStatus = "pending"
@@ -207,10 +226,11 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 		return nil, fmt.Errorf("写入 law 失败: %w", err)
 	}
 
+	ext, kind := srcExtKind(req.PDFPath)
 	if _, err := tx.Exec(`INSERT INTO document(doc_id, file_name, file_path, file_size, sha256,
 		hash_algo, hash_computed_at, source_url, source_type, is_gongbao, publish_date, confirm_status)
 		VALUES(?,?,?,?,?,'SHA-256',?,?,?,?,?,?)`,
-		req.DocID, filepath.Base(req.PDFPath), filepath.Join("pdf", req.DocID+".pdf"),
+		req.DocID, filepath.Base(req.PDFPath), filepath.Join(kind, req.DocID+ext),
 		sizeOrZero(req.PDFPath), sha, now, nullable(req.SourceURL), nullable(req.SourceType),
 		boolInt(req.IsGongbao), nullable(req.PublishDate), req.ConfirmStatus); err != nil {
 		return nil, fmt.Errorf("写入 document 失败: %w", err)
@@ -279,6 +299,36 @@ func (im *Importer) logImport(req Request, result, reason string) {
 }
 
 const versionTag = "0.1.0"
+
+// srcExtKind 源文件扩展名与存储目录名（无扩展名按 .pdf 兼容旧调用）。
+func srcExtKind(path string) (ext, kind string) {
+	ext = strings.ToLower(filepath.Ext(path))
+	if ext == "" {
+		ext = ".pdf"
+	}
+	return ext, strings.TrimPrefix(ext, ".")
+}
+
+// extractByExt 按扩展名自动提取正文。
+func extractByExt(path string) (string, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".docx":
+		return parse.ExtractDocxText(path)
+	case ".txt", ".md":
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(string(b)) == "" {
+			return "", fmt.Errorf("正文文件为空，禁止静默入库")
+		}
+		return string(b), nil
+	case ".doc":
+		return "", fmt.Errorf(".doc 遗留二进制格式不支持（OL-1009）：先离线转换 textutil -convert docx %s", path)
+	default:
+		return parse.ExtractPDFText(path)
+	}
+}
 
 func nullable(s string) any {
 	if s == "" {

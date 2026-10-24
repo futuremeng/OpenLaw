@@ -74,31 +74,36 @@ func loadPrivateKey(path string) (ed25519.PrivateKey, error) {
 	return ed25519.NewKeyFromSeed(seed), nil
 }
 
-// BuildManifest 扫描 dataDir/pdf 下全部文件，重算 SHA-256 生成 manifest.json，
-// 使用私钥签名写入 manifest.sig，公钥写入 manifest/pubkey.hex。
+// BuildManifest 扫描数据目录下全部原始文档层（pdf/、docx/、txt/，存在才扫），
+// 重算 SHA-256 生成 manifest.json，使用私钥签名写入 manifest.sig，公钥写入 manifest/pubkey.hex。
 func BuildManifest(dataDir, keyPath string) error {
-	pdfDir := filepath.Join(dataDir, "pdf")
 	entries := []FileEntry{}
-	err := filepath.Walk(pdfDir, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	for _, sub := range []string{"pdf", "docx", "txt"} {
+		dir := filepath.Join(dataDir, sub)
+		if _, err := os.Stat(dir); err != nil {
+			continue
 		}
-		if info.IsDir() {
+		err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+			sha, herr := hashutil.SHA256File(p)
+			if herr != nil {
+				return herr
+			}
+			rel, rerr := filepath.Rel(dataDir, p)
+			if rerr != nil {
+				return rerr
+			}
+			entries = append(entries, FileEntry{Path: filepath.ToSlash(rel), Size: info.Size(), SHA256: sha})
 			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("扫描 %s 目录失败: %w", sub, err)
 		}
-		sha, herr := hashutil.SHA256File(p)
-		if herr != nil {
-			return herr
-		}
-		rel, rerr := filepath.Rel(dataDir, p)
-		if rerr != nil {
-			return rerr
-		}
-		entries = append(entries, FileEntry{Path: filepath.ToSlash(rel), Size: info.Size(), SHA256: sha})
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("扫描 pdf 目录失败: %w", err)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 
