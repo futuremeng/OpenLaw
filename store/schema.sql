@@ -8,15 +8,17 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL
 );
 
--- law 法规主表
+-- law 法规主表（v2：新增 eli/celex 欧盟标识列；effect_level 扩展欧盟类别）
 CREATE TABLE IF NOT EXISTS law (
   law_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   short_name TEXT,
   issuer TEXT,
-  effect_level TEXT CHECK (effect_level IN ('法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他')),
+  effect_level TEXT CHECK (effect_level IN ('法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定')),
   is_local INTEGER NOT NULL DEFAULT 0,
-  remark TEXT
+  remark TEXT,
+  eli TEXT,      -- 欧盟 European Legislation Identifier（docs/sources-eu.md）
+  celex TEXT     -- 欧盟 CELEX 编号
 );
 
 -- document 原始文档与溯源（开发文档 4.3；MD5 仅判下载损坏，SHA-256 为防篡改依据）
@@ -35,7 +37,8 @@ CREATE TABLE IF NOT EXISTS document (
   ocr_used INTEGER NOT NULL DEFAULT 0,
   ocr_confidence REAL,
   confirm_status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (confirm_status IN ('confirmed','pending','rejected'))
+    CHECK (confirm_status IN ('confirmed','pending','rejected')),
+  lang TEXT NOT NULL DEFAULT 'zho'   -- 文本语言（ISO 639-3；欧盟 24 语同等作准，v2）
 );
 
 -- law_version 版本表（时效左闭右开 [effective_date, expire_date)，未失效留 NULL，不用 9999 占位）
@@ -47,6 +50,8 @@ CREATE TABLE IF NOT EXISTS law_version (
   expire_date TEXT,
   doc_id TEXT NOT NULL REFERENCES document(doc_id),
   is_gongbao INTEGER NOT NULL DEFAULT 0,
+  application_date TEXT,             -- 欧盟「适用日」（≠生效日，v2；中国法留空）
+  lang TEXT NOT NULL DEFAULT 'zho',  -- 版本正文语言（v2）
   UNIQUE (law_id, version_no),
   CHECK (expire_date IS NULL OR expire_date > effective_date)
 );
@@ -88,7 +93,7 @@ CREATE TABLE IF NOT EXISTS case_fact (
 CREATE TABLE IF NOT EXISTS relation (
   src_law_id TEXT NOT NULL REFERENCES law(law_id),
   dst_law_id TEXT NOT NULL REFERENCES law(law_id),
-  relation_type TEXT NOT NULL CHECK (relation_type IN ('修改','废止','解释','配套')),
+  relation_type TEXT NOT NULL CHECK (relation_type IN ('修改','废止','解释','配套','依据')),
   based_on_doc_id TEXT REFERENCES document(doc_id),
   confirm_status TEXT NOT NULL DEFAULT 'pending',
   PRIMARY KEY (src_law_id, dst_law_id, relation_type)

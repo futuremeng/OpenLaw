@@ -1,6 +1,7 @@
 package pack
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,7 +48,7 @@ func setupSource(t *testing.T) (string, *store.DB, string) {
 func TestBuildVerifyRoundtrip(t *testing.T) {
 	dir, db, key := setupSource(t)
 	packDir := filepath.Join(t.TempDir(), "pack-20261023")
-	if err := Build(db, dir, packDir, key); err != nil {
+	if err := Build(db, dir, packDir, key, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"manifest.json", "manifest.sig", "pubkey.hex", "changes.csv",
@@ -61,11 +62,48 @@ func TestBuildVerifyRoundtrip(t *testing.T) {
 	}
 }
 
+// TestBuildManifestLicense manifest 必须携带共享合规声明（欧盟等来源要求重使用署名）；
+// 空参数得到非空默认值，自定义参数原样入签名字段。
+func TestBuildManifestLicense(t *testing.T) {
+	dir, db, key := setupSource(t)
+	packDir := filepath.Join(t.TempDir(), "pack-lic")
+	if err := Build(db, dir, packDir, key, "CC-BY-TEST", "© TEST source"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(packDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m Manifest
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.License != "CC-BY-TEST" || m.Attribution != "© TEST source" {
+		t.Fatalf("署名字段未入 manifest: %+v", m)
+	}
+	if err := Verify(packDir); err != nil { // 署名字段随 manifest 一起被签名保护
+		t.Fatalf("含署名字段的包应校验通过: %v", err)
+	}
+
+	packDir2 := filepath.Join(t.TempDir(), "pack-lic2")
+	if err := Build(db, dir, packDir2, key, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	body, _ = os.ReadFile(filepath.Join(packDir2, "manifest.json"))
+	var m2 Manifest
+	if err := json.Unmarshal(body, &m2); err != nil {
+		t.Fatal(err)
+	}
+	if m2.License == "" || m2.Attribution == "" {
+		t.Fatal("空参数应回退到默认共享许可/署名声明")
+	}
+}
+
 // TestVerifyDetectsTamper 包内文件被替换 / 塞入未收录文件 → 校验必须失败。
 func TestVerifyDetectsTamper(t *testing.T) {
 	dir, db, key := setupSource(t)
 	packDir := filepath.Join(t.TempDir(), "pack-tamper")
-	if err := Build(db, dir, packDir, key); err != nil {
+	if err := Build(db, dir, packDir, key, "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,7 +118,7 @@ func TestVerifyDetectsTamper(t *testing.T) {
 
 	// 重新打包后塞入多余文件
 	packDir2 := filepath.Join(t.TempDir(), "pack-extra")
-	if err := Build(db, dir, packDir2, key); err != nil {
+	if err := Build(db, dir, packDir2, key, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(packDir2, "pdf", "evil.pdf"), []byte("x"), 0o644); err != nil {
@@ -96,7 +134,7 @@ func TestVerifyDetectsTamper(t *testing.T) {
 func TestImportPackFailNoOverwrite(t *testing.T) {
 	dir, db, key := setupSource(t)
 	packDir := filepath.Join(t.TempDir(), "pack-bad")
-	if err := Build(db, dir, packDir, key); err != nil {
+	if err := Build(db, dir, packDir, key, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	// 篡改 changes.csv（不改签名）
@@ -130,7 +168,7 @@ func TestImportPackFailNoOverwrite(t *testing.T) {
 func TestImportPackSuccess(t *testing.T) {
 	dir, db, key := setupSource(t)
 	packDir := filepath.Join(t.TempDir(), "pack-ok")
-	if err := Build(db, dir, packDir, key); err != nil {
+	if err := Build(db, dir, packDir, key, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	target := t.TempDir()

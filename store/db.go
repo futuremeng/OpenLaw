@@ -10,8 +10,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// SchemaVersion 当前数据模型版本，迁移框架据此判断（见 migrate.go）。
-const SchemaVersion = "1"
+// SchemaVersion 当前数据模型版本，迁移框架据此判断（见 migrate）。
+// v2（2026-10）：law +eli/celex、effect_level 扩展欧盟类别；law_version +application_date/lang；
+// document +lang；relation_type +依据。v1 库自动原地升级，数据保留。
+const SchemaVersion = "2"
 
 // DB OpenLaw 数据库句柄，内嵌 *sql.DB 供上层在事务内复用。
 type DB struct {
@@ -35,13 +37,88 @@ func Open(path string) (*DB, error) {
 	return &DB{sqlDB}, nil
 }
 
-// migrate 执行内嵌 schema（全部 IF NOT EXISTS，幂等）。
+// migrate 幂等迁移：先升级旧结构（v1→v2），再执行内嵌 schema（IF NOT EXISTS 补齐）。
 func migrate(db *sql.DB) error {
+	if err := upgradeToV2(db); err != nil {
+		return fmt.Errorf("数据库迁移失败（v1→v2）: %w", err)
+	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 	_, err := db.Exec(`INSERT INTO meta(key, value) VALUES('schema_version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, SchemaVersion)
+	return err
+}
+
+// hasColumn 判断表是否存在某列（表不存在返回 false）。
+func hasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(fmt.Sprintf(`SELECT 1 FROM pragma_table_info('%s') WHERE name = ?`, table), column)
+	if err != nil {
+		return false, nil // 表不存在等 → 视为无列
+	}
+	defer rows.Close()
+	return rows.Next(), rows.Err()
+}
+
+// upgradeToV2 将 v1 库原地升级到 v2（全新库跳过：无 law 表时由 schemaSQL 直接建 v2 结构）。
+// SQLite 修改 CHECK 约束须重建表：foreign_keys 关闭 + 建新表 + 拷贝 + 改名（官方 12 步法）。
+func upgradeToV2(db *sql.DB) error {
+	if ok, _ := hasColumn(db, "law", "law_id"); !ok {
+		return nil // 全新库（或空库），schemaSQL 直接建 v2
+	}
+	if ok, _ := hasColumn(db, "law", "eli"); ok {
+		return nil // 已是 v2
+	}
+	// MaxOpenConns(1) 保证 PRAGMA 与应用共用同一连接
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmts := []string{
+		`ALTER TABLE law ADD COLUMN eli TEXT`,
+		`ALTER TABLE law ADD COLUMN celex TEXT`,
+		`CREATE TABLE law_v2 (
+  law_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  short_name TEXT,
+  issuer TEXT,
+  effect_level TEXT CHECK (effect_level IN ('法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定')),
+  is_local INTEGER NOT NULL DEFAULT 0,
+  remark TEXT,
+  eli TEXT,
+  celex TEXT
+)`,
+		`INSERT INTO law_v2 SELECT law_id,name,short_name,issuer,effect_level,is_local,remark,eli,celex FROM law`,
+		`DROP TABLE law`,
+		`ALTER TABLE law_v2 RENAME TO law`,
+		`ALTER TABLE law_version ADD COLUMN application_date TEXT`,
+		`ALTER TABLE law_version ADD COLUMN lang TEXT NOT NULL DEFAULT 'zho'`,
+		`ALTER TABLE document ADD COLUMN lang TEXT NOT NULL DEFAULT 'zho'`,
+		`CREATE TABLE relation_v2 (
+  src_law_id TEXT NOT NULL REFERENCES law(law_id),
+  dst_law_id TEXT NOT NULL REFERENCES law(law_id),
+  relation_type TEXT NOT NULL CHECK (relation_type IN ('修改','废止','解释','配套','依据')),
+  based_on_doc_id TEXT REFERENCES document(doc_id),
+  confirm_status TEXT NOT NULL DEFAULT 'pending',
+  PRIMARY KEY (src_law_id, dst_law_id, relation_type)
+)`,
+		`INSERT INTO relation_v2 SELECT src_law_id,dst_law_id,relation_type,based_on_doc_id,confirm_status FROM relation`,
+		`DROP TABLE relation`,
+		`ALTER TABLE relation_v2 RENAME TO relation`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			return fmt.Errorf("%v（语句: %.60s…）", err, s)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`PRAGMA foreign_keys=ON`)
 	return err
 }
 

@@ -40,10 +40,13 @@ type Entry struct {
 	SHA256 string `json:"sha256"`
 }
 
-// Manifest 更新包清单。
+// Manifest 更新包清单（v2 起携带 license/attribution：欧盟等来源要求重使用署名，
+// 签名字段随 manifest.json 一起被签名保护，verify 无需额外改动）。
 type Manifest struct {
 	GeneratedAt string  `json:"generated_at"`
 	ToolVersion string  `json:"tool_version"`
+	License     string  `json:"license,omitempty"`
+	Attribution string  `json:"attribution,omitempty"`
 	Files       []Entry `json:"files"`
 }
 
@@ -72,7 +75,15 @@ var changeHeader = []string{"action", "doc_id", "law_id", "law_name", "short_nam
 
 // Build 从数据目录构建更新包：复制 pdf/ md/ provenance/，从数据库导出 changes.csv，
 // 生成 manifest.json 并用私钥签名（私钥独立存储，不进包）。
-func Build(db *store.DB, dataDir, outDir, keyPath string) error {
+// license/attribution 为共享合规声明（空值用默认：法律文本公有领域 + 转发须署名出处）。
+func Build(db *store.DB, dataDir, outDir, keyPath, license, attribution string) error {
+	if license == "" {
+		license = "法律法规官方文本为公有领域作品（中国著作权法第5条/欧盟等同原则）；" +
+			"来源数据库编排权益归来源方；再分发须注明出处并保持签名可验证"
+	}
+	if attribution == "" {
+		attribution = "Source: 全国人大/国务院/欧盟 Publications Office (EUR-Lex/Cellar) 等官方渠道，见各 provenance"
+	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
@@ -88,7 +99,7 @@ func Build(db *store.DB, dataDir, outDir, keyPath string) error {
 	if err := writeChanges(db, filepath.Join(outDir, "changes.csv")); err != nil {
 		return err
 	}
-	return seal(outDir, keyPath)
+	return seal(outDir, keyPath, license, attribution)
 }
 
 // writeChanges 从数据库导出变更清单（当前全部为 add；失效/修改关系不自动判定，10 章）。
@@ -174,7 +185,7 @@ func ReadChanges(packDir string) ([]Change, error) {
 }
 
 // seal 扫描包内全部文件（除 manifest.json/manifest.sig/pubkey.hex）生成清单并签名。
-func seal(packDir, keyPath string) error {
+func seal(packDir, keyPath, license, attribution string) error {
 	entries := []Entry{}
 	err := filepath.Walk(packDir, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -200,7 +211,8 @@ func seal(packDir, keyPath string) error {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 
-	m := Manifest{GeneratedAt: time.Now().UTC().Format(time.RFC3339), ToolVersion: ToolVersion, Files: entries}
+	m := Manifest{GeneratedAt: time.Now().UTC().Format(time.RFC3339), ToolVersion: ToolVersion,
+		License: license, Attribution: attribution, Files: entries}
 	body, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err

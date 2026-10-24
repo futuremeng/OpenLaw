@@ -22,6 +22,8 @@ func main() {
 		dataDir = fs.String("data", "data", "数据目录（build 的源 / import 的目标）")
 		packDir = fs.String("pack", "", "更新包目录（必填）")
 		keyPath = fs.String("key", "", "签名私钥路径（build 必填；不进仓库不进数据目录）")
+		license = fs.String("license", "", "共享许可声明（build 可选，默认公有领域+署名要求）")
+		attrib  = fs.String("attribution", "", "来源署名声明（build 可选；欧盟等来源要求重使用署名）")
 	)
 	if len(os.Args) < 2 {
 		usage()
@@ -42,7 +44,7 @@ func main() {
 		}
 		db := openDB(*dataDir)
 		defer db.Close()
-		if err := pack.Build(db, *dataDir, *packDir, *keyPath); err != nil {
+		if err := pack.Build(db, *dataDir, *packDir, *keyPath, *license, *attrib); err != nil {
 			fatal(err)
 		}
 		fmt.Println("更新包已生成并签名:", *packDir)

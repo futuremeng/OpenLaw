@@ -86,10 +86,12 @@ Data：text（脱敏后）、restore_map（本地还原映射，**不得写入�
 | `openlaw-fetch -list <目录页URL>` | 批量①：抓公报目录页 → `data/incoming/candidates.csv` 候选清单（不下载 PDF，供人工审阅） | 0 / 1 |
 | `openlaw-fetch -batch <candidates.csv>` | 批量②：逐条限速下载进暂存区（默认 2s/条），单条失败不中断，全部写 import_log | 0 全部成功 / 1 有失败 |
 | `openlaw-compare -a FILE -b FILE` | 跨来源同一法律一致性核验：字节级（SHA-256）+ 文本级（去空白/部首折叠/正文容器提取/句段覆盖）；支持 .pdf/.html/.htm/.md/.txt，`-json` 输出报告；扫描版 PDF（无文本层）报错并给出替代路径（flk 在线浏览页手动存 .txt / 公报单文档 HTML / OCR） | 0 文本一致 / 1 实质差异 / 2 错误 |
+| `openlaw-eu -celex <CELEX>` | 欧盟元数据导入（Cellar SPARQL，官方开放入口）：ELI/CELEX/生效+适用日/公报出处/废止与依据关系 → law 主表 upsert + pending 关系（仅挂已入库目标）；原始三元组留证 incoming，限速 2s、import_log 全记 | 0 成功 / 2 错误 |
 
 **数据源策略（18/19 章，2026-10 复核）**：
 - `flk.npc.gov.cn`（国家法律法规数据库）robots.txt 全文 `Disallow: /` 且明确「禁止使用任何自动化工具、脚本、爬虫程序采集或复制网站数据」→ **硬禁止名单**，任何配置下不得自动抓取；需要其文本时人工下载放入 `data/incoming/`
 - `www.gov.cn/gongbao/`（国务院公报）robots 允许 → 可批量源：目录页 → candidates.csv → 限速下载；整期 PDF 较大（约 30MB），建议 `-timeout 180s`
+- `publications.europa.eu`（欧盟出版局 Cellar）robots `Allow: /` → **官方开放的程序化入口**（SPARQL/REST），可自动化但限流较严（连发即 429，默认 2s 间隔；429 时 fail-closed，稍后重试）；EUR-Lex 网页本身有 WAF 挑战 → 全文只能人工保存（等同 flk）。详见 `docs/sources-eu.md`
 - robots 判定：404/403=无限制；网络错误/5xx=fail-closed 拒绝；最长前缀匹配，同长度 Allow 优先
 | `openlaw-ingest` | 导入 PDF+MD → 哈希 → 溯源 → 入库 → 断链检测 | 0 成功 / 1 失败（已回滚） |
 | `openlaw-check -gen-key -key <path>` | 生成签名私钥（勿入仓库/数据目录） | 0 / 1 |

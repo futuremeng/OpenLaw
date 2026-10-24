@@ -77,6 +77,9 @@ go run ./cmd/openlaw-ingest -data data \
 
 # 每日校验：manifest 签名 + 断链清单
 go run ./cmd/openlaw-check -data data -build-manifest -key ./keys/openlaw.key
+
+# 欧盟法律元数据（Cellar SPARQL 官方开放入口；全文须人工保存 EUR-Lex）
+go run ./cmd/openlaw-eu -data data -celex 32016R0679 -name 欧盟通用数据保护条例 -short-name GDPR
 ```
 
 ## SDK 调用示例（OpenCourt 侧）
