@@ -16,23 +16,24 @@ import (
 
 // Request 一次导入的完整输入（开发文档 6.1）。
 type Request struct {
-	DocID         string // 文档唯一标识，如 law_company_2023_rev
-	LawID         string // 法规标识
-	LawName       string
-	ShortName     string
-	Issuer        string
-	EffectLevel   string // 空串按 NULL 入库（受 CHECK 约束）
-	VersionNo     string // 版本号，如 2023修正
-	EffectiveDate string // ISO，导入前标准化
-	ExpireDate    string // ISO 或空串（未失效）
-	SourceURL     string
-	SourceType    string
-	IsGongbao     bool
-	PublishDate   string
-	ConfirmStatus string // confirmed / pending（默认 pending）
-	Notes         string
-	PDFPath       string // 待导入 PDF
-	MDPath        string // 解析后的 Markdown 正文；留空则自动从 PDF 文本层提取
+	DocID           string // 文档唯一标识，如 law_company_2023_rev
+	LawID           string // 法规标识
+	LawName         string
+	ShortName       string
+	Issuer          string
+	EffectLevel     string // 空串按 NULL 入库（受 CHECK 约束）
+	VersionNo       string // 版本号，如 2023修正
+	EffectiveDate   string // ISO，导入前标准化
+	ExpireDate      string // ISO 或空串（未失效）
+	SourceURL       string
+	SourceType      string
+	IsGongbao       bool
+	PublishDate     string
+	ConfirmStatus   string // confirmed / pending（默认 pending）
+	Notes           string
+	PDFPath         string // 待导入源文件（PDF/docx/txt）
+	MDPath          string // 解析后的 Markdown 正文；留空则按扩展名自动提取
+	AutoExpirePrior bool   // 批量场景：自动接续版本链（见 chainPrior）；单文件导入默认关闭
 }
 
 // Result 导入成功后的产出。
@@ -150,7 +151,7 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		im.logImport(req, "failed", err.Error())
 		return nil, err
 	}
-	articleIDs, err := im.writeTx(tx, req, versionID, sha, now, arts)
+	articleIDs, chainNote, err := im.writeTx(tx, req, versionID, sha, now, arts)
 	if err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
 			err = fmt.Errorf("%w（且回滚失败: %v）", err, rbErr)
@@ -165,6 +166,9 @@ func (im *Importer) Import(req Request) (*Result, error) {
 	succReason := ""
 	if orphanReplaced {
 		succReason = "覆盖孤儿层（此前失败运行回滚遗留，库内无行）"
+	}
+	if chainNote != "" {
+		succReason = strings.TrimSuffix(succReason+"; "+chainNote, "; ")
 	}
 	im.logImport(req, "success", succReason)
 
@@ -212,10 +216,20 @@ func (im *Importer) validateRequest(req *Request) error {
 }
 
 // writeTx 在事务内写入全部实体。
-func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string, arts []parse.Article) ([]string, error) {
+func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string, arts []parse.Article) ([]string, string, error) {
+	chainNote := ""
+	if req.AutoExpirePrior {
+		n, cerr := chainPrior(tx, &req)
+		if cerr != nil {
+			return nil, "", cerr
+		}
+		if n > 0 {
+			chainNote = fmt.Sprintf("自动接续版本链: %d 个既有开放版本已闭合", n)
+		}
+	}
 	// 区间重叠检查（13.3）：必须在事务内做，防止同日双版本命中
 	if err := checkOverlap(tx, req.LawID, req.EffectiveDate, req.ExpireDate); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if _, err := tx.Exec(`INSERT INTO law(law_id, name, short_name, issuer, effect_level, is_local)
@@ -223,7 +237,7 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 		ON CONFLICT(law_id) DO UPDATE SET name=excluded.name, short_name=excluded.short_name,
 			issuer=excluded.issuer, effect_level=excluded.effect_level`,
 		req.LawID, req.LawName, nullable(req.ShortName), nullable(req.Issuer), nullable(req.EffectLevel)); err != nil {
-		return nil, fmt.Errorf("写入 law 失败: %w", err)
+		return nil, "", fmt.Errorf("写入 law 失败: %w", err)
 	}
 
 	ext, kind := srcExtKind(req.PDFPath)
@@ -233,14 +247,14 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 		req.DocID, filepath.Base(req.PDFPath), filepath.Join(kind, req.DocID+ext),
 		sizeOrZero(req.PDFPath), sha, now, nullable(req.SourceURL), nullable(req.SourceType),
 		boolInt(req.IsGongbao), nullable(req.PublishDate), req.ConfirmStatus); err != nil {
-		return nil, fmt.Errorf("写入 document 失败: %w", err)
+		return nil, "", fmt.Errorf("写入 document 失败: %w", err)
 	}
 
 	if _, err := tx.Exec(`INSERT INTO law_version(version_id, law_id, version_no, effective_date,
 		expire_date, doc_id, is_gongbao) VALUES(?,?,?,?,?,?,?)`,
 		versionID, req.LawID, req.VersionNo, req.EffectiveDate, nullable(req.ExpireDate),
 		req.DocID, boolInt(req.IsGongbao)); err != nil {
-		return nil, fmt.Errorf("写入 law_version 失败: %w", err)
+		return nil, "", fmt.Errorf("写入 law_version 失败: %w", err)
 	}
 
 	mdPath := filepath.Join("md", req.DocID+".md")
@@ -250,11 +264,70 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 		if _, err := tx.Exec(`INSERT INTO article(article_id, version_id, article_no, content,
 			md_path, doc_id, parser_version) VALUES(?,?,?,?,?,?,?)`,
 			articleID, versionID, a.No, a.Content, mdPath, req.DocID, parse.ParserVersion); err != nil {
-			return nil, fmt.Errorf("写入条文 %s 失败: %w", a.No, err)
+			return nil, "", fmt.Errorf("写入条文 %s 失败: %w", a.No, err)
 		}
 		ids = append(ids, articleID)
 	}
-	return ids, nil
+	return ids, chainNote, nil
+}
+
+// chainPrior 版本链自动接续（批量场景，AutoExpirePrior=true）：
+//
+//	既有开放版本早于待导入版本 → 其 expire_date 置为待导入生效日（旧版闭合）；
+//	既有开放版本晚于待导入版本（回填历史版本）→ 待导入版本 expire 置为其中最早生效日；
+//	同生效日双版本 → 真冲突，拒绝。全部调整与插入同事务。
+func chainPrior(tx *sql.Tx, req *Request) (int, error) {
+	rows, err := tx.Query(`SELECT version_id, effective_date, expire_date FROM law_version
+		WHERE law_id = ?`, req.LawID)
+	if err != nil {
+		return 0, err
+	}
+	type ver struct {
+		id     string
+		eff    string
+		expire string // 空串 = 开放
+	}
+	var vers []ver
+	for rows.Next() {
+		var v ver
+		var exp any
+		if err := rows.Scan(&v.id, &v.eff, &exp); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if exp != nil {
+			v.expire, _ = exp.(string)
+		}
+		vers = append(vers, v)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+	if len(vers) == 0 {
+		return 0, nil
+	}
+	n := 0
+	for _, v := range vers {
+		switch {
+		case v.eff == req.EffectiveDate:
+			return 0, fmt.Errorf("同生效日 %s 已存在版本 %s（真冲突，须人工裁定）", req.EffectiveDate, v.id)
+		case v.eff < req.EffectiveDate:
+			if v.expire == "" { // 开放的旧版 → 闭合到待导入生效日
+				if _, err := tx.Exec(`UPDATE law_version SET expire_date = ? WHERE version_id = ? AND expire_date IS NULL`,
+					req.EffectiveDate, v.id); err != nil {
+					return 0, err
+				}
+				n++
+			}
+		default: // 既有版本更新：待导入为其历史版本 → 闭合到最近更新版本的生效日
+			if req.ExpireDate == "" || v.eff < req.ExpireDate {
+				req.ExpireDate = v.eff
+			}
+		}
+	}
+	return n, nil
 }
 
 // checkOverlap 在事务内执行版本时效区间重叠检查（左闭右开）。

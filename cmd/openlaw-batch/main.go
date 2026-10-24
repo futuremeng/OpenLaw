@@ -114,7 +114,7 @@ func main() {
 				VersionNo: dateISO, EffectiveDate: dateISO, PublishDate: dateISO,
 				SourceType: "flk 批量下载（用户提供存量）", ConfirmStatus: "pending",
 				Notes:   "batch：生效日期暂按文件名日期填充、效力等级待人工确认",
-				PDFPath: outPath,
+				PDFPath: outPath, AutoExpirePrior: true,
 			})
 			if ierr != nil {
 				status, detail = "fail", ierr.Error()

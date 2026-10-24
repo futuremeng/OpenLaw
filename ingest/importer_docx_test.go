@@ -94,6 +94,48 @@ func TestImportOrphanLayerReplaced(t *testing.T) {
 	}
 }
 
+func TestImportAutoExpireChain(t *testing.T) {
+	im, _ := setupImporter(t)
+	mk := func(docID, eff string, auto bool) error {
+		src := filepath.Join(t.TempDir(), docID+".docx")
+		writeTestDocx(t, src, `<w:document><w:body>`+
+			`<w:p><w:r><w:t>第一条　正文。</w:t></w:r></w:p>`+
+			`</w:body></w:document>`)
+		_, err := im.Import(Request{
+			DocID: docID, LawID: "law_chain", LawName: "链测试条例",
+			VersionNo: eff, EffectiveDate: eff, SourceType: "测试样例",
+			PDFPath: src, AutoExpirePrior: auto,
+		})
+		return err
+	}
+	if err := mk("chain_1997", "1997-06-29", true); err != nil {
+		t.Fatal(err)
+	}
+	// 新版导入：旧版自动闭合到新版生效日
+	if err := mk("chain_2020", "2020-11-25", true); err != nil {
+		t.Fatal(err)
+	}
+	var exp string
+	if err := im.DB.QueryRow(`SELECT expire_date FROM law_version WHERE version_id='law_chain_1997-06-29'`).Scan(&exp); err != nil || exp != "2020-11-25" {
+		t.Fatalf("旧版应自动闭合到 2020-11-25，实际 %q (%v)", exp, err)
+	}
+	// 回填历史版本：其 expire 自动设为更新版本生效日
+	if err := mk("chain_1990", "1990-03-01", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := im.DB.QueryRow(`SELECT expire_date FROM law_version WHERE version_id='law_chain_1990-03-01'`).Scan(&exp); err != nil || exp != "1997-06-29" {
+		t.Fatalf("回填版本应闭合到 1997-06-29，实际 %q (%v)", exp, err)
+	}
+	// 同生效日双版本：真冲突仍拒绝
+	if err := mk("chain_dup", "2020-11-25", true); err == nil || !strings.Contains(err.Error(), "同生效日") {
+		t.Fatalf("同生效日应拒绝，实际: %v", err)
+	}
+	// 关闭 AutoExpirePrior 时保持严格：重叠直接拒绝
+	if err := mk("chain_strict", "2021-01-01", false); err == nil || !strings.Contains(err.Error(), "重叠") {
+		t.Fatalf("严格模式应拒绝重叠，实际: %v", err)
+	}
+}
+
 func TestImportLegacyDocRejected(t *testing.T) {
 	im, _ := setupImporter(t)
 	src := filepath.Join(t.TempDir(), "旧格式.doc")
