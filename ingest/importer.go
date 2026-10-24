@@ -37,6 +37,9 @@ type Request struct {
 	// EffectiveDateInferred 生效日期为推断值（如正文落款提取）：写入溯源 JSON，
 	// 人工确认前不得视为已证事实。
 	EffectiveDateInferred bool
+	// WholeTextMode 全文即一节：无「第X条」结构的文档（决定/决议/名单类）以单条
+	// article（article_no=全文）承载全文入库，可检索且语义显式打标，绝不伪装成条文。
+	WholeTextMode bool
 }
 
 // Result 导入成功后的产出。
@@ -45,6 +48,7 @@ type Result struct {
 	VersionID   string
 	SHA256      string
 	ArticleIDs  []string
+	WholeText   bool             // 全文即一节模式生效（无条文标记文档）
 	ChainIssues []validate.Issue // 导入后立即执行的断链检测结果（6.1），空表示链路完好
 }
 
@@ -90,10 +94,16 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		mdBytes = []byte(parse.NormalizePDFText(text))
 	}
 	arts := parse.SplitArticles(string(mdBytes))
+	wholeText := false
 	if len(arts) == 0 {
-		err := fmt.Errorf("未解析出任何条文（检查「第X条」标记）: %s", req.MDPath)
-		im.logImport(req, "failed", err.Error())
-		return nil, err
+		if !req.WholeTextMode {
+			err := fmt.Errorf("未解析出任何条文（检查「第X条」标记；无条文结构文档可用全文模式）: %s", req.MDPath)
+			im.logImport(req, "failed", err.Error())
+			return nil, err
+		}
+		// 全文即一节：单条 article 承载全文，parser_version 打 +whole 标记
+		wholeText = true
+		arts = []parse.Article{{No: parse.WholeArticleNo, Content: string(mdBytes)}}
 	}
 
 	// 3) 文件落位：<kind>/<doc_id>.<ext>（pdf/docx/txt…按真实格式；原始层只读，重复 doc_id 拒绝）
@@ -154,7 +164,7 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		im.logImport(req, "failed", err.Error())
 		return nil, err
 	}
-	articleIDs, chainNote, err := im.writeTx(tx, req, versionID, sha, now, arts)
+	articleIDs, chainNote, err := im.writeTx(tx, req, versionID, sha, now, arts, wholeText)
 	if err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
 			err = fmt.Errorf("%w（且回滚失败: %v）", err, rbErr)
@@ -173,11 +183,15 @@ func (im *Importer) Import(req Request) (*Result, error) {
 	if chainNote != "" {
 		succReason = strings.TrimSuffix(succReason+"; "+chainNote, "; ")
 	}
+	if wholeText {
+		succReason = strings.TrimSuffix(succReason+"; 全文即一节（无条文结构，whole-text 模式）", "; ")
+	}
 	im.logImport(req, "success", succReason)
 
 	// 6) 触发断链检测（6.1）。断链不抛异常，随结果返回由上层提示。
 	res := &Result{
 		DocID: req.DocID, VersionID: versionID, SHA256: sha, ArticleIDs: articleIDs,
+		WholeText:   wholeText,
 		ChainIssues: validate.CheckDocument(im.DB, im.DataDir, req.DocID),
 	}
 	return res, nil
@@ -219,7 +233,7 @@ func (im *Importer) validateRequest(req *Request) error {
 }
 
 // writeTx 在事务内写入全部实体。
-func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string, arts []parse.Article) ([]string, string, error) {
+func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string, arts []parse.Article, wholeText bool) ([]string, string, error) {
 	chainNote := ""
 	if req.AutoExpirePrior {
 		closed, rechained, cerr := chainPrior(tx, &req)
@@ -264,12 +278,16 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 	}
 
 	mdPath := filepath.Join("md", req.DocID+".md")
+	pv := parse.ParserVersion
+	if wholeText {
+		pv = parse.ParserVersionWhole
+	}
 	ids := make([]string, 0, len(arts))
 	for _, a := range arts {
 		articleID := versionID + "_" + a.No
 		if _, err := tx.Exec(`INSERT INTO article(article_id, version_id, article_no, content,
 			md_path, doc_id, parser_version) VALUES(?,?,?,?,?,?,?)`,
-			articleID, versionID, a.No, a.Content, mdPath, req.DocID, parse.ParserVersion); err != nil {
+			articleID, versionID, a.No, a.Content, mdPath, req.DocID, pv); err != nil {
 			return nil, "", fmt.Errorf("写入条文 %s 失败: %w", a.No, err)
 		}
 		ids = append(ids, articleID)

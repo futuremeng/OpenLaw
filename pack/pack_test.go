@@ -246,6 +246,58 @@ func writeMinimalDocx(t *testing.T, path, para string) {
 	}
 }
 
+// TestImportPackWholeText 全文即一节文档的 pack 往返：changes.csv 携带 whole=1，
+// 导入空目录后仍按全文模式入库（不会因无条文标记而失败）。
+func TestImportPackWholeText(t *testing.T) {
+	dir, db, key := setupSource(t)
+	src := filepath.Join(t.TempDir(), "名单公告_.docx")
+	writeMinimalDocx(t, src, "关于公布第一批名单的公告。")
+	im := &ingest.Importer{DataDir: dir, DB: db}
+	if _, err := im.Import(ingest.Request{
+		DocID: "law_packwhole_2021", LawID: "law_packwhole", LawName: "名单公告",
+		EffectLevel: "其他", VersionNo: "2021版", EffectiveDate: "2021-01-01",
+		SourceType: "测试样例", PDFPath: src, WholeTextMode: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	packDir := filepath.Join(t.TempDir(), "pack-whole")
+	if err := Build(db, dir, packDir, key, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := ReadChanges(packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole := 0
+	for _, c := range changes {
+		if c.Whole {
+			whole++
+		}
+	}
+	if whole != 1 {
+		t.Fatalf("changes.csv 应恰有 1 条 whole=1，实际 %d", whole)
+	}
+	if err := Verify(packDir); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, "db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tdb, err := store.Open(filepath.Join(target, "db", "openlaw.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.Close()
+	if _, err := Import(tdb, target, packDir); err != nil {
+		t.Fatalf("whole 包导入应成功: %v", err)
+	}
+	var no string
+	if err := tdb.QueryRow(`SELECT article_no FROM article WHERE doc_id='law_packwhole_2021'`).Scan(&no); err != nil || no != "全文" {
+		t.Fatalf("导入后应为全文节，实际 %q (%v)", no, err)
+	}
+}
+
 // TestImportPackSuccess 正常包导入到空目录：数据落位且走同一闭环（pending 转人工）。
 func TestImportPackSuccess(t *testing.T) {
 	dir, db, key := setupSource(t)

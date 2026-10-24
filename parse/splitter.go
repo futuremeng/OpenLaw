@@ -8,6 +8,13 @@ import "regexp"
 // ParserVersion 解析器版本，任何入库条文必须携带（开发文档 7）。
 const ParserVersion = "openlaw-parse/0.1.0"
 
+// ParserVersionWhole 全文即一节模式（无「第X条」结构的决定/决议/名单类）：
+// 单条 article 承载全文，parser_version 带 +whole 后缀以便审计区分（见 docs/data-dictionary.md）。
+const ParserVersionWhole = ParserVersion + "+whole"
+
+// WholeArticleNo 全文即一节模式的约定条号（article.article_no）。
+const WholeArticleNo = "全文"
+
 // articleRe 匹配「第X条」条文标记（中文数字与阿拉伯数字均可）。
 // articleMarkerRe 不带行首锚点：用于在连写文本中定位条文标记以重插换行锚点。
 var articleMarkerRe = regexp.MustCompile(`第[一二三四五六七八九十百千零〇两0-9\x{2e80}-\x{2fdf}]+条`)

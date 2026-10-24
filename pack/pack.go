@@ -67,11 +67,15 @@ type Change struct {
 	SourceURL     string
 	SourceType    string
 	Notes         string
+	Whole         bool // 全文即一节模式（article_no=全文，无条文结构文档）
 }
 
 var changeHeader = []string{"action", "doc_id", "law_id", "law_name", "short_name", "issuer",
 	"effect_level", "version_no", "effective_date", "expire_date", "publish_date", "is_gongbao",
-	"source_url", "source_type", "notes"}
+	"source_url", "source_type", "notes", "whole"}
+
+// oldChangeHeader v0 格式（无 whole 列）：读取时向后兼容，whole 视为 false。
+var oldChangeHeader = changeHeader[:15]
 
 // Build 从数据目录构建更新包：复制 pdf/ md/ provenance/，从数据库导出 changes.csv，
 // 生成 manifest.json 并用私钥签名（私钥独立存储，不进包）。
@@ -116,7 +120,8 @@ func writeChanges(db *store.DB, path string) error {
 	rows, err := db.Query(`SELECT d.doc_id, l.law_id, l.name, COALESCE(l.short_name,''),
 		COALESCE(l.issuer,''), COALESCE(l.effect_level,''), v.version_no, v.effective_date,
 		COALESCE(v.expire_date,''), COALESCE(d.publish_date,''), d.is_gongbao,
-		COALESCE(d.source_url,''), COALESCE(d.source_type,'')
+		COALESCE(d.source_url,''), COALESCE(d.source_type,''),
+		EXISTS(SELECT 1 FROM article a WHERE a.version_id = v.version_id AND a.article_no = '全文')
 		FROM law_version v JOIN law l ON l.law_id = v.law_id
 		JOIN document d ON d.doc_id = v.doc_id
 		ORDER BY v.law_id, v.effective_date`)
@@ -137,13 +142,13 @@ func writeChanges(db *store.DB, path string) error {
 	count := 0
 	for rows.Next() {
 		var docID, lawID, name, short, issuer, level, vno, eff, exp, pub, url, stype string
-		var gongbao int
+		var gongbao, whole int
 		if err := rows.Scan(&docID, &lawID, &name, &short, &issuer, &level, &vno, &eff,
-			&exp, &pub, &gongbao, &url, &stype); err != nil {
+			&exp, &pub, &gongbao, &url, &stype, &whole); err != nil {
 			return err
 		}
 		rec := []string{"add", docID, lawID, name, short, issuer, level, vno, eff, exp, pub,
-			strconv.Itoa(gongbao), url, stype, ""}
+			strconv.Itoa(gongbao), url, stype, "", strconv.Itoa(whole)}
 		if len(rec) != len(changeHeader) {
 			return fmt.Errorf("%w: %s", ErrBadChange, docID)
 		}
@@ -174,21 +179,37 @@ func ReadChanges(packDir string) ([]Change, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(records) < 2 || strings.Join(records[0], ",") != strings.Join(changeHeader, ",") {
+	if len(records) < 2 {
 		return nil, fmt.Errorf("%w: 表头不符", ErrBadChange)
+	}
+	hasWhole := true
+	switch strings.Join(records[0], ",") {
+	case strings.Join(changeHeader, ","):
+	case strings.Join(oldChangeHeader, ","):
+		hasWhole = false
+	default:
+		return nil, fmt.Errorf("%w: 表头不符", ErrBadChange)
+	}
+	wantCols := len(oldChangeHeader)
+	if hasWhole {
+		wantCols = len(changeHeader)
 	}
 	out := make([]Change, 0, len(records)-1)
 	for _, rec := range records[1:] {
-		if len(rec) != len(changeHeader) {
+		if len(rec) != wantCols {
 			return nil, fmt.Errorf("%w: 列数不符 %v", ErrBadChange, rec)
 		}
 		g, _ := strconv.Atoi(rec[11])
-		out = append(out, Change{
+		c := Change{
 			Action: rec[0], DocID: rec[1], LawID: rec[2], LawName: rec[3], ShortName: rec[4],
 			Issuer: rec[5], EffectLevel: rec[6], VersionNo: rec[7], EffectiveDate: rec[8],
 			ExpireDate: rec[9], PublishDate: rec[10], IsGongbao: g == 1,
 			SourceURL: rec[12], SourceType: rec[13], Notes: rec[14],
-		})
+		}
+		if hasWhole {
+			c.Whole = rec[15] == "1"
+		}
+		out = append(out, c)
 	}
 	return out, nil
 }
@@ -349,7 +370,7 @@ func Import(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error
 			EffectiveDate: c.EffectiveDate, ExpireDate: c.ExpireDate,
 			SourceURL: c.SourceURL, SourceType: c.SourceType, IsGongbao: c.IsGongbao,
 			PublishDate: c.PublishDate, ConfirmStatus: "pending", Notes: c.Notes,
-			PDFPath: srcFile, MDPath: md,
+			PDFPath: srcFile, MDPath: md, WholeTextMode: c.Whole,
 		})
 		if err != nil {
 			return done, fmt.Errorf("导入 %s 失败（第 %d/%d 条）: %w", c.DocID, i+1, len(changes), err)

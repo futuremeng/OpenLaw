@@ -137,15 +137,22 @@ func main() {
 				VersionNo: dateISO, EffectiveDate: dateISO, PublishDate: pubISO,
 				SourceType: "flk 批量下载（用户提供存量）", ConfirmStatus: "pending",
 				Notes: notes, EffectiveDateInferred: inferred,
-				PDFPath: outPath, AutoExpirePrior: true,
+				PDFPath: outPath, AutoExpirePrior: true, WholeTextMode: true,
 			})
 			if ierr != nil {
 				status, detail = "fail", ierr.Error()
 			} else {
 				artN = len(res.ArticleIDs)
 				status = "ok"
+				if res.WholeText {
+					status = "ok_whole"
+				}
 				if m == nil {
-					status = "ok_inferred"
+					if res.WholeText {
+						status = "ok_whole_inferred"
+					} else {
+						status = "ok_inferred"
+					}
 					detail = "date from text: pub=" + pubISO + " eff=" + dateISO
 				}
 			}

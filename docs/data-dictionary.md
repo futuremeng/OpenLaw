@@ -22,6 +22,8 @@ version_id（= `law_id + "_" + version_no`）、effective_date、expire_date。
 ### article 条文表
 article_id（= `version_id + "_" + article_no`）、content、md_path、doc_id、**parser_version（强制版本化）**。
 
+**全文即一节（whole-text）**：无「第X条」结构的文档（决定/决议/公告/名单类）以单条记录承载全文——`article_no = "全文"`（约定值，不与任何真实条号冲突）、`parser_version` 带 `+whole` 后缀（如 `openlaw-parse/0.1.0+whole`）。该记录可全文检索，但**语义上是整份文档而非条文**：引用校验/要件分析等条文级功能不得将其当作条文使用；按 `parser_version LIKE '%+whole'` 或 `article_no='全文'` 即可整体排除。
+
 ### element 构成要件表
 element_id、article_id、case_type（案由）、name、description、how_to_attack（对方突破方向）。
 

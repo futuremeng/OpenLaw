@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/futuremeng/OpenLaw/parse"
 )
 
 // docx 导入路径测试（flk 存量主格式）。
@@ -148,6 +150,48 @@ func TestImportAutoExpireChain(t *testing.T) {
 	// 关闭 AutoExpirePrior 时保持严格：重叠直接拒绝
 	if err := mk("chain_strict", "2021-01-01", false); err == nil || !strings.Contains(err.Error(), "重叠") {
 		t.Fatalf("严格模式应拒绝重叠，实际: %v", err)
+	}
+}
+
+func TestImportWholeTextMode(t *testing.T) {
+	im, _ := setupImporter(t)
+	src := filepath.Join(t.TempDir(), "废止决定_.docx")
+	writeTestDocx(t, src, `<w:document><w:body>`+
+		`<w:p><w:r><w:t>关于废止若干地方性法规的决定</w:t></w:r></w:p>`+
+		`<w:p><w:r><w:t>本决定自公布之日起施行，废止下列条例。</w:t></w:r></w:p>`+
+		`</w:body></w:document>`)
+	req := Request{
+		DocID: "flk_whole_20200101", LawID: "flk_whole", LawName: "废止决定",
+		VersionNo: "2020-01-01", EffectiveDate: "2020-01-01",
+		SourceType: "测试样例", PDFPath: src,
+	}
+	// 严格模式（单文件导入默认）：无条文仍必须失败
+	if _, err := im.Import(req); err == nil || !strings.Contains(err.Error(), "未解析出任何条文") {
+		t.Fatalf("严格模式无条文应失败: %v", err)
+	}
+	// 全文即一节模式：单条 article 承载全文并显式打标
+	req.DocID = "flk_whole_20200102"
+	req.VersionNo = "2020-01-02"
+	req.EffectiveDate = "2020-01-02"
+	req.WholeTextMode = true
+	res, err := im.Import(req)
+	if err != nil {
+		t.Fatalf("全文模式应成功: %v", err)
+	}
+	if !res.WholeText || len(res.ArticleIDs) != 1 {
+		t.Fatalf("应为 whole 单条: %+v", res)
+	}
+	var no, pv string
+	if err := im.DB.QueryRow(`SELECT article_no, parser_version FROM article WHERE version_id='flk_whole_2020-01-02'`).Scan(&no, &pv); err != nil ||
+		no != "全文" || pv != parse.ParserVersionWhole {
+		t.Fatalf("article 应为 全文/+whole，实际 %q %q (%v)", no, pv, err)
+	}
+	var n int
+	if err := im.DB.QueryRow(`SELECT COUNT(*) FROM article WHERE version_id='flk_whole_2020-01-02' AND content LIKE '%废止下列条例%'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("全文内容应完整入库可检索，实际 %d (%v)", n, err)
+	}
+	if err := im.DB.QueryRow(`SELECT COUNT(*) FROM import_log WHERE result='success' AND reason LIKE '%全文即一节%'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("成功日志应留痕全文模式，实际 %d (%v)", n, err)
 	}
 }
 
