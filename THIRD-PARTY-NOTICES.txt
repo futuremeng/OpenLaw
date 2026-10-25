@@ -1,0 +1,19 @@
+OpenLaw THIRD-PARTY NOTICES
+===========================
+本文件列出随 OpenLaw SDK/CLI 二进制分发的第三方库及其许可证。
+全部为宽松许可，无 copyleft 组件。完整许可证文本见对应项目仓库。
+
+本仓库自身：Apache-2.0（见 LICENSE）。
+
+  modernc.org/sqlite                     BSD-3-Clause（SQLite 本身为公有领域）
+  modernc.org/{libc,mathutil,memory}     BSD-3-Clause
+  github.com/remyoudompheng/bigfft       BSD-2-Clause
+  github.com/google/uuid                 BSD-3-Clause
+  github.com/ledongthuc/pdf              BSD-3-Clause
+  github.com/mattn/go-isatty             MIT
+  github.com/ncruces/go-strftime         MIT
+  github.com/dustin/go-humanize          MIT
+  golang.org/x/{sys,text}                BSD-3-Clause（含附加专利授权）
+
+语料数据的许可见 DATA-LICENSE.md：法条官方文本为公有领域；
+本项目汇编产物 CC BY 4.0；欧盟文本保留 © European Union 署名。
