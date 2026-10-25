@@ -38,7 +38,7 @@ FORMEX wrapper（DOC_1）的 `REF.PHYS FILE=` 与 `sameAs` 均指向 doc.xml，�
 | `document.doc_id` | `eu_<celex小写>_<lang>`（如 `eu_32016r0679_eng`） | 幂等键；多语言=多 document |
 | `document.lang` | ISO 639-3（`eng`…） | schema v2 已备列 |
 | `document.source_type` | `cellar` | 区别于 `flk`/`govcn` |
-| `document.parser_version` | `formex-eu-v1`（XHTML 回退用 `convex-eu-v1`） | 沿用 `+whole` 惯例：解析器可追溯；回退通道特征查询须排除 |
+| `article.parser_version` | `openlaw-parse/0.1.0+formex-eu`（XHTML 回退加 `+xhtml`） | 沿用 `+whole` 惯例：解析器可追溯；回退通道特征查询须排除 |
 | `article.article_no` | `Article 1`…（与 `TI.ART` 一致） | 中文语料是「第X条」，EU 保留英文标记原样 |
 | `law_version` | 原 OJ 版区间（元数据已由 openlaw-eu 建）；合并版（conslex，CELEX 前导 `0`，如 `02016R0679-20240625`）M2 再接 | 版本链语义与 flk 通道一致 |
 | provenance JSON | eli/celex/manifestation URI/item URL/格式/sha256/抓取时间 | 与 flk provenance 同目录同规范 |
@@ -58,7 +58,7 @@ FORMEX wrapper（DOC_1）的 `REF.PHYS FILE=` 与 `sameAs` 均指向 doc.xml，�
 
 ## 五、验收标准（M1，GDPR 试点）
 
-- `document`：`eu_32016r0679_eng`，lang=eng，parser_version=formex-eu-v1，confirm_status=pending
+- `document`：`eu_32016r0679_eng`，lang=eng，parser_version=openlaw-parse/0.1.0+formex-eu，confirm_status=pending
 - `article`：99 行 `Article 1`–`Article 99`，计数 == XML `<ARTICLE>` 元素数；FTS 可搜「personal data」命中条文级
 - provenance JSON + incoming 原始文件 + sha256 复检一致；import_log 记录全部四步 URL
 - pack 导出/回灌往返一致（manifest license/attribution 已备）

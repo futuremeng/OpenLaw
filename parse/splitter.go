@@ -3,7 +3,10 @@
 // 人工修订必须生成新版本（新 version_id），禁止覆盖原始文本。
 package parse
 
-import "regexp"
+import (
+	"regexp"
+	"strconv"
+)
 
 // ParserVersion 解析器版本，任何入库条文必须携带（开发文档 7）。
 const ParserVersion = "openlaw-parse/0.1.0"
@@ -66,21 +69,44 @@ func trimBlankLines(s string) string {
 
 // articleEURe 匹配 EU 条文标记行首「Article N」（可带 ## 标题前缀，
 // FORMEX FullText 渲染与 XHTML 回退共用；大小写敏感——官方文本固定 Title 格）。
+// 已知局限：字母尾条号（如个别法规的 "Article 24a"）不匹配 \b 边界，内容并入前条——
+// M1 语料（GDPR 等）无此形态，M2 批量遇再扩。
 var articleEURe = regexp.MustCompile(`(?m)^(?:#{1,6} *)?(Article [0-9]+)\b`)
 
 // SplitArticlesEU 按「Article N」标记拆分英文正文（EU 通道专用：
 // pack 回灌 lang=eng 的 md、XHTML 回退文本切分）。语义与 SplitArticles 一致：
 // 首个标记之前的文字不入库；返回空切片表示未识别出任何条文。
+// 条号递增过滤（与中文通道交叉引用误拆同型防御，2026-10 review 补）：EU 条号严格
+// 递增，行首交叉引用（如 XHTML <p> 换行后 "Article 6 …"）号必 ≤ 上一保留号，丢弃。
+// 前向引用（大条号出现在小条号正文行首）无法用递增判别——同中文通道，靠人工确认兜底；
+// 现网两路均无碰撞（FORMEX FullText 段并为单行；XHTML 原始字节匹配不到转人工），
+// M2 XHTML 文本化后须改 HTML 结构感知切分。
 func SplitArticlesEU(md string) []Article {
 	locs := articleEURe.FindAllStringSubmatchIndex(md, -1)
 	if len(locs) == 0 {
 		return nil
 	}
-	arts := make([]Article, 0, len(locs))
-	for i, loc := range locs {
+	kept := locs[:0]
+	last := 0
+	for _, loc := range locs {
+		n, err := strconv.Atoi(md[loc[2]+len("Article ") : loc[3]])
+		if err != nil {
+			continue
+		}
+		if n <= last {
+			continue // 交叉引用误拆点：文本仍归入上一保留条文
+		}
+		last = n
+		kept = append(kept, loc)
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	arts := make([]Article, 0, len(kept))
+	for i, loc := range kept {
 		end := len(md)
-		if i+1 < len(locs) {
-			end = locs[i+1][0]
+		if i+1 < len(kept) {
+			end = kept[i+1][0]
 		}
 		arts = append(arts, Article{
 			No:      md[loc[2]:loc[3]],

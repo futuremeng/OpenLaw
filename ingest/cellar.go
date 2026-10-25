@@ -56,6 +56,7 @@ type Cellar struct {
 	Endpoint    string        // SPARQL 端点；空 = CellarSPARQL（仅测试注入其他值）
 	robots      *RobotsCache
 	lastQuery   time.Time
+	polCache    *FetchPolicy // policy() 惰性缓存：Transport/连接池全生命周期复用
 }
 
 // endpoint 返回生效的 SPARQL 端点。
@@ -664,20 +665,24 @@ func (c *Cellar) FetchText(ctx context.Context, celex, lang, format string) (*EU
 	}
 
 	// 4) 下载全部 item，取最大者为正文
+	var itemErrs []string
 	t := &EUText{Celex: celex, Lang: lang, Format: format, Title: exprTitle,
 		ExpressionURI: exprURI, ManifestationURI: maniURI,
 		FetchedAt: time.Now().UTC().Format(time.RFC3339)}
 	for _, iu := range itemURIs {
 		b, err := c.getCellar(ctx, iu, "", 64<<20)
 		if err != nil {
-			continue // 个别 item 失败不致命：正文候选取其余
+			// 个别 item 失败不致命：正文候选取其余；原因收集供最终报错（import_log 亦有留痕）
+			itemErrs = append(itemErrs, fmt.Sprintf("%s: %v", iu, err))
+			continue
 		}
 		if int64(len(b)) > int64(len(t.Bytes)) {
 			t.Bytes, t.ItemURI = b, iu
 		}
 	}
 	if len(t.Bytes) == 0 {
-		return nil, fmt.Errorf("manifestation %s 的全部 item 下载失败或为空", maniURI)
+		return nil, fmt.Errorf("manifestation %s 的全部 item 下载失败或为空（%d 个候选：%s）",
+			maniURI, len(itemURIs), strings.Join(itemErrs, "; "))
 	}
 	sum := sha256.Sum256(t.Bytes)
 	t.SHA256 = hex.EncodeToString(sum[:])
@@ -708,7 +713,9 @@ func mustParseHost(raw string) string {
 }
 
 func (c *Cellar) policy() FetchPolicy {
-
+	if c.polCache != nil {
+		return *c.polCache
+	}
 	pol := c.Policy
 	if pol.Timeout <= 0 {
 		pol.Timeout = 30 * time.Second
@@ -720,6 +727,7 @@ func (c *Cellar) policy() FetchPolicy {
 	// 后量子 key share，JA3 指纹异常，被 EU 站点的 Azure Front Door WAF 按机器人限速
 	// （robots.txt 本身持续 429，curl 同 IP 却 200）。仅调曲线偏好即恢复——UA 仍如实
 	// 标识机器人身份，不冒充浏览器；这是被 WAF 指纹误伤的正常兼容问题。
+	// Transport 全 Cellar 共用一份（缓存于 polCache）：连接池复用、idle 可关。
 	if pol.Transport == nil {
 		pol.Transport = &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
@@ -728,6 +736,7 @@ func (c *Cellar) policy() FetchPolicy {
 			},
 		}
 	}
+	c.polCache = &pol
 	return pol
 }
 

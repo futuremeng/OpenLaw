@@ -3,7 +3,7 @@
 // （官方开放程序化入口，四步链 expression→manifestation→item，无 WAF）。
 // 流程：CELEX+语言 → FetchText（FORMEX ACT XML 首选）→ ParseFormexACT
 // （条文边界来自 <ARTICLE> 结构元素，零猜测）→ Importer 入库
-// （document.lang=eng、parser_version=formex-eu-v1、confirm_status=pending 人工闸口）。
+// （document.lang=eng、parser_version=openlaw-parse/0.1.0+formex-eu、confirm_status=pending 人工闸口）。
 // 前置：law 已由 openlaw-eu 建立（--celex 能按 celex 列查到 law_id），否则报错。
 package main
 
@@ -101,11 +101,6 @@ func main() {
 		}
 	}
 
-	w, err := c.FetchWork(ctx, *celex)
-	if err != nil {
-		fatal(fmt.Errorf("元数据（日期等）获取失败: %w", err))
-	}
-
 	absRaw := filepath.Join(*dataDir, t.RawPath)
 	if *dryRun {
 		out := map[string]any{
@@ -128,6 +123,12 @@ func main() {
 			fmt.Println("dry-run     未入库（去掉 -dry-run 执行导入）")
 		}
 		return
+	}
+
+	// 元数据（日期等）仅入库路径需要——dry-run 绝不多发此请求（省 Cellar 配额，RL 纪律）
+	w, err := c.FetchWork(ctx, *celex)
+	if err != nil {
+		fatal(fmt.Errorf("元数据（日期等）获取失败: %w", err))
 	}
 
 	pub := w.Created

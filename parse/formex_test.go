@@ -85,3 +85,32 @@ func TestSplitArticlesEU(t *testing.T) {
 		t.Errorf("中文正文不应被 EU 切分器命中: %d", n)
 	}
 }
+
+// TestSplitArticlesEUCrossRef 行首交叉引用误拆防御（2026-10 review 补）：
+// XHTML 文本 <p> 换行后可出现行首 "Article N …" 引用句——条号递增过滤须丢弃
+// 号 ≤ 上一保留号的候选，引用文本归入上一条文。
+func TestSplitArticlesEUCrossRef(t *testing.T) {
+	// 前向引用（大条号出现在小条号正文行首）无法用递增判别——已知局限的代价
+	// 显式钉住：Article 6（6>2）保留为切分点，其后 Article 3（3<6）被吞并入。
+	// 现网无此碰撞：pack 回灌的 FullText 经 normSpace 段并为单行（交叉引用不可能
+	// 行首）；XHTML 回退对原始字节流匹配不到行首 Article 而报错转人工。
+	// M2 把 XHTML 文本化后此问题才活跃——届时切分器改 HTML 结构感知（<p> 边界）。
+	md := "Article 1 Subject-matter\ncontent one\n\nArticle 2 General obligations\n" +
+		"compliance with\nArticle 6 shall be ensured.\nmore text\n\nArticle 3 Tasks\ncontent three"
+	arts := SplitArticlesEU(md)
+	if len(arts) != 3 || arts[2].No != "Article 6" {
+		t.Errorf("前向引用行为应如注释所述: %+v", arts)
+	}
+	// 后向引用：Article 92 正文内行首引用 Article 6 → 必须丢弃
+	md2 := "Article 91 Relations to other acts\nstart\n\nArticle 92 Derogations\nbegin\nArticle 6 references here\nend\n\nArticle 93 Committee\nx"
+	arts2 := SplitArticlesEU(md2)
+	if len(arts2) != 3 {
+		t.Fatalf("条文数 = %d, 期望 3（行首 Article 6 应被递增过滤丢弃）: %+v", len(arts2), arts2)
+	}
+	if arts2[1].No != "Article 92" || !strings.Contains(arts2[1].Content, "Article 6 references here") {
+		t.Errorf("引用文本应归入 Article 92: %+v", arts2[1])
+	}
+	if arts2[2].No != "Article 93" {
+		t.Errorf("过滤后条文边界错位: %+v", arts2[2])
+	}
+}

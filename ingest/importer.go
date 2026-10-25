@@ -48,7 +48,7 @@ type Request struct {
 	Articles []parse.Article
 	// MDContent Articles 模式下的 md 层全文（写 data/md/<doc_id>.md，pack 往返用）。
 	MDContent string
-	// ParserVersion 覆盖 article.parser_version（EU 通道=formex-eu-v1；空=默认）。
+	// ParserVersion 覆盖 article.parser_version（EU 通道=parse.ParserVersionEU；空=默认）。
 	ParserVersion string
 }
 
