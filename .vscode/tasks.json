@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "go test: all",
+      "type": "shell",
+      "command": "go test ./... -count=1",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "gates: fmt+build+vet+test",
+      "type": "shell",
+      "command": "gofmt -l . && go build ./... && go vet ./... && go test ./... -count=1",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "build: openlaw-eu-text",
+      "type": "shell",
+      "command": "go build -o /tmp/openlaw-eu-text ./cmd/openlaw-eu-text",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
