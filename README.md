@@ -63,6 +63,8 @@ OpenLaw/
 
 ## 快速开始
 
+> 部署与运维（二进制构建、数据目录迁移、签名私钥、OpenCourt 对接）见 docs/deploy.md。
+
 ```bash
 # 前置：Go 1.22+（国内网络建议 GOPROXY=https://goproxy.cn,direct）
 make test      # 全部测试（解析、日期边界、断链、哈希失败、脱敏、抓取策略）

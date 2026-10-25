@@ -4,6 +4,8 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **部署面（make build / build-all + docs/deploy.md）**：OpenLaw 部署形态明确为「CLI 单文件 + 可迁移数据目录 + 进程内 SDK」（无常驻服务/端口）。Makefile 新增 `build`（当前平台 dist/ 11 个 CLI）与 `build-all`（darwin/linux/windows 交叉编译——纯 Go modernc sqlite，CGO_ENABLED=0 即开即用）。docs/deploy.md：三种使用形态（独立 CLI / OpenCourt 内嵌——最终用户不需要 OpenLaw 二进制 / 库模式）、数据目录整体迁移、装后验证、签名私钥与 manifest 首次部署流程（未生成 manifest 时 UNVERIFIED 是闸口正常表现）、日常运维与备份、签名更新包分发、与 OpenCourt 配置对接
+
 - **SDK 检索面（Search + GetArticle，OpenCourt M4 对接）**：`Search` 暴露 search/ FTS5+LIKE 能力并补版本上下文——每条命中携带 law_name/version 区间/expire_date/confirm_status/lang/snippet（上层据此映射生效状态：expire 非空→AMENDED，绝不自动判 REPEALED）；中文多词空格分词走多词 AND（unicode61 不切 CJK，FTS 短语必失败的实网修复）；零命中 ok+warning 不是错误；pending 命中附 12.3 提示。`GetArticle` 按 article_id 取全文详情 + trace；断链 OL-1006 数据照常完整返回供人工核对。docs/api.md 同步。OpenCourt 侧 `plugins/law_openlaw.go` 实现 LawSourcePlugin（进程内 sdk，禁直连 DB；go.mod replace 本地联调；config openlaw.data_dir + OPENCOURT_OPENLAW_DATA_DIR；未配置 nil 降级；断链命中透传 UNVERIFIED），真实语料端到端验证通过
 
 - **RL-2 配额探测（openlaw-eu-text -probe + Cellar.Probe）**：EU 站点按客户端指纹分桶限流，curl 探到 200 不代表 Go 桶可用——探测必须同指纹链。`Probe` 走与正式抓取完全相同的 policy/Transport/UA/robots 缓存：robots.txt + 一次 expression RDF GET（robots 拒绝则不发起，合规省配额），结构化判定窗口开/限流/输入错误，结论写 import_log `[cellar-probe]`；退出码 0=窗口开 / 3=限流中 / 2=其他，任务编排可直接判。附带 `HTTPStatusErr` typed 错误（getCellar 非 200 携带状态码——RL-3 退避判据）与 robots 缓存 `LastStatus` 状态暴露
