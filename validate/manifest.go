@@ -20,6 +20,14 @@ import (
 // ToolVersion 打包/签名工具版本，写入 manifest（16.2）。
 const ToolVersion = "openlaw-pack/0.1.0"
 
+// 语料许可默认声明（DATA-LICENSE.md 的机器可读形态；欧盟等来源要求重使用
+// 署名，manifest 随语料包分发即携带授权叙事。pack 更新包沿用同一措辞）。
+const (
+	DefaultLicense = "法律法规官方文本为公有领域作品（中国著作权法第5条/欧盟等同原则）；" +
+		"来源数据库编排权益归来源方；再分发须注明出处并保持签名可验证"
+	DefaultAttribution = "Source: 全国人大/国务院/欧盟 Publications Office (EUR-Lex/Cellar) 等官方渠道，见各 provenance"
+)
+
 // 签名校验相关哨兵错误
 var (
 	ErrManifestMissing  = errors.New("manifest 缺失")
@@ -37,9 +45,12 @@ type FileEntry struct {
 }
 
 // Manifest 每日汇总：所有 PDF 路径与 SHA-256（4.3 防篡改机制）。
+// License/Attribution 为共享合规声明（v2 起，签名覆盖；空 = 用默认值）。
 type Manifest struct {
 	GeneratedAt string      `json:"generated_at"`
 	ToolVersion string      `json:"tool_version"`
+	License     string      `json:"license,omitempty"`
+	Attribution string      `json:"attribution,omitempty"`
 	Files       []FileEntry `json:"files"`
 }
 
@@ -76,7 +87,14 @@ func loadPrivateKey(path string) (ed25519.PrivateKey, error) {
 
 // BuildManifest 扫描数据目录下全部原始文档层（pdf/、docx/、txt/，存在才扫），
 // 重算 SHA-256 生成 manifest.json，使用私钥签名写入 manifest.sig，公钥写入 manifest/pubkey.hex。
-func BuildManifest(dataDir, keyPath string) error {
+// license/attribution 为空时用 DefaultLicense/DefaultAttribution（随签名覆盖）。
+func BuildManifest(dataDir, keyPath, license, attribution string) error {
+	if license == "" {
+		license = DefaultLicense
+	}
+	if attribution == "" {
+		attribution = DefaultAttribution
+	}
 	entries := []FileEntry{}
 	for _, sub := range []string{"pdf", "docx", "txt"} {
 		dir := filepath.Join(dataDir, sub)
@@ -107,7 +125,8 @@ func BuildManifest(dataDir, keyPath string) error {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 
-	m := Manifest{GeneratedAt: time.Now().UTC().Format(time.RFC3339), ToolVersion: ToolVersion, Files: entries}
+	m := Manifest{GeneratedAt: time.Now().UTC().Format(time.RFC3339), ToolVersion: ToolVersion,
+		License: license, Attribution: attribution, Files: entries}
 	body, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err

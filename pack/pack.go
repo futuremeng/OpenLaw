@@ -20,6 +20,7 @@ import (
 	"github.com/futuremeng/OpenLaw/hashutil"
 	"github.com/futuremeng/OpenLaw/ingest"
 	"github.com/futuremeng/OpenLaw/store"
+	"github.com/futuremeng/OpenLaw/validate"
 )
 
 var (
@@ -86,11 +87,10 @@ var v1ChangeHeader = changeHeader[:16]
 // license/attribution 为共享合规声明（空值用默认：法律文本公有领域 + 转发须署名出处）。
 func Build(db *store.DB, dataDir, outDir, keyPath, license, attribution string) error {
 	if license == "" {
-		license = "法律法规官方文本为公有领域作品（中国著作权法第5条/欧盟等同原则）；" +
-			"来源数据库编排权益归来源方；再分发须注明出处并保持签名可验证"
+		license = validate.DefaultLicense
 	}
 	if attribution == "" {
-		attribution = "Source: 全国人大/国务院/欧盟 Publications Office (EUR-Lex/Cellar) 等官方渠道，见各 provenance"
+		attribution = validate.DefaultAttribution
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err

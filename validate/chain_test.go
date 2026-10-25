@@ -67,7 +67,7 @@ func TestCheckDocumentPass(t *testing.T) {
 	if issues := CheckDocument(db, dir, docID); len(issues) == 0 {
 		t.Fatal("manifest 缺失时应报断链（未纳入每日防篡改校验）")
 	}
-	if err := BuildManifest(dir, keyPath(t)); err != nil {
+	if err := BuildManifest(dir, keyPath(t), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if issues := CheckDocument(db, dir, docID); len(issues) != 0 {
@@ -78,7 +78,7 @@ func TestCheckDocumentPass(t *testing.T) {
 // TestCheckDocumentHashTampered PDF 被替换 → OL-1007（验收 8.2：哈希失败必须告警）。
 func TestCheckDocumentHashTampered(t *testing.T) {
 	dir, db, docID := setupChainFixture(t)
-	if err := BuildManifest(dir, keyPath(t)); err != nil {
+	if err := BuildManifest(dir, keyPath(t), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "pdf", "d1.pdf"), []byte("%PDF-1.4 TAMPERED\n"), 0o644); err != nil {
@@ -106,7 +106,7 @@ func TestCheckDocumentFileMissing(t *testing.T) {
 func TestManifestTampered(t *testing.T) {
 	dir, db, docID := setupChainFixture(t)
 	key := keyPath(t)
-	if err := BuildManifest(dir, key); err != nil {
+	if err := BuildManifest(dir, key, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	// 篡改 manifest.json（不改签名）

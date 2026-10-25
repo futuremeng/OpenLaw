@@ -60,7 +60,7 @@ func TestClosedLoop(t *testing.T) {
 	if err := validate.GenerateKey(key); err != nil {
 		t.Fatal(err)
 	}
-	if err := validate.BuildManifest(dir, key); err != nil {
+	if err := validate.BuildManifest(dir, key, "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,7 +159,7 @@ func TestVersionExpiryFlow(t *testing.T) {
 	if err := validate.GenerateKey(key); err != nil {
 		t.Fatal(err)
 	}
-	if err := validate.BuildManifest(dir, key); err != nil {
+	if err := validate.BuildManifest(dir, key, "", ""); err != nil {
 		t.Fatal(err)
 	}
 
