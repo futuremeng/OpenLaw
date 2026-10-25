@@ -7,7 +7,7 @@
 | EUR-Lex 网页/ELI 解析器（data.europa.eu/eli/… → eur-lex） | CloudFront WAF JS 挑战（`202 x-amzn-waf-action: challenge`） | ❌ 与 flk 同级：只能人工浏览 |
 | Cellar SPARQL `https://publications.europa.eu/webapi/rdf/sparql` | ✅ curl 直连可用（Virtuoso），按 work 的 named graph（cellar UUID）可取完整 CDM 元数据 | ✅ 可自动化，但限流严（连发即 429，需保守限速） |
 | Cellar REST `https://publications.europa.eu/resource/celex/<CELEX>?language=eng`（无 Accept 头） | ✅ 303 → `/rdf/object/full`，返回该法完整 CMR 记录（GDPR 为 62 MB，含全部修正链/废止链/判例引用） | ✅ 元数据可自动化 |
-| Cellar REST 文本表示（Accept: text/html / application/pdf） | 400 `Invalid content type CONTENT_STREAM for WORK without language`——需按 OP 官方文档的 expression/manifestation 表示路径（文档站当前 429 限流，未能核对确切语法） | ⚠️ 待按官方文档实现 |
+| Cellar REST 文本表示（Accept: text/html / application/pdf） | 400 `Invalid content type CONTENT_STREAM for WORK without language`——需按 OP 官方文档的 expression/manifestation 表示路径（文档站当前 429 限流，未能核对确切语法） | ⚠️ 待按官方文档实现。**2026-10-25 已打通**：见 `docs/sources-eu-text.md`——expression→manifestation→item 四步链全程无 WAF，GDPR 全文 XML（99 个结构化 `<ARTICLE>` 元素）实测可程序化下载 |
 
 ## 二、Cellar 元数据与我们的模型映射（以 GDPR 32016R0679 实测样本）
 
@@ -44,5 +44,5 @@
 
 关键实现细节：Cellar 规范 URI 为 **http scheme**（Linked Data 惯例），SPARQL 按 https 拼 URI 会查不中——`cellarResBase` 固定为 `http://publications.europa.eu/resource`。
 
-待办：Cellar 表示层（HTML/PDF 全文）确切语法按官方文档实现；EUR-Lex 全文人工通道；op.europa.eu robots.txt 限流（429）时整次运行 fail-closed，属正确合规行为，稍后重试即可。
+待办：Cellar 表示层（HTML/PDF 全文）确切语法按官方文档实现（**2026-10-25 已打通并起草设计，见 `docs/sources-eu-text.md`**）；EUR-Lex 全文人工通道；op.europa.eu robots.txt 限流（429）时整次运行 fail-closed，属正确合规行为，稍后重试即可。
 

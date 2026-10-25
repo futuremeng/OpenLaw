@@ -91,7 +91,7 @@ Data：text（脱敏后）、restore_map（本地还原映射，**不得写入�
 **数据源策略（18/19 章，2026-10 复核）**：
 - `flk.npc.gov.cn`（国家法律法规数据库）robots.txt 全文 `Disallow: /` 且明确「禁止使用任何自动化工具、脚本、爬虫程序采集或复制网站数据」→ **硬禁止名单**，任何配置下不得自动抓取；需要其文本时人工下载放入 `data/incoming/`
 - `www.gov.cn/gongbao/`（国务院公报）robots 允许 → 可批量源：目录页 → candidates.csv → 限速下载；整期 PDF 较大（约 30MB），建议 `-timeout 180s`
-- `publications.europa.eu`（欧盟出版局 Cellar）robots `Allow: /` → **官方开放的程序化入口**（SPARQL/REST），可自动化但限流较严（连发即 429，默认 2s 间隔；429 时 fail-closed，稍后重试）；EUR-Lex 网页本身有 WAF 挑战 → 全文只能人工保存（等同 flk）。详见 `docs/sources-eu.md`
+- `publications.europa.eu`（欧盟出版局 Cellar）robots `Allow: /` → **官方开放的程序化入口**（SPARQL/REST，含 representation 层全文下载，见 `docs/sources-eu-text.md`），可自动化但限流较严（连发即 429，默认 2s 间隔；429 时 fail-closed，稍后重试）；EUR-Lex 网页本身有 WAF 挑战 → 该域名只能人工浏览。详见 `docs/sources-eu.md`
 - robots 判定：404/403=无限制；网络错误/5xx=fail-closed 拒绝；最长前缀匹配，同长度 Allow 优先
 | `openlaw-ingest` | 导入 PDF+MD → 哈希 → 溯源 → 入库 → 断链检测 | 0 成功 / 1 失败（已回滚） |
 | `openlaw-check -gen-key -key <path>` | 生成签名私钥（勿入仓库/数据目录） | 0 / 1 |

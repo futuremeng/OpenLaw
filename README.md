@@ -108,7 +108,7 @@ case sdk.StatusBrokenChain: // 无法溯源，禁止输出判错结论
 - **人工浏览器操作不在此限**：用户本人在浏览器中使用该站**自带的**检索与批量下载功能（检索页勾选下载、翻页），属网站设计用途内的手动使用；法律法规本身为公有领域作品（著作权法第 5 条），本地建库使用合法。下载文件放入 `data/incoming/` 后走正常导入闭环（溯源必填、pending 转人工、扫描件 OL-1009 转 OCR）。
 - 礼貌约束：即便手动，也应按类别/年份分批、控制频次，不要连续高频连点。
 - **共享**：法律法规官方文本为公有领域作品，下载后共享/分发合法（前提：获取方式正当）。推荐以签名更新包（`openlaw-pack build/verify/import`）形式共享，接收方可独立验证哈希与签名，防篡改防版本混乱；共享自有 schema 的客观事实字段（法名/日期/效力状态）无碍，但勿整套镜像来源方的数据库编排结构（汇编权益）。
-- **欧盟（EUR-Lex/Cellar）**：EUR-Lex 网页有 WAF 挑战，等同 flk 只能人工保存；Cellar SPARQL/REST（publications.europa.eu）是官方开放的程序化入口，可自动化但须保守限速。EU 数据重使用须署名（© European Union）。详见 `docs/sources-eu.md`（2026-10-24 实网核实）。
+- **欧盟（EUR-Lex/Cellar）**：EUR-Lex 网页有 WAF 挑战，只能人工浏览；但 Cellar（publications.europa.eu）是官方开放的程序化入口——SPARQL 元数据 + representation 层全文（expression→manifestation→item 四步链，GDPR 全文 XML 实测可下载，2026-10-25）均可自动化，须保守限速。EU 数据重使用须署名（© European Union）。详见 `docs/sources-eu.md`（元数据核实）与 `docs/sources-eu-text.md`（全文通道设计草案）。
 
 ## 项目边界（不做的事）
 
