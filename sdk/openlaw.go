@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/futuremeng/OpenLaw/element"
+	"github.com/futuremeng/OpenLaw/search"
 	"github.com/futuremeng/OpenLaw/store"
 	"github.com/futuremeng/OpenLaw/validate"
 )
@@ -220,6 +221,91 @@ func (o *OpenLaw) Desensitize(text string, extraNames ...string) Result {
 	return ok(map[string]any{
 		"text": redacted, "restore_map": mapping,
 	}, nil)
+}
+
+// Search 全文检索（search/ 能力暴露：FTS5 + LIKE 兜底，docs/api.md）。
+// 每条命中携带法规名、版本区间、确认状态与 lang——上层（OpenCourt 法条源插件）
+// 据此映射生效状态；pending 命中以 warnings 提示（12.3 只提示不报错）。
+func (o *OpenLaw) Search(query string, topK int) Result {
+	if topK <= 0 {
+		topK = 10
+	}
+	if topK > 50 {
+		topK = 50 // 上限礼貌：界面一屏可览
+	}
+	hits, err := search.Search(o.db, query, topK)
+	if err != nil {
+		return fail(StatusNotFound, "", fmt.Sprintf("检索失败: %v", err))
+	}
+	items := make([]map[string]any, 0, len(hits))
+	pending := 0
+	for _, h := range hits {
+		var name, versionID, versionNo, eff, exp, cs, lang string
+		err := o.db.QueryRow(`SELECT l.name, v.version_id, v.version_no, v.effective_date,
+			COALESCE(v.expire_date,''), d.confirm_status, d.lang
+			FROM article a
+			JOIN law_version v ON v.version_id = a.version_id
+			JOIN law l ON l.law_id = v.law_id
+			JOIN document d ON d.doc_id = a.doc_id
+			WHERE a.article_id = ?`, h.ArticleID).Scan(&name, &versionID, &versionNo, &eff, &exp, &cs, &lang)
+		if err != nil {
+			continue // 条文存在但关联缺失（理论上不该发生）：跳过而非中断
+		}
+		if cs != "confirmed" {
+			pending++
+		}
+		items = append(items, map[string]any{
+			"article_id": h.ArticleID, "article_no": h.ArticleNo, "doc_id": h.DocID,
+			"law_name": name, "version_id": versionID, "version_no": versionNo,
+			"effective_date": eff, "expire_date": exp, "confirm_status": cs,
+			"lang": lang, "snippet": h.Snippet,
+		})
+	}
+	res := ok(map[string]any{"query": query, "hits": items}, nil)
+	if len(items) == 0 {
+		res.Warnings = append(res.Warnings, "无命中：核对检索词，或确认语料范围（无结果不是错误）")
+	}
+	if pending > 0 {
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("%d 条命中为待人工确认文本，仅提示不报错（12.3）", pending))
+	}
+	return res
+}
+
+// GetArticle 条文详情（按 article_id）：全文 + 法规名 + 版本区间 + 确认状态 +
+// 溯源（trace.doc_id/pdf_path）。OpenCourt GetLawDetail 对接面。
+func (o *OpenLaw) GetArticle(articleID string) Result {
+	var docID, versionID, versionNo, name, artNo, content, eff, exp, cs, lang string
+	err := o.db.QueryRow(`SELECT a.doc_id, a.version_id, a.article_no, a.content,
+		v.version_no, v.effective_date, COALESCE(v.expire_date,''), d.confirm_status,
+		l.name, d.lang
+		FROM article a
+		JOIN law_version v ON v.version_id = a.version_id
+		JOIN law l ON l.law_id = v.law_id
+		JOIN document d ON d.doc_id = a.doc_id
+		WHERE a.article_id = ?`, articleID).
+		Scan(&docID, &versionID, &artNo, &content, &versionNo, &eff, &exp, &cs, &name, &lang)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fail(StatusNotFound, CodeArticleNotFound, ErrorHints[CodeArticleNotFound])
+	} else if err != nil {
+		return fail(StatusNotFound, "", fmt.Sprintf("查询失败: %v", err))
+	}
+	var pdfPath string
+	_ = o.db.QueryRow(`SELECT file_path FROM document WHERE doc_id = ?`, docID).Scan(&pdfPath)
+	trace := o.traceFor(docID, pdfPath)
+	data := map[string]any{
+		"article_id": articleID, "article_no": artNo, "content": content, "doc_id": docID,
+		"law_name": name, "version_id": versionID, "version_no": versionNo,
+		"effective_date": eff, "expire_date": exp, "confirm_status": cs, "lang": lang,
+	}
+	if !trace.ChainOK {
+		return brokenChain(data, trace)
+	}
+	res := ok(data, trace)
+	if cs != "confirmed" {
+		res.Warnings = append(res.Warnings, "该文本确认状态为待人工确认，仅提示不报错（12.3）")
+	}
+	return res
 }
 
 // traceFor 构建溯源信息并顺带执行断链检测（所有输出必须携带 doc_id）。
