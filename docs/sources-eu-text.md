@@ -74,7 +74,14 @@ FORMEX wrapper（DOC_1）的 `REF.PHYS FILE=` 与 `sameAs` 均指向 doc.xml，�
 
 ## 八、实现状态（M1 已完成，2026-10-25）
 
-已实现：`Cellar.FetchText`（四步链：expression CMR → manifestation 选择 → item 发现 → 下载取最大者；robots 强制/2s 限速/import_log/大小上限/留证 incoming）+ `parse.ParseFormexACT`（`encoding/xml` 状态机，ARTICLE/TI.ART/STI.ART/PARAG/NO.PARAG/ALINEA 最小元素集，序言/结语/章节标题进 md 层）+ `parse.SplitArticlesEU`（英文 `Article N` 切分，XHTML 回退与 pack 回灌共用）+ `Importer` 扩展（`Request.Articles/Lang/ParserVersion`，document.lang/law_version.lang 写入）+ `cmd/openlaw-eu-text`（默认 dry-run；前置 openlaw-eu 元数据，不自动建占位法）+ pack `changes.csv` 新增 `lang` 列（v0/v1/v2 三代表头向后兼容）与 xml 原始层。
+已实现：`Cellar.FetchText`（四步链：expression CMR → manifestation 选择 → item 发现 → 下载取最大者；robots 强制/2s 限速/import_log/大小上限/留证 incoming）+ `parse.ParseFormexACT`（`encoding/xml` 状态机，ARTICLE/TI.ART/STI.ART/PARAG/NO.PARAG/ALINEA 最小元素集，序言/结语/章节标题进 md 层）+ `parse.SplitArticlesEU`（英文 `Article N` 切分，XHTML 回退与 pack 回灌共用）+ `Importer` 扩展（`Request.Articles/Lang/ParserVersion`，document.lang/law_version.lang 写入）+ `cmd/openlaw-eu-text`（默认 dry-run；前置 openlaw-eu 元数据，不自动建占位法）+ pack `changes.csv` 新增 `lang` 列（v0/v1/v2 三代表头向后兼容）与 xml 原始层。单测覆盖：四步链 mock（httptest 复刻 GDPR 真实结构）、FORMEX 解析与 FullText↔SplitArticlesEU 往返、EU 入库（lang/parser_version/FTS）、pack lang 往返。
+
+**GDPR 实网 pilot 状态**：代码链在实网验证到 expression 请求步（TLS 修复后 robots 通过），其后被 EU 站点按客户端指纹分桶的 IP 级 429 冷却挡住（探测阶段请求过量所致；curl 桶已恢复 200，Go 桶冷却更长）。pilot 待配额恢复后执行：
+
+```
+openlaw-eu-text -data data -celex 32016R0679 -lang eng -dry-run   # 先验证 99 条
+openlaw-eu-text -data data -celex 32016R0679 -lang eng            # 入库（pending 闸口）
+```
 
 实网新发现（实现期修正设计文档）：
 1. **expression URI 语言后缀大写**（`…32016R0679.ENG`，非 ISO 639-3 小写）——lang 字段入库保持小写，URI 构造时 ToUpper；
