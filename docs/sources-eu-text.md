@@ -79,7 +79,8 @@ FORMEX wrapper（DOC_1）的 `REF.PHYS FILE=` 与 `sameAs` 均指向 doc.xml，�
 实网新发现（实现期修正设计文档）：
 1. **expression URI 语言后缀大写**（`…32016R0679.ENG`，非 ISO 639-3 小写）——lang 字段入库保持小写，URI 构造时 ToUpper；
 2. **域名迁移**：`publications.europa.eu` 资源 URI 会 301/303 到 `op.europa.eu`（同一出版局服务，robots.txt 本就由 op.europa.eu 提供）——重定向白名单锁双域；
-3. **429 比 SPARQL 更严**：op.europa.eu 对 robots.txt 本身间歇限流，fail-closed 拒绝属正确行为，长退避（≥3 分钟）重试即可，勿轰炸。
+3. **429 双层限流**：AFD（op.europa.eu）与 nginx（publications.europa.eu）都会限流；fail-closed 拒绝属正确行为，长退避（≥5 分钟）重试，勿轰炸；
+4. **TLS 指纹误伤**：Go 1.24+ ClientHello 默认带 X25519MLKEM768 后量子 key share，JA3 异常被 AFD 按机器人持续 429（curl 同 IP 200）——`Cellar.policy()` 用自定义 Transport 限定曲线偏好（X25519/P256）即恢复；UA 仍如实标识，不冒充浏览器。
 
 ## 九、风险与开放问题
 

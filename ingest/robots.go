@@ -89,7 +89,7 @@ func (rc *RobotsCache) Allowed(ctx context.Context, rawURL string) (bool, string
 // fetch 获取并解析 robots.txt。
 func (rc *RobotsCache) fetch(ctx context.Context, origin string) *robotsHost {
 	pol := rc.pol
-	client := &http.Client{Timeout: pol.Timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	client := &http.Client{Timeout: pol.Timeout, Transport: transportOf(pol), CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 3 {
 			return fmt.Errorf("重定向过多")
 		}

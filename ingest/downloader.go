@@ -32,6 +32,18 @@ type FetchPolicy struct {
 	Timeout    time.Duration // 单次请求超时，默认 30s
 	UserAgent  string        // 自定义 UA，默认 openlaw/<versionTag> (local legal research; noindex)
 	AllowHTTP  bool          // 允许 http（仅建议测试用途；回环地址默认放行）
+	// Transport 自定义传输层（nil = 默认）。Cellar 用其调整 TLS 曲线偏好规避
+	// Azure Front Door 对 Go 1.24+ 后量子 ClientHello 的指纹误伤（见 cellar.go policy()）。
+	Transport *http.Transport
+}
+
+// transportOf 安全转换：nil *http.Transport 直接放进 http.Client.Transport 会产生
+// 非 nil 的 nil 接口而 panic，必须显式返回 nil 接口。
+func transportOf(pol FetchPolicy) http.RoundTripper {
+	if pol.Transport == nil {
+		return nil
+	}
+	return pol.Transport
 }
 
 // blockedHosts 硬禁止名单：明确禁止自动化采集的官方源（robots.txt 声明，2026-10 复核）。

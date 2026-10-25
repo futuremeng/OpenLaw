@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -132,7 +133,7 @@ func (c *Cellar) sparql(ctx context.Context, query string) ([]sparqlBinding, err
 	}
 	req.Header.Set("User-Agent", pol.UserAgent)
 	req.Header.Set("Accept", "application/sparql-results+json")
-	client := &http.Client{Timeout: pol.Timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	client := &http.Client{Timeout: pol.Timeout, Transport: transportOf(pol), CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 3 {
 			return fmt.Errorf("重定向次数过多")
 		}
@@ -471,7 +472,7 @@ func (c *Cellar) getCellar(ctx context.Context, uri, accept string, maxBytes int
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
-	client := &http.Client{Timeout: c.policy().Timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	client := &http.Client{Timeout: c.policy().Timeout, Transport: c.policy().Transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 4 {
 			return fmt.Errorf("重定向次数过多")
 		}
@@ -714,6 +715,18 @@ func (c *Cellar) policy() FetchPolicy {
 	}
 	if pol.UserAgent == "" {
 		pol.UserAgent = defaultUserAgent()
+	}
+	// TLS 兼容修正（2026-10-25 实网）：Go 1.24+ 默认在 ClientHello 发送 X25519MLKEM768
+	// 后量子 key share，JA3 指纹异常，被 EU 站点的 Azure Front Door WAF 按机器人限速
+	// （robots.txt 本身持续 429，curl 同 IP 却 200）。仅调曲线偏好即恢复——UA 仍如实
+	// 标识机器人身份，不冒充浏览器；这是被 WAF 指纹误伤的正常兼容问题。
+	if pol.Transport == nil {
+		pol.Transport = &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			TLSClientConfig: &tls.Config{
+				CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
+			},
+		}
 	}
 	return pol
 }
