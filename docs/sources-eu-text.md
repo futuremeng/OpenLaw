@@ -72,7 +72,16 @@ FORMEX wrapper（DOC_1）的 `REF.PHYS FILE=` 与 `sameAs` 均指向 doc.xml，�
 | M2 | SPARQL 批量清单（regulation/directive/decision，in-force）+ XHTML 回退 + PDF 归档 + raw/eu/ 目录规范 |
 | M3 | Recital（序言段）/Annex 切分、conslex 合并版版本链、多语言版本策略 |
 
-## 七、风险与开放问题
+## 八、实现状态（M1 已完成，2026-10-25）
+
+已实现：`Cellar.FetchText`（四步链：expression CMR → manifestation 选择 → item 发现 → 下载取最大者；robots 强制/2s 限速/import_log/大小上限/留证 incoming）+ `parse.ParseFormexACT`（`encoding/xml` 状态机，ARTICLE/TI.ART/STI.ART/PARAG/NO.PARAG/ALINEA 最小元素集，序言/结语/章节标题进 md 层）+ `parse.SplitArticlesEU`（英文 `Article N` 切分，XHTML 回退与 pack 回灌共用）+ `Importer` 扩展（`Request.Articles/Lang/ParserVersion`，document.lang/law_version.lang 写入）+ `cmd/openlaw-eu-text`（默认 dry-run；前置 openlaw-eu 元数据，不自动建占位法）+ pack `changes.csv` 新增 `lang` 列（v0/v1/v2 三代表头向后兼容）与 xml 原始层。
+
+实网新发现（实现期修正设计文档）：
+1. **expression URI 语言后缀大写**（`…32016R0679.ENG`，非 ISO 639-3 小写）——lang 字段入库保持小写，URI 构造时 ToUpper；
+2. **域名迁移**：`publications.europa.eu` 资源 URI 会 301/303 到 `op.europa.eu`（同一出版局服务，robots.txt 本就由 op.europa.eu 提供）——重定向白名单锁双域；
+3. **429 比 SPARQL 更严**：op.europa.eu 对 robots.txt 本身间歇限流，fail-closed 拒绝属正确行为，长退避（≥3 分钟）重试即可，勿轰炸。
+
+## 九、风险与开放问题
 
 1. FORMEX schema 随 CONVEX converter 版本演化——解析器只依赖 `ARTICLE/TI.ART/STI.ART/PARAG/NO.PARAG/ALINEA` 最小元素集，未知结构走 whole 兜底；
 2. 2000 年前纸质 OJ 数字化文档部分只有 PDF/TIFF 扫描——OCR 队列（同 flk 无文本 docx 纪律）；

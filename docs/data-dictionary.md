@@ -12,10 +12,10 @@ law 1─n law_version 1─n article 1─n element；law 1─n relation；documen
 law_id（PK）、name、short_name、issuer、effect_level（CHECK 枚举：宪法/法律/行政法规/监察法规/地方性法规/部门规章/地方政府规章/司法解释/其他/欧盟条例/欧盟指令/欧盟决定）、is_local、remark。
 
 ### document 原始文档（溯源锚点）
-doc_id（PK）、file_path（**相对数据目录**，如 `pdf/<doc_id>.pdf`）、file_size、sha256（防篡改依据）、hash_algo（必须注明算法类型）、hash_computed_at、source_url/source_type、is_gongbao、publish_date、ocr_used/ocr_confidence、confirm_status（confirmed/pending/rejected）。
+doc_id（PK）、file_path（**相对数据目录**，如 `pdf/<doc_id>.pdf`）、file_size、sha256（防篡改依据）、hash_algo（必须注明算法类型）、hash_computed_at、source_url/source_type、is_gongbao、publish_date、ocr_used/ocr_confidence、confirm_status（confirmed/pending/rejected）、lang（ISO 639-3，默认 zho；EU 通道 eng 等——24 官方语言同等作准，多语言=多 document）。
 
 ### law_version 版本表
-version_id（= `law_id + "_" + version_no`）、effective_date、expire_date。
+version_id（= `law_id + "_" + version_no`）、effective_date、expire_date、lang（版本正文语言，默认 zho）。
 **时效约定：左闭右开 `[effective, expire)`；未失效留 NULL，不用 9999 占位。**
 生效当天命中、失效当天不命中。导入器在事务内做区间重叠检查，防止同日双版本命中。
 
@@ -23,6 +23,8 @@ version_id（= `law_id + "_" + version_no`）、effective_date、expire_date。
 article_id（= `version_id + "_" + article_no`）、content、md_path、doc_id、**parser_version（强制版本化）**。
 
 **全文即一节（whole-text）**：无「第X条」结构的文档（决定/决议/公告/名单类）以单条记录承载全文——`article_no = "全文"`（约定值，不与任何真实条号冲突）、`parser_version` 带 `+whole` 后缀（如 `openlaw-parse/0.1.0+whole`）。该记录可全文检索，但**语义上是整份文档而非条文**：引用校验/要件分析等条文级功能不得将其当作条文使用；按 `parser_version LIKE '%+whole'` 或 `article_no='全文'` 即可整体排除。
+
+**EU 通道**：`article_no` 为英文条号（`Article 1` 等）、`parser_version = openlaw-parse/0.1.0+formex-eu`（FORMEX ACT XML 结构边界，XHTML 回退带 `+xhtml` 后缀）。条文级中文语义功能（要件抽取等）须按 `parser_version LIKE '%+formex-eu'` 或 `lang` 区分语言。
 
 ### element 构成要件表
 element_id、article_id、case_type（案由）、name、description、how_to_attack（对方突破方向）。

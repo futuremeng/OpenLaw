@@ -9,9 +9,13 @@ package ingest
 //     EUR-Lex 网页有 WAF 挑战，全文须人工保存或待 Cellar 表示层语法实现）。
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +42,9 @@ const CellarSPARQL = CellarBase + "/webapi/rdf/sparql"
 
 // celexPattern CELEX 编号：1 位机构 + 4 位年份 + 1 位类型 + 4 位序号（+可选尾字符）。
 var celexPattern = regexp.MustCompile(`^[0-9]{5}[A-Z][0-9]{4}[A-Z0-9]?$`)
+
+// langPattern ISO 639-3 语言代码（Cellar expression URI 用，如 eng/fra/deu）。
+var langPattern = regexp.MustCompile(`^[a-z]{3}$`)
 
 // Cellar Cellar 元数据客户端。
 type Cellar struct {
@@ -398,6 +405,296 @@ func (c *Cellar) findLawByCellarURI(ctx context.Context, cellarURI string) (stri
 		}
 	}
 	return "", nil
+}
+
+// ---------- 全文通道（docs/sources-eu-text.md，2026-10-25 实网打通） ----------
+
+// EUText 一次全文获取的产出（原始字节 + 溯源要素；留证文件已落 incoming）。
+type EUText struct {
+	Celex            string `json:"celex"`
+	Lang             string `json:"lang"` // 请求语言（ISO 639-3，如 eng）
+	Format           string `json:"format"`
+	MimeType         string `json:"mime_type"`
+	Title            string `json:"title"` // expression 官方全称（cdm:title）
+	ExpressionURI    string `json:"expression_uri"`
+	ManifestationURI string `json:"manifestation_uri"`
+	ItemURI          string `json:"item_uri"` // 正文 item（多 DOC_N 时取最大者）
+	SHA256           string `json:"sha256"`
+	Size             int64  `json:"size"`
+	RawPath          string `json:"raw_path"` // 留证文件（相对 DataDir）
+	FetchedAt        string `json:"fetched_at"`
+	Bytes            []byte `json:"-"`
+}
+
+// cellarHostAllowed Cellar 服务主机白名单：publications.europa.eu 与 op.europa.eu
+// 是同一出版局服务（robots.txt 即由 op.europa.eu 提供；资源 URI 301/303 在两域间迁移，
+// 2026-10 实测），重定向锁到这两个主机，其余一律拒绝。
+func cellarHostAllowed(h string) bool {
+	switch h {
+	case "publications.europa.eu", "op.europa.eu", "www.op.europa.eu":
+		return true
+	}
+	return false
+}
+
+// getCellar 通用 Cellar GET（robots 强制 + 限速 + 大小上限 + import_log）。
+// uri 为 Linked Data http URI；请求走 https（同一主机白名单），重定向锁主机。
+func (c *Cellar) getCellar(ctx context.Context, uri, accept string, maxBytes int64) ([]byte, error) {
+	if c.MinInterval == 0 {
+		c.MinInterval = 2 * time.Second
+	}
+	if d := time.Since(c.lastQuery); d < c.MinInterval {
+		select {
+		case <-time.After(c.MinInterval - d):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	c.lastQuery = time.Now()
+
+	reqURL := strings.Replace(uri, cellarResBase, CellarBase, 1)
+	if c.Endpoint != "" {
+		reqURL = c.Endpoint + strings.TrimPrefix(uri, cellarResBase) // 测试注入：换主机
+	}
+	if c.robots == nil {
+		c.robots = NewRobotsCache(c.policy())
+	}
+	if ok, why := c.robots.Allowed(ctx, reqURL); !ok {
+		c.logQuery(reqURL, "failed", fmt.Sprintf("robots 策略拒绝: %s", why))
+		return nil, fmt.Errorf("robots 策略拒绝: %s", why)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", c.policy().UserAgent)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	client := &http.Client{Timeout: c.policy().Timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 4 {
+			return fmt.Errorf("重定向次数过多")
+		}
+		if c.Endpoint != "" {
+			if req.URL.Hostname() != mustParseHost(c.Endpoint) {
+				return fmt.Errorf("Cellar 下载离开白名单主机，拒绝: %s", req.URL.Host)
+			}
+			return nil
+		}
+		if !cellarHostAllowed(req.URL.Hostname()) {
+			return fmt.Errorf("Cellar 下载离开白名单主机，拒绝: %s", req.URL.Host)
+		}
+		return nil
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.logGet(reqURL, "failed", fmt.Sprintf("请求失败: %v", err), 0, "")
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		c.logGet(reqURL, "failed", err.Error(), 0, "")
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		reason := fmt.Sprintf("HTTP %d: %.200s", resp.StatusCode, string(body))
+		c.logGet(reqURL, "failed", reason, int64(len(body)), resp.Header.Get("Content-Type"))
+		return nil, fmt.Errorf("Cellar 获取失败: %s", reason)
+	}
+	if int64(len(body)) > maxBytes {
+		c.logGet(reqURL, "failed", fmt.Sprintf("超过大小上限 %d 字节", maxBytes), int64(len(body)), resp.Header.Get("Content-Type"))
+		return nil, fmt.Errorf("Cellar 响应超过大小上限 %d 字节", maxBytes)
+	}
+	c.logGet(reqURL, "success", "", int64(len(body)), resp.Header.Get("Content-Type"))
+	return body, nil
+}
+
+// logGet 文件级访问进 import_log（带 file_size/http_status/content_type 线索）。
+func (c *Cellar) logGet(url, result, reason string, size int64, ctype string) {
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	_, _ = c.DB.Exec(`INSERT INTO import_log(doc_id, source_url, file_path, file_size, sha256,
+		http_status, content_type, result, reason, created_at)
+		VALUES(NULL,?,NULL,?,NULL,NULL,?,?,?,?)`,
+		url, size, ctype, result, "[cellar-text] "+reason, time.Now().UTC().Format(time.RFC3339))
+}
+
+// rdfDesc CMR RDF XML 的一个 rdf:Description 块（谓词 local name → 值列表）。
+type rdfDesc struct {
+	about string
+	props map[string][]string
+}
+
+// parseRDFDescriptions 轻量解析 RDF/XML（Cellar CMR 结构固定：
+// rdf:Description about= + 子元素 rdf:resource 属性或文本值）。
+func parseRDFDescriptions(data []byte) ([]rdfDesc, error) {
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	var out []rdfDesc
+	var cur *rdfDesc
+	var pred string
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("RDF XML 解析失败: %w", err)
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "Description" {
+				about := ""
+				for _, a := range t.Attr {
+					if a.Name.Local == "about" {
+						about = a.Value
+					}
+				}
+				cur = &rdfDesc{about: about, props: map[string][]string{}}
+				pred = ""
+			} else if cur != nil {
+				pred = t.Name.Local
+				for _, a := range t.Attr {
+					if a.Name.Local == "resource" {
+						cur.props[pred] = append(cur.props[pred], a.Value)
+					}
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == "Description" && cur != nil {
+				out = append(out, *cur)
+				cur, pred = nil, ""
+			} else {
+				pred = ""
+			}
+		case xml.CharData:
+			if cur != nil && pred != "" {
+				if s := strings.TrimSpace(string(t)); s != "" {
+					cur.props[pred] = append(cur.props[pred], s)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// FetchText 按 CELEX+语言获取全文正文（四步链，全程 Cellar 主机白名单内）：
+//  1. /resource/celex/<CELEX>.<LANG> → expression CMR（303 重定向后读 RDF）
+//  2. expression_manifested_by_manifestation → manifestation 列表（按 format 选）
+//  3. <manifestation>/rdf/object/full → item 列表（item_identifier，如 DOC_1/DOC_2）
+//  4. 逐个下载 item，取最大者为正文（fmx4 的 DOC_1 是 ~1.6KB FORMEX wrapper，DOC_2 才是正文）
+//
+// format: "fmx4"（FORMEX ACT XML，首选）| "xhtml"（CONVEX XHTML，回退）。
+// 原始字节落 data/incoming/eu_<celex>_<lang>_<format>.<ext> 留证；全部访问进 import_log。
+func (c *Cellar) FetchText(ctx context.Context, celex, lang, format string) (*EUText, error) {
+	celex = strings.ToUpper(strings.TrimSpace(celex))
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if !celexPattern.MatchString(celex) {
+		return nil, fmt.Errorf("CELEX 编号格式非法: %q（示例 32016R0679）", celex)
+	}
+	if !langPattern.MatchString(lang) {
+		return nil, fmt.Errorf("语言代码非法: %q（ISO 639-3，如 eng）", lang)
+	}
+	if format == "" {
+		format = "fmx4"
+	}
+	if format != "fmx4" && format != "xhtml" {
+		return nil, fmt.Errorf("不支持的格式: %q（fmx4|xhtml）", format)
+	}
+
+	// 1) expression CMR（Cellar expression URI 语言后缀为大写：…32016R0679.ENG，实测）
+	exprRDF, err := c.getCellar(ctx, cellarResBase+"/celex/"+celex+"."+strings.ToUpper(lang), "application/rdf+xml", 16<<20)
+	if err != nil {
+		return nil, fmt.Errorf("定位 expression 失败: %w", err)
+	}
+	descs, err := parseRDFDescriptions(exprRDF)
+	if err != nil {
+		return nil, err
+	}
+	var exprURI, exprTitle string
+	var maniURIs []string
+	for _, d := range descs {
+		if ms := d.props["expression_manifested_by_manifestation"]; len(ms) > 0 {
+			exprURI, maniURIs = d.about, ms
+		}
+		if ts := d.props["title"]; len(ts) > 0 {
+			if s := strings.Join(strings.Fields(strings.Join(ts, " ")), " "); s != "" {
+				exprTitle = s
+			}
+		}
+	}
+	if exprURI == "" || len(maniURIs) == 0 {
+		return nil, fmt.Errorf("CELEX %s.%s 无 manifestation（该语言版本是否存在？）", celex, lang)
+	}
+
+	// 2) 按格式选 manifestation
+	var maniURI string
+	for _, m := range maniURIs {
+		if strings.HasSuffix(m, "."+format) {
+			maniURI = m
+			break
+		}
+	}
+	if maniURI == "" {
+		return nil, fmt.Errorf("CELEX %s.%s 无 %s 格式 manifestation（可用: %s）",
+			celex, lang, format, strings.Join(maniURIs, ", "))
+	}
+
+	// 3) manifestation → items
+	maniRDF, err := c.getCellar(ctx, maniURI+"/rdf/object/full", "application/rdf+xml", 16<<20)
+	if err != nil {
+		return nil, fmt.Errorf("读取 manifestation 失败: %w", err)
+	}
+	descs, err = parseRDFDescriptions(maniRDF)
+	if err != nil {
+		return nil, err
+	}
+	var itemURIs []string
+	for _, d := range descs {
+		// item 的 about 以 <item_identifier> 结尾（如 …/cellar/<uuid>.0006.02/DOC_2）；
+		// 注意 item URI 可能与 manifestation URI 不同形（oj/… vs cellar/…，sameAs 等价）
+		if ids := d.props["item_identifier"]; len(ids) > 0 &&
+			strings.HasSuffix(d.about, "/"+ids[0]) {
+			itemURIs = append(itemURIs, d.about)
+		}
+	}
+	if len(itemURIs) == 0 {
+		return nil, fmt.Errorf("manifestation %s 无 item（结构异常）", maniURI)
+	}
+
+	// 4) 下载全部 item，取最大者为正文
+	t := &EUText{Celex: celex, Lang: lang, Format: format, Title: exprTitle,
+		ExpressionURI: exprURI, ManifestationURI: maniURI,
+		FetchedAt: time.Now().UTC().Format(time.RFC3339)}
+	for _, iu := range itemURIs {
+		b, err := c.getCellar(ctx, iu, "", 64<<20)
+		if err != nil {
+			continue // 个别 item 失败不致命：正文候选取其余
+		}
+		if int64(len(b)) > int64(len(t.Bytes)) {
+			t.Bytes, t.ItemURI = b, iu
+		}
+	}
+	if len(t.Bytes) == 0 {
+		return nil, fmt.Errorf("manifestation %s 的全部 item 下载失败或为空", maniURI)
+	}
+	sum := sha256.Sum256(t.Bytes)
+	t.SHA256 = hex.EncodeToString(sum[:])
+	t.Size = int64(len(t.Bytes))
+	t.MimeType = map[string]string{"fmx4": "application/xml", "xhtml": "application/xhtml+xml"}[format]
+
+	// 留证：incoming/eu_<celex>_<lang>_<format>.<ext>
+	ext := map[string]string{"fmx4": ".xml", "xhtml": ".xhtml"}[format]
+	incoming := filepath.Join(c.DataDir, "incoming")
+	if err := os.MkdirAll(incoming, 0o755); err != nil {
+		return nil, err
+	}
+	name := fmt.Sprintf("eu_%s_%s_%s%s", celex, lang, format, ext)
+	if err := os.WriteFile(filepath.Join(incoming, name), t.Bytes, 0o644); err != nil {
+		return nil, err
+	}
+	t.RawPath = filepath.Join("incoming", name)
+	return t, nil
 }
 
 // mustParseHost 取 URL 主机名（入参为包内常量；解析失败回退空串=拒绝一切重定向）。

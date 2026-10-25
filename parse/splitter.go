@@ -63,3 +63,29 @@ func trimBlankLines(s string) string {
 	}
 	return s[start:end]
 }
+
+// articleEURe 匹配 EU 条文标记行首「Article N」（可带 ## 标题前缀，
+// FORMEX FullText 渲染与 XHTML 回退共用；大小写敏感——官方文本固定 Title 格）。
+var articleEURe = regexp.MustCompile(`(?m)^(?:#{1,6} *)?(Article [0-9]+)\b`)
+
+// SplitArticlesEU 按「Article N」标记拆分英文正文（EU 通道专用：
+// pack 回灌 lang=eng 的 md、XHTML 回退文本切分）。语义与 SplitArticles 一致：
+// 首个标记之前的文字不入库；返回空切片表示未识别出任何条文。
+func SplitArticlesEU(md string) []Article {
+	locs := articleEURe.FindAllStringSubmatchIndex(md, -1)
+	if len(locs) == 0 {
+		return nil
+	}
+	arts := make([]Article, 0, len(locs))
+	for i, loc := range locs {
+		end := len(md)
+		if i+1 < len(locs) {
+			end = locs[i+1][0]
+		}
+		arts = append(arts, Article{
+			No:      md[loc[2]:loc[3]],
+			Content: trimBlankLines(md[loc[0]:end]),
+		})
+	}
+	return arts
+}

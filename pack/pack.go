@@ -67,15 +67,19 @@ type Change struct {
 	SourceURL     string
 	SourceType    string
 	Notes         string
-	Whole         bool // 全文即一节模式（article_no=全文，无条文结构文档）
+	Whole         bool   // 全文即一节模式（article_no=全文，无条文结构文档）
+	Lang          string // 正文语言（ISO 639-3；空=zho。EU 通道 eng 等，回灌按语言选切分器）
 }
 
 var changeHeader = []string{"action", "doc_id", "law_id", "law_name", "short_name", "issuer",
 	"effect_level", "version_no", "effective_date", "expire_date", "publish_date", "is_gongbao",
-	"source_url", "source_type", "notes", "whole"}
+	"source_url", "source_type", "notes", "whole", "lang"}
 
-// oldChangeHeader v0 格式（无 whole 列）：读取时向后兼容，whole 视为 false。
+// oldChangeHeader v0 格式（无 whole/lang 列）：读取时向后兼容。
 var oldChangeHeader = changeHeader[:15]
+
+// v1ChangeHeader 中间格式（有 whole 无 lang）：向后兼容。
+var v1ChangeHeader = changeHeader[:16]
 
 // Build 从数据目录构建更新包：复制 pdf/ md/ provenance/，从数据库导出 changes.csv，
 // 生成 manifest.json 并用私钥签名（私钥独立存储，不进包）。
@@ -100,7 +104,7 @@ func Build(db *store.DB, dataDir, outDir, keyPath, license, attribution string) 
 			return err
 		}
 	}
-	for _, sub := range []string{"docx", "txt"} { // 可选原始层（docx 存量导入后出现）
+	for _, sub := range []string{"docx", "txt", "xml"} { // 可选原始层（docx 存量/xml EU 通道出现）
 		src := filepath.Join(dataDir, sub)
 		if _, err := os.Stat(src); err != nil {
 			continue
@@ -121,7 +125,8 @@ func writeChanges(db *store.DB, path string) error {
 		COALESCE(l.issuer,''), COALESCE(l.effect_level,''), v.version_no, v.effective_date,
 		COALESCE(v.expire_date,''), COALESCE(d.publish_date,''), d.is_gongbao,
 		COALESCE(d.source_url,''), COALESCE(d.source_type,''),
-		EXISTS(SELECT 1 FROM article a WHERE a.version_id = v.version_id AND a.article_no = '全文')
+		EXISTS(SELECT 1 FROM article a WHERE a.version_id = v.version_id AND a.article_no = '全文'),
+		COALESCE(v.lang,'zho')
 		FROM law_version v JOIN law l ON l.law_id = v.law_id
 		JOIN document d ON d.doc_id = v.doc_id
 		ORDER BY v.law_id, v.effective_date`)
@@ -141,14 +146,14 @@ func writeChanges(db *store.DB, path string) error {
 	}
 	count := 0
 	for rows.Next() {
-		var docID, lawID, name, short, issuer, level, vno, eff, exp, pub, url, stype string
+		var docID, lawID, name, short, issuer, level, vno, eff, exp, pub, url, stype, lang string
 		var gongbao, whole int
 		if err := rows.Scan(&docID, &lawID, &name, &short, &issuer, &level, &vno, &eff,
-			&exp, &pub, &gongbao, &url, &stype, &whole); err != nil {
+			&exp, &pub, &gongbao, &url, &stype, &whole, &lang); err != nil {
 			return err
 		}
 		rec := []string{"add", docID, lawID, name, short, issuer, level, vno, eff, exp, pub,
-			strconv.Itoa(gongbao), url, stype, "", strconv.Itoa(whole)}
+			strconv.Itoa(gongbao), url, stype, "", strconv.Itoa(whole), lang}
 		if len(rec) != len(changeHeader) {
 			return fmt.Errorf("%w: %s", ErrBadChange, docID)
 		}
@@ -182,16 +187,21 @@ func ReadChanges(packDir string) ([]Change, error) {
 	if len(records) < 2 {
 		return nil, fmt.Errorf("%w: 表头不符", ErrBadChange)
 	}
-	hasWhole := true
+	hasWhole, hasLang := true, true
 	switch strings.Join(records[0], ",") {
 	case strings.Join(changeHeader, ","):
+	case strings.Join(v1ChangeHeader, ","):
+		hasLang = false
 	case strings.Join(oldChangeHeader, ","):
-		hasWhole = false
+		hasWhole, hasLang = false, false
 	default:
 		return nil, fmt.Errorf("%w: 表头不符", ErrBadChange)
 	}
 	wantCols := len(oldChangeHeader)
 	if hasWhole {
+		wantCols = len(v1ChangeHeader)
+	}
+	if hasLang {
 		wantCols = len(changeHeader)
 	}
 	out := make([]Change, 0, len(records)-1)
@@ -208,6 +218,9 @@ func ReadChanges(packDir string) ([]Change, error) {
 		}
 		if hasWhole {
 			c.Whole = rec[15] == "1"
+		}
+		if hasLang {
+			c.Lang = rec[16]
 		}
 		out = append(out, c)
 	}
@@ -349,6 +362,7 @@ func Import(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error
 			filepath.Join(packDir, "pdf", c.DocID+".pdf"),
 			filepath.Join(packDir, "docx", c.DocID+".docx"),
 			filepath.Join(packDir, "txt", c.DocID+".txt"),
+			filepath.Join(packDir, "xml", c.DocID+".xml"),
 		} {
 			if _, err := os.Stat(cand); err == nil {
 				srcFile = cand
@@ -356,7 +370,7 @@ func Import(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error
 			}
 		}
 		if srcFile == "" {
-			return done, fmt.Errorf("包内缺少 %s 的原始文件（pdf/docx/txt 均无）", c.DocID)
+			return done, fmt.Errorf("包内缺少 %s 的原始文件（pdf/docx/txt/xml 均无）", c.DocID)
 		}
 		md := filepath.Join(packDir, "md", c.DocID+".md")
 		for _, f := range []string{md, filepath.Join(packDir, "provenance", c.DocID+".json")} {
@@ -370,7 +384,7 @@ func Import(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error
 			EffectiveDate: c.EffectiveDate, ExpireDate: c.ExpireDate,
 			SourceURL: c.SourceURL, SourceType: c.SourceType, IsGongbao: c.IsGongbao,
 			PublishDate: c.PublishDate, ConfirmStatus: "pending", Notes: c.Notes,
-			PDFPath: srcFile, MDPath: md, WholeTextMode: c.Whole,
+			PDFPath: srcFile, MDPath: md, WholeTextMode: c.Whole, Lang: c.Lang,
 		})
 		if err != nil {
 			return done, fmt.Errorf("导入 %s 失败（第 %d/%d 条）: %w", c.DocID, i+1, len(changes), err)

@@ -40,6 +40,16 @@ type Request struct {
 	// WholeTextMode 全文即一节：无「第X条」结构的文档（决定/决议/名单类）以单条
 	// article（article_no=全文）承载全文入库，可检索且语义显式打标，绝不伪装成条文。
 	WholeTextMode bool
+	// Lang 正文语言（ISO 639-3；空=默认 zho）。EU 通道必填 eng 等——document.lang
+	// 与 law_version.lang 写入，且 md 回灌时按语言选切分器（eng→SplitArticlesEU）。
+	Lang string
+	// Articles 预置条文列表（EU FORMEX 等结构化来源：条文边界来自 XML 结构而非文本
+	// 切分）。非空时跳过正文提取与 SplitArticles，直接采用；MDContent 提供 md 层全文。
+	Articles []parse.Article
+	// MDContent Articles 模式下的 md 层全文（写 data/md/<doc_id>.md，pack 往返用）。
+	MDContent string
+	// ParserVersion 覆盖 article.parser_version（EU 通道=formex-eu-v1；空=默认）。
+	ParserVersion string
 }
 
 // Result 导入成功后的产出。
@@ -74,12 +84,24 @@ func (im *Importer) Import(req Request) (*Result, error) {
 	}
 
 	// 2) 解析正文、拆分条文（空结果视为失败，禁止静默入库）
+	// Articles 预置模式（EU FORMEX 等结构化来源）：条文边界来自 XML 结构，跳过文本切分。
 	// MDPath 留空时按源文件扩展名自动提取：
 	//   .pdf  文本层提取（扫描件报错转 OCR/人工）
 	//   .docx 正文提取（flk 批量下载存量主格式；.doc 遗留格式报错转 textutil 转换）
 	//   .txt/.md 直接读取（人工保存的在线全文等）
 	var mdBytes []byte
-	if req.MDPath != "" {
+	var arts []parse.Article
+	if len(req.Articles) > 0 {
+		arts = req.Articles
+		mdBytes = []byte(req.MDContent)
+		if len(mdBytes) == 0 {
+			var b strings.Builder
+			for _, a := range arts {
+				b.WriteString(a.Content + "\n\n")
+			}
+			mdBytes = []byte(strings.TrimSpace(b.String()))
+		}
+	} else if req.MDPath != "" {
 		mdBytes, err = os.ReadFile(req.MDPath)
 		if err != nil {
 			im.logImport(req, "failed", fmt.Sprintf("读取正文失败: %v", err))
@@ -93,7 +115,13 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		}
 		mdBytes = []byte(parse.NormalizePDFText(text))
 	}
-	arts := parse.SplitArticles(string(mdBytes))
+	if arts == nil {
+		if req.Lang != "" && req.Lang != "zho" {
+			arts = parse.SplitArticlesEU(string(mdBytes)) // 非中文正文按语言选切分器（EU 通道）
+		} else {
+			arts = parse.SplitArticles(string(mdBytes))
+		}
+	}
 	wholeText := false
 	if len(arts) == 0 {
 		if !req.WholeTextMode {
@@ -134,9 +162,15 @@ func (im *Importer) Import(req Request) (*Result, error) {
 			im.logImport(req, "failed", err.Error())
 			return nil, err
 		}
-	} else if err := os.WriteFile(dstMD, mdBytes, 0o644); err != nil {
-		im.logImport(req, "failed", err.Error())
-		return nil, err
+	} else {
+		if err := os.MkdirAll(filepath.Dir(dstMD), 0o755); err != nil {
+			im.logImport(req, "failed", err.Error())
+			return nil, err
+		}
+		if err := os.WriteFile(dstMD, mdBytes, 0o644); err != nil {
+			im.logImport(req, "failed", err.Error())
+			return nil, err
+		}
 	}
 
 	// 4) 溯源 JSON（必填字段齐全才允许继续）
@@ -264,25 +298,31 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 	}
 
 	ext, kind := srcExtKind(req.PDFPath)
+	lang := req.Lang
+	if lang == "" {
+		lang = "zho"
+	}
 	if _, err := tx.Exec(`INSERT INTO document(doc_id, file_name, file_path, file_size, sha256,
-		hash_algo, hash_computed_at, source_url, source_type, is_gongbao, publish_date, confirm_status)
-		VALUES(?,?,?,?,?,'SHA-256',?,?,?,?,?,?)`,
+		hash_algo, hash_computed_at, source_url, source_type, is_gongbao, publish_date, confirm_status, lang)
+		VALUES(?,?,?,?,?,'SHA-256',?,?,?,?,?,?,?)`,
 		req.DocID, filepath.Base(req.PDFPath), filepath.Join(kind, req.DocID+ext),
 		sizeOrZero(req.PDFPath), sha, now, nullable(req.SourceURL), nullable(req.SourceType),
-		boolInt(req.IsGongbao), nullable(req.PublishDate), req.ConfirmStatus); err != nil {
+		boolInt(req.IsGongbao), nullable(req.PublishDate), req.ConfirmStatus, lang); err != nil {
 		return nil, "", fmt.Errorf("写入 document 失败: %w", err)
 	}
 
 	if _, err := tx.Exec(`INSERT INTO law_version(version_id, law_id, version_no, effective_date,
-		expire_date, doc_id, is_gongbao) VALUES(?,?,?,?,?,?,?)`,
+		expire_date, doc_id, is_gongbao, lang) VALUES(?,?,?,?,?,?,?,?)`,
 		versionID, req.LawID, req.VersionNo, req.EffectiveDate, nullable(req.ExpireDate),
-		req.DocID, boolInt(req.IsGongbao)); err != nil {
+		req.DocID, boolInt(req.IsGongbao), lang); err != nil {
 		return nil, "", fmt.Errorf("写入 law_version 失败: %w", err)
 	}
 
 	mdPath := filepath.Join("md", req.DocID+".md")
 	pv := parse.ParserVersion
-	if wholeText {
+	if req.ParserVersion != "" {
+		pv = req.ParserVersion
+	} else if wholeText {
 		pv = parse.ParserVersionWhole
 	}
 	ids := make([]string, 0, len(arts))

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/futuremeng/OpenLaw/ingest"
+	"github.com/futuremeng/OpenLaw/parse"
 	"github.com/futuremeng/OpenLaw/store"
 	"github.com/futuremeng/OpenLaw/validate"
 )
@@ -295,6 +296,70 @@ func TestImportPackWholeText(t *testing.T) {
 	var no string
 	if err := tdb.QueryRow(`SELECT article_no FROM article WHERE doc_id='law_packwhole_2021'`).Scan(&no); err != nil || no != "全文" {
 		t.Fatalf("导入后应为全文节，实际 %q (%v)", no, err)
+	}
+}
+
+// TestImportPackLang EU 文档 pack 往返：changes.csv 携带 lang=eng，
+// 导入空目录后 lang 保持、英文条文按 SplitArticlesEU 重新切分。
+func TestImportPackLang(t *testing.T) {
+	dir, db, key := setupSource(t)
+	src := filepath.Join(t.TempDir(), "eu_act.xml")
+	if err := os.WriteFile(src, []byte("<ACT>xml</ACT>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	im := &ingest.Importer{DataDir: dir, DB: db}
+	if _, err := im.Import(ingest.Request{
+		DocID: "eu_32016r0679_eng", LawID: "eu_reg_2016_679", LawName: "Regulation (EU) 2016/679",
+		EffectLevel: "欧盟条例", VersionNo: "OJ原文", EffectiveDate: "2016-05-24",
+		SourceType: "cellar", PDFPath: src, Lang: "eng",
+		Articles: []parse.Article{
+			{No: "Article 1", Content: "Article 1\nScope\n\n1. Text one."},
+			{No: "Article 2", Content: "Article 2\n\n1. Text two."},
+		},
+		MDContent:     "## Article 1 Scope\n\n1. Text one.\n\n## Article 2\n\n1. Text two.",
+		ParserVersion: parse.ParserVersionEU,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	packDir := filepath.Join(t.TempDir(), "pack-lang")
+	if err := Build(db, dir, packDir, key, "CC BY 4.0", "(c) European Union"); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := ReadChanges(packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, c := range changes {
+		if c.DocID == "eu_32016r0679_eng" {
+			found = true
+			if c.Lang != "eng" {
+				t.Fatalf("changes.csv lang = %q, 期望 eng", c.Lang)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("changes.csv 缺 EU 文档行")
+	}
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, "db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tdb, err := store.Open(filepath.Join(target, "db", "openlaw.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.Close()
+	if _, err := Import(tdb, target, packDir); err != nil {
+		t.Fatalf("lang 包导入应成功: %v", err)
+	}
+	var lang string
+	if err := tdb.QueryRow(`SELECT lang FROM document WHERE doc_id='eu_32016r0679_eng'`).Scan(&lang); err != nil || lang != "eng" {
+		t.Fatalf("导入后 document.lang = %q (%v)", lang, err)
+	}
+	var n int
+	if err := tdb.QueryRow(`SELECT COUNT(*) FROM article WHERE doc_id='eu_32016r0679_eng'`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("回灌应按 SplitArticlesEU 切出 2 条，实际 %d (%v)", n, err)
 	}
 }
 
