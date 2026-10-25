@@ -76,6 +76,18 @@
       "args": ["-data", "data"]
     },
     {
+      // 桌面端打包形态调试（.app）：在 ../OpenCourt 执行 wails build -debug（带调试符号），
+      // Delve 直接执行 .app 内二进制。编译经 replace => ../OpenLaw，SDK 源码断点照样命中；
+      // 可验证仅 .app 形态生效的链路（自更新、dmg 安装形态、bundle 路径的语料发现）。
+      "name": "桌面端: OpenCourt 打包 .app（debug 符号，自更新/打包形态验证）",
+      "type": "go",
+      "request": "launch",
+      "mode": "exec",
+      "program": "${workspaceFolder}/../OpenCourt/build/bin/OpenCourt.app/Contents/MacOS/OpenCourt",
+      "cwd": "${workspaceFolder}/../OpenCourt",
+      "preLaunchTask": "oc: wails build -debug"
+    },
+    {
       // 桌面端联调（推荐起步）：Delve 编译并启动 OpenCourt 桌面应用（原生窗口）。
       // OpenCourt go.mod 有 replace => ../OpenLaw，二进制源码路径即本工作区文件——
       // 断点直接打在 search/ store/ sdk/ validate/ ingest/ 等任意 SDK 代码上可命中。

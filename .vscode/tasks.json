@@ -16,6 +16,21 @@
       "problemMatcher": []
     },
     {
+      // 打包形态调试支撑：在 OpenCourt 产出带调试符号的 .app。
+      "label": "oc: wails build -debug",
+      "type": "shell",
+      "command": "wails build -debug",
+      "options": {
+        "cwd": "${workspaceFolder}/../OpenCourt",
+        "env": {
+          "PATH": "${env:PATH}:${env:HOME}/go/bin",
+          "GOPROXY": "https://goproxy.cn,direct"
+        }
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
       // 桌面端联调支撑任务：在兄弟仓库 OpenCourt 里跑 wails dev 并附加 Delve。
       "label": "oc: wails dev",
       "type": "shell",
