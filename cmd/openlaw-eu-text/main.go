@@ -33,6 +33,7 @@ func main() {
 		version = flag.String("version-no", "OJ原文", "版本号（law_version.version_no）")
 		name    = flag.String("name", "", "法规名称（留空用库内既有名称；库内为回退名时用 Cellar 官方全称）")
 		dryRun  = flag.Bool("dry-run", false, "只获取与解析，不入库")
+		probe   = flag.Bool("probe", false, "配额探测（RL-2）：只测 robots+expression 两层窗口状态，不抓取不入库")
 		timeout = flag.Duration("timeout", 60*time.Second, "单次请求超时")
 		delay   = flag.Duration("delay", 2*time.Second, "Cellar 请求间隔（礼貌限速）")
 		asJSON  = flag.Bool("json", false, "以 JSON 输出结果")
@@ -51,20 +52,47 @@ func main() {
 	}
 	defer db.Close()
 
-	// 前置：law 必须已由 openlaw-eu 建立（元数据先行纪律，不自动建占位法）
+	// 前置：law 必须已由 openlaw-eu 建立（元数据先行纪律，不自动建占位法）；
+	// 探测模式不依赖库内 law 状态，跳过。
 	var lawID, dbName, shortName string
-	err = db.QueryRow(`SELECT law_id, name, COALESCE(short_name,'') FROM law WHERE celex = ?`,
-		strings.ToUpper(*celex)).Scan(&lawID, &dbName, &shortName)
-	if errors.Is(err, sql.ErrNoRows) {
-		fatal(fmt.Errorf("库内无 CELEX %s 对应的法——先运行 openlaw-eu -celex %s 导入元数据", *celex, *celex))
-	} else if err != nil {
-		fatal(err)
+	if !*probe {
+		err = db.QueryRow(`SELECT law_id, name, COALESCE(short_name,'') FROM law WHERE celex = ?`,
+			strings.ToUpper(*celex)).Scan(&lawID, &dbName, &shortName)
+		if errors.Is(err, sql.ErrNoRows) {
+			fatal(fmt.Errorf("库内无 CELEX %s 对应的法——先运行 openlaw-eu -celex %s 导入元数据", *celex, *celex))
+		} else if err != nil {
+			fatal(err)
+		}
 	}
 
 	c := &ingest.Cellar{DataDir: *dataDir, DB: db,
 		Policy: ingest.FetchPolicy{Timeout: *timeout}, MinInterval: *delay}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+
+	// 探测模式：与正式抓取同一指纹链（policy/Transport/UA/robots 缓存）测窗口，
+	// 退出码 0=窗口开 / 3=限流中（任务编排据此排 RL-1 pilot）。
+	if *probe {
+		pr, err := c.Probe(ctx, *celex, *lang)
+		if err != nil {
+			fatal(err)
+		}
+		if *asJSON {
+			b, _ := json.MarshalIndent(pr, "", "  ")
+			fmt.Println(string(b))
+		} else {
+			fmt.Printf("robots      %d（allow=%v）\n", pr.RobotsStatus, pr.RobotsAllow)
+			fmt.Printf("expression  %d（ok=%v）\n", pr.ExprStatus, pr.ExprOK)
+			fmt.Printf("verdict     %s\n", pr.Suggest)
+		}
+		if !pr.Open {
+			if pr.RateLimited {
+				os.Exit(3)
+			}
+			os.Exit(2)
+		}
+		return
+	}
 
 	t, err := c.FetchText(ctx, *celex, *lang, *format)
 	if err != nil {

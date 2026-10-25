@@ -28,6 +28,7 @@ type robotsHost struct {
 	disallow []string
 	denied   bool // 无法获取 robots（网络错误/5xx）→ 全站拒绝
 	err      string
+	status   int // robots.txt 获取的 HTTP 状态（0=未获取到响应；探测用，RL-2）
 }
 
 func NewRobotsCache(pol FetchPolicy) *RobotsCache {
@@ -109,13 +110,28 @@ func (rc *RobotsCache) fetch(ctx context.Context, origin string) *robotsHost {
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden:
 		return &robotsHost{} // 无 robots = 无限制（惯例）
 	case resp.StatusCode >= 400:
-		return &robotsHost{denied: true, err: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+		return &robotsHost{denied: true, err: fmt.Sprintf("HTTP %d", resp.StatusCode), status: resp.StatusCode}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
 	if err != nil {
-		return &robotsHost{denied: true, err: "读取 robots 失败"}
+		return &robotsHost{denied: true, err: "读取 robots 失败", status: resp.StatusCode} // fail-closed
 	}
-	return parseRobots(string(body), rc.uaToken())
+	host := parseRobots(string(body), rc.uaToken())
+	host.status = resp.StatusCode
+	return host
+}
+
+// LastStatus 返回某 origin 最近一次 robots.txt 获取的 HTTP 状态码
+// （0 = 未发起获取或未收到响应）。探测通道用（RL-2，区分 429 限流与策略拒绝）。
+func (rc *RobotsCache) LastStatus(rawURL string) int {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return 0
+	}
+	if h, ok := rc.cache[u.Scheme+"://"+u.Host]; ok {
+		return h.status
+	}
+	return 0
 }
 
 // parseRobots 解析与 token 相关的组规则。

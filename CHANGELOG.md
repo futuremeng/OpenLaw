@@ -4,6 +4,8 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **RL-2 配额探测（openlaw-eu-text -probe + Cellar.Probe）**：EU 站点按客户端指纹分桶限流，curl 探到 200 不代表 Go 桶可用——探测必须同指纹链。`Probe` 走与正式抓取完全相同的 policy/Transport/UA/robots 缓存：robots.txt + 一次 expression RDF GET（robots 拒绝则不发起，合规省配额），结构化判定窗口开/限流/输入错误，结论写 import_log `[cellar-probe]`；退出码 0=窗口开 / 3=限流中 / 2=其他，任务编排可直接判。附带 `HTTPStatusErr` typed 错误（getCellar 非 200 携带状态码——RL-3 退避判据）与 robots 缓存 `LastStatus` 状态暴露
+
 - **EU M1 代码 review 修复**：①`openlaw-eu-text` dry-run 不再多发 FetchWork 元数据请求（省 Cellar 配额，RL 纪律）；②`SplitArticlesEU` 补条号递增过滤（与中文通道交叉引用误拆同型防御；前向引用局限显式钉测试）；③`Cellar.policy()` 惰性缓存——TLS Transport 全生命周期复用（原每请求新建，连接池不复用）；④`FetchText` item 下载失败原因收集入最终错误；⑤文档 parser_version 统一为实际值 `openlaw-parse/0.1.0+formex-eu`（原 formex-eu-v1 系设计稿旧命名）
 
 - **TLS 指纹兼容修复**：Go 1.24+ 默认 ClientHello 带 X25519MLKEM768 后量子 key share，JA3 指纹异常被 EU 出版局前置 Azure Front Door WAF 按机器人持续 429（连 robots.txt 都取不到，curl 同 IP 却 200）；`FetchPolicy.Transport` + Cellar 默认限定 TLS 曲线偏好（X25519/P-256）修复——UA 仍如实标识，不冒充浏览器

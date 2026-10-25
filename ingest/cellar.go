@@ -439,9 +439,29 @@ func cellarHostAllowed(h string) bool {
 	return false
 }
 
+// HTTPStatusErr Cellar HTTP 获取失败且携带状态码——调用方据此区分限流（429）
+// 与其他失败（探测 RL-2、退避 RL-3 的判据）。
+type HTTPStatusErr struct {
+	Status int
+	URL    string
+}
+
+func (e *HTTPStatusErr) Error() string {
+	return fmt.Sprintf("HTTP %d", e.Status)
+}
+
+// robotsCache robots 缓存惰性初始化（policy() 已缓存 → Transport 全链共用）。
+func (c *Cellar) robotsCache() *RobotsCache {
+	if c.robots == nil {
+		c.robots = NewRobotsCache(c.policy())
+	}
+	return c.robots
+}
+
 // getCellar 通用 Cellar GET（robots 强制 + 限速 + 大小上限 + import_log）。
 // uri 为 Linked Data http URI；请求走 https（同一主机白名单），重定向锁主机。
-func (c *Cellar) getCellar(ctx context.Context, uri, accept string, maxBytes int64) ([]byte, error) {
+// logTag 为 import_log 留痕前缀（cellar-text / cellar-probe）。
+func (c *Cellar) getCellar(ctx context.Context, uri, accept string, maxBytes int64, logTag string) ([]byte, error) {
 	if c.MinInterval == 0 {
 		c.MinInterval = 2 * time.Second
 	}
@@ -458,10 +478,7 @@ func (c *Cellar) getCellar(ctx context.Context, uri, accept string, maxBytes int
 	if c.Endpoint != "" {
 		reqURL = c.Endpoint + strings.TrimPrefix(uri, cellarResBase) // 测试注入：换主机
 	}
-	if c.robots == nil {
-		c.robots = NewRobotsCache(c.policy())
-	}
-	if ok, why := c.robots.Allowed(ctx, reqURL); !ok {
+	if ok, why := c.robotsCache().Allowed(ctx, reqURL); !ok {
 		c.logQuery(reqURL, "failed", fmt.Sprintf("robots 策略拒绝: %s", why))
 		return nil, fmt.Errorf("robots 策略拒绝: %s", why)
 	}
@@ -490,37 +507,38 @@ func (c *Cellar) getCellar(ctx context.Context, uri, accept string, maxBytes int
 	}}
 	resp, err := client.Do(req)
 	if err != nil {
-		c.logGet(reqURL, "failed", fmt.Sprintf("请求失败: %v", err), 0, "")
+		c.logGet(reqURL, "failed", fmt.Sprintf("请求失败: %v", err), 0, "", logTag)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
-		c.logGet(reqURL, "failed", err.Error(), 0, "")
+		c.logGet(reqURL, "failed", err.Error(), 0, "", logTag)
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		reason := fmt.Sprintf("HTTP %d: %.200s", resp.StatusCode, string(body))
-		c.logGet(reqURL, "failed", reason, int64(len(body)), resp.Header.Get("Content-Type"))
-		return nil, fmt.Errorf("Cellar 获取失败: %s", reason)
+		c.logGet(reqURL, "failed", reason, int64(len(body)), resp.Header.Get("Content-Type"), logTag)
+		return nil, fmt.Errorf("Cellar 获取失败: %w", &HTTPStatusErr{Status: resp.StatusCode, URL: reqURL})
 	}
 	if int64(len(body)) > maxBytes {
-		c.logGet(reqURL, "failed", fmt.Sprintf("超过大小上限 %d 字节", maxBytes), int64(len(body)), resp.Header.Get("Content-Type"))
+		c.logGet(reqURL, "failed", fmt.Sprintf("超过大小上限 %d 字节", maxBytes), int64(len(body)), resp.Header.Get("Content-Type"), logTag)
 		return nil, fmt.Errorf("Cellar 响应超过大小上限 %d 字节", maxBytes)
 	}
-	c.logGet(reqURL, "success", "", int64(len(body)), resp.Header.Get("Content-Type"))
+	c.logGet(reqURL, "success", "", int64(len(body)), resp.Header.Get("Content-Type"), logTag)
 	return body, nil
 }
 
-// logGet 文件级访问进 import_log（带 file_size/http_status/content_type 线索）。
-func (c *Cellar) logGet(url, result, reason string, size int64, ctype string) {
+// logGet 文件级访问进 import_log（带 file_size/http_status/content_type 线索；
+// logTag 区分通道：cellar-text 正式抓取 / cellar-probe 配额探测）。
+func (c *Cellar) logGet(url, result, reason string, size int64, ctype, tag string) {
 	if ctype == "" {
 		ctype = "application/octet-stream"
 	}
 	_, _ = c.DB.Exec(`INSERT INTO import_log(doc_id, source_url, file_path, file_size, sha256,
 		http_status, content_type, result, reason, created_at)
 		VALUES(NULL,?,NULL,?,NULL,NULL,?,?,?,?)`,
-		url, size, ctype, result, "[cellar-text] "+reason, time.Now().UTC().Format(time.RFC3339))
+		url, size, ctype, result, "["+tag+"] "+reason, time.Now().UTC().Format(time.RFC3339))
 }
 
 // rdfDesc CMR RDF XML 的一个 rdf:Description 块（谓词 local name → 值列表）。
@@ -605,7 +623,7 @@ func (c *Cellar) FetchText(ctx context.Context, celex, lang, format string) (*EU
 	}
 
 	// 1) expression CMR（Cellar expression URI 语言后缀为大写：…32016R0679.ENG，实测）
-	exprRDF, err := c.getCellar(ctx, cellarResBase+"/celex/"+celex+"."+strings.ToUpper(lang), "application/rdf+xml", 16<<20)
+	exprRDF, err := c.getCellar(ctx, cellarResBase+"/celex/"+celex+"."+strings.ToUpper(lang), "application/rdf+xml", 16<<20, "cellar-text")
 	if err != nil {
 		return nil, fmt.Errorf("定位 expression 失败: %w", err)
 	}
@@ -643,7 +661,7 @@ func (c *Cellar) FetchText(ctx context.Context, celex, lang, format string) (*EU
 	}
 
 	// 3) manifestation → items
-	maniRDF, err := c.getCellar(ctx, maniURI+"/rdf/object/full", "application/rdf+xml", 16<<20)
+	maniRDF, err := c.getCellar(ctx, maniURI+"/rdf/object/full", "application/rdf+xml", 16<<20, "cellar-text")
 	if err != nil {
 		return nil, fmt.Errorf("读取 manifestation 失败: %w", err)
 	}
@@ -670,7 +688,7 @@ func (c *Cellar) FetchText(ctx context.Context, celex, lang, format string) (*EU
 		ExpressionURI: exprURI, ManifestationURI: maniURI,
 		FetchedAt: time.Now().UTC().Format(time.RFC3339)}
 	for _, iu := range itemURIs {
-		b, err := c.getCellar(ctx, iu, "", 64<<20)
+		b, err := c.getCellar(ctx, iu, "", 64<<20, "cellar-text")
 		if err != nil {
 			// 个别 item 失败不致命：正文候选取其余；原因收集供最终报错（import_log 亦有留痕）
 			itemErrs = append(itemErrs, fmt.Sprintf("%s: %v", iu, err))

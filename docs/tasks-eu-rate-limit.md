@@ -23,11 +23,14 @@
 - **验收**（docs/sources-eu-text.md 第五节）：`doc_id=eu_32016r0679_eng`、99 条 `Article N`、`document.lang=eng`、`parser_version=openlaw-parse/0.1.0+formex-eu`、`confirm_status=pending`、FTS 英文条文命中、`incoming/eu_32016R0679_eng_fmx4.xml` 留证 + sha256 复检、import_log 四步链齐全、断链检测 0 项。
 - **纪律**：dry-run 与 apply 之间不插入其他 Cellar 请求（省配额）；失败后勿连续重试，回到 RL-2 探测。
 
-### RL-2 配额探测（P1，小工具，RL-1/RL-4 的前置）
-- **动机**：避免盲跑浪费配额；探测须与正式抓取同指纹（背景事实 2）。
-- **方案**（最小改动）：`cmd/openlaw-eu-text` 加 `-probe` 子模式——只做 robots.txt 获取 + 一次 expression RDF HEAD/GET，打印桶状态与耗时；结果写 import_log（`[cellar-probe]`）。不建 DB 写入路径。
-- **验收**：单测（httptest 模拟 200/429）；`-probe` 输出明确「窗口开/关 + 建议下次探测时间」；退出码区分（0=通，3=限流）。
-- **规模**：小（半天内）。
+### RL-2 配额探测（P1，小工具，RL-1/RL-4 的前置）——✅ 已实现（2026-10-25）
+- **实现**：`Cellar.Probe`（ingest/probe.go）+ `openlaw-eu-text -probe`。与正式抓取同指纹链（policy/Transport/UA/robots 缓存）；robots 拒绝时不发起 expression（合规省配额）；结论行写 import_log `[cellar-probe]`；退出码 0=窗口开 / 3=限流 / 2=其他异常（任务编排可直接判）。
+- **用法**：
+  ```
+  openlaw-eu-text -data data -celex 32016R0679 -lang eng -probe   # 0=可跑 pilot；3=限流勿跑
+  ```
+- **验收**：单测覆盖 200/429(robots)/429(expr)/404/非法输入五场景（httptest，两层状态码独立可控）——全部通过。
+- 原方案要点（保留作背景）：避免盲跑浪费配额；探测须与正式抓取同指纹（背景事实 2）。
 
 ### RL-3 抓取内建退避（P1，代码任务，RL-4 前置）
 - **动机**：单文档运行遇 429 应自动退避而非立即失败；站点无 Retry-After，需自定策略。
