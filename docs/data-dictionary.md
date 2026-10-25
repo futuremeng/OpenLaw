@@ -9,7 +9,7 @@ law 1─n law_version 1─n article 1─n element；law 1─n relation；documen
 ## 2. 表与关键字段
 
 ### law 法规主表
-law_id（PK）、name、short_name、issuer、effect_level（CHECK 枚举）、is_local、remark。
+law_id（PK）、name、short_name、issuer、effect_level（CHECK 枚举：宪法/法律/行政法规/监察法规/地方性法规/部门规章/地方政府规章/司法解释/其他/欧盟条例/欧盟指令/欧盟决定）、is_local、remark。
 
 ### document 原始文档（溯源锚点）
 doc_id（PK）、file_path（**相对数据目录**，如 `pdf/<doc_id>.pdf`）、file_size、sha256（防篡改依据）、hash_algo（必须注明算法类型）、hash_computed_at、source_url/source_type、is_gongbao、publish_date、ocr_used/ocr_confidence、confirm_status（confirmed/pending/rejected）。

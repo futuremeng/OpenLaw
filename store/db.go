@@ -6,6 +6,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -13,7 +14,9 @@ import (
 // SchemaVersion 当前数据模型版本，迁移框架据此判断（见 migrate）。
 // v2（2026-10）：law +eli/celex、effect_level 扩展欧盟类别；law_version +application_date/lang；
 // document +lang；relation_type +依据。v1 库自动原地升级，数据保留。
-const SchemaVersion = "2"
+// v3（2026-10）：law.effect_level 枚举 +「宪法」（flk 收录宪法与宪法修正案，此前无处归类）；
+// 新表 review_log（人工确认审计）与新索引经 schemaSQL IF NOT EXISTS 自动补齐，无需结构迁移。
+const SchemaVersion = "3"
 
 // DB OpenLaw 数据库句柄，内嵌 *sql.DB 供上层在事务内复用。
 type DB struct {
@@ -37,10 +40,13 @@ func Open(path string) (*DB, error) {
 	return &DB{sqlDB}, nil
 }
 
-// migrate 幂等迁移：先升级旧结构（v1→v2），再执行内嵌 schema（IF NOT EXISTS 补齐）。
+// migrate 幂等迁移：先升级旧结构（v1→v2→v3），再执行内嵌 schema（IF NOT EXISTS 补齐）。
 func migrate(db *sql.DB) error {
 	if err := upgradeToV2(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v1→v2）: %w", err)
+	}
+	if err := upgradeToV3(db); err != nil {
+		return fmt.Errorf("数据库迁移失败（v2→v3）: %w", err)
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
@@ -109,6 +115,55 @@ func upgradeToV2(db *sql.DB) error {
 		`INSERT INTO relation_v2 SELECT src_law_id,dst_law_id,relation_type,based_on_doc_id,confirm_status FROM relation`,
 		`DROP TABLE relation`,
 		`ALTER TABLE relation_v2 RENAME TO relation`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			return fmt.Errorf("%v（语句: %.60s…）", err, s)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`PRAGMA foreign_keys=ON`)
+	return err
+}
+
+// upgradeToV3 law.effect_level CHECK 增加「宪法」（SQLite 改 CHECK 须重建表，同 v2 的 12 步法）。
+// 判定依据：law 表定义文本是否已含 '宪法'（全新库由 schemaSQL 直接建 v3 结构）。
+func upgradeToV3(db *sql.DB) error {
+	var tblSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='law'`).Scan(&tblSQL)
+	if err == sql.ErrNoRows {
+		return nil // 全新库，schemaSQL 直接建 v3
+	} else if err != nil {
+		return err
+	}
+	if strings.Contains(tblSQL, "'宪法'") {
+		return nil // 已是 v3
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmts := []string{
+		`CREATE TABLE law_v3 (
+  law_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  short_name TEXT,
+  issuer TEXT,
+  effect_level TEXT CHECK (effect_level IN ('宪法','法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定')),
+  is_local INTEGER NOT NULL DEFAULT 0,
+  remark TEXT,
+  eli TEXT,
+  celex TEXT
+)`,
+		`INSERT INTO law_v3 SELECT law_id,name,short_name,issuer,effect_level,is_local,remark,eli,celex FROM law`,
+		`DROP TABLE law`,
+		`ALTER TABLE law_v3 RENAME TO law`,
 	}
 	for _, s := range stmts {
 		if _, err := tx.Exec(s); err != nil {

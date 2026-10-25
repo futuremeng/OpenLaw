@@ -89,9 +89,22 @@
 |---|---|---|
 | 日期无法推断 | 63 | 人工补元数据 |
 | docx 无文本 | 73 | 转 OCR 或人工 |
-| 同名同日但文本不同（doc_id 冲突） | 2 | 人工裁定哪份文本为准 |
+| 同名同日但文本不同（doc_id 冲突） | 2 | 人工裁定哪份文本为准（diff 已导出 `/Volumes/HDD/law/conflicts/`） |
+| 效力等级无法推断 | 1,123 | 人工补标（openlaw-level 保守规则不猜） |
 
 报告：`/Volumes/HDD/law/batch_report_docx.csv`、`batch_report_converted.csv`（doc_id,law_id,name,date,status,articles,detail），按 `status=fail` 过滤即得人工队列。
+
+## 效力等级补标（openlaw-level，2026-10-25）
+
+flk 批量下载 zip 名不含分类、文件名无效力元数据 → `effect_level` 全空。补标通道 `parse.InferEffectLevel`：**只取高置信名称规则，无法判定一律留空（绝不猜）**；`openlaw-level` 默认 dry-run 出 CSV 报告，`-apply` 写库并在 `law.remark` 留痕规则号（人工 confirm 可纠正），同时按名称置 `is_local`。
+
+规则（顺序即置信度）：两高开头→司法解释｜国务院开头（排除国办）→行政法规｜全国人大/常委会开头→法律｜34 省级全称开头→地方性法规｜含自治州/县/旗、经济特区→地方性法规｜`^1-7字市/盟/地区`开头→地方性法规｜「中华人民共和国X法」精确结尾→法律｜「中华人民共和国宪法」开头→宪法（v3 新增枚举）。
+
+实跑：**22,616/23,739（95.3%）补标**——地方性法规 21,298｜司法解释 744｜法律 516｜行政法规 50｜宪法 7；留空 1,123（如「取水许可和水资源费征收管理条例」——国务院条例但名称无开头证据，转人工）。附带修复：`law.name` 文件名产物尾巴（`名称_.docx` 的悬空下划线，3,854 条）清理 + batch 通道源头 TrimRight。
+
+schema v3：`law.effect_level` CHECK 增「宪法」（flk 收录宪法/修正案/修正文本，此前无处归类）；v2 库自动原地重建升级（CHECK 修改走 12 步法）。
+
+完整性审计（2026-10-25）：30,859 原始层文件全存在、随机 15 条 sha256 重算一致、article_fts 与 article 计数一致（1,185,369）、无孤儿文档。2 个同名同日冲突的两侧文本 diff 已导出 `/Volumes/HDD/law/conflicts/<doc_id>.diff`（已入库版更干净但含列表符噪声，转换版含 Word 域代码——裁定仍留人工）。
 
 ## 人工确认流程（openlaw-confirm，2026-10-25）
 

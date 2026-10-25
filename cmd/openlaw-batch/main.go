@@ -120,6 +120,7 @@ func main() {
 				}
 				notes = "batch：日期取自正文落款提取（inferred）、效力等级待人工确认"
 			}
+			name = strings.TrimRight(name, "_ ") // 文件名产物尾巴（`名称_.docx`）不进法名
 			var n int
 			if err := db.QueryRow(`SELECT COUNT(*) FROM document WHERE sha256 = ?`, sha).Scan(&n); err != nil {
 				status, detail = "fail", err.Error()

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS law (
   name TEXT NOT NULL,
   short_name TEXT,
   issuer TEXT,
-  effect_level TEXT CHECK (effect_level IN ('法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定')),
+  effect_level TEXT CHECK (effect_level IN ('宪法','法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定')),
   is_local INTEGER NOT NULL DEFAULT 0,
   remark TEXT,
   eli TEXT,      -- 欧盟 European Legislation Identifier（docs/sources-eu.md）

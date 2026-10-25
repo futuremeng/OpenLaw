@@ -84,6 +84,10 @@ func TestMigrateV1ToV2(t *testing.T) {
 		VALUES('eu_reg_2016_679','law_y','依据')`); err != nil {
 		t.Fatalf("relation 新增枚举「依据」应可写: %v", err)
 	}
+	// v3：effect_level 新枚举「宪法」可写
+	if _, err := db.Exec(`INSERT INTO law(law_id,name,effect_level) VALUES('law_const','中华人民共和国宪法','宪法')`); err != nil {
+		t.Fatalf("v3 新枚举「宪法」应可写: %v", err)
+	}
 	// 非法枚举仍被拒绝
 	if _, err := db.Exec(`INSERT INTO law(law_id,name,effect_level) VALUES('bad','坏','银河系法')`); err == nil {
 		t.Fatal("非法 effect_level 应被 CHECK 拒绝")
