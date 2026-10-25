@@ -83,6 +83,15 @@ func TestSDKSearch(t *testing.T) {
 	if empty.Status != StatusOK {
 		t.Errorf("零命中应为 OK+warning, got %s", empty.Status)
 	}
+	// 中文多词 AND：须同时含两词（unicode61 不切 CJK，走 LIKE-AND 路径）
+	multi := o.Search("股东 连带责任", 5)
+	if mh, _ := multi.Data["hits"].([]map[string]any); len(mh) != 1 {
+		t.Errorf("多词 AND 应命中 1 条, got %+v", multi.Data)
+	}
+	none := o.Search("股东 不存在的词", 5)
+	if nh, _ := none.Data["hits"].([]map[string]any); len(nh) != 0 {
+		t.Errorf("多词 AND 缺一词应零命中, got %+v", none.Data)
+	}
 }
 
 func TestSDKGetArticle(t *testing.T) {

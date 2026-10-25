@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/futuremeng/OpenLaw/element"
@@ -233,7 +234,15 @@ func (o *OpenLaw) Search(query string, topK int) Result {
 	if topK > 50 {
 		topK = 50 // 上限礼貌：界面一屏可览
 	}
-	hits, err := search.Search(o.db, query, topK)
+	var hits []search.Hit
+	var err error
+	if words := strings.Fields(query); len(words) > 1 && hasCJK(query) {
+		// 中文多词（空格分词）：unicode61 不切 CJK，FTS 短语必失败 →
+		// LIKE 多词 AND（语料量级小，全表可接受；英文多词仍走 FTS 短语）
+		hits, err = o.likeAndSearch(words, topK)
+	} else {
+		hits, err = search.Search(o.db, query, topK)
+	}
 	if err != nil {
 		return fail(StatusNotFound, "", fmt.Sprintf("检索失败: %v", err))
 	}
@@ -270,6 +279,41 @@ func (o *OpenLaw) Search(query string, topK int) Result {
 			fmt.Sprintf("%d 条命中为待人工确认文本，仅提示不报错（12.3）", pending))
 	}
 	return res
+}
+
+// likeAndSearch 多词 AND 检索（中文空格分词场景）：每词 LIKE，命中须含全部词。
+func (o *OpenLaw) likeAndSearch(words []string, topK int) ([]search.Hit, error) {
+	where := strings.Repeat("a.content LIKE '%' || ? || '%' AND ", len(words)-1) + "a.content LIKE '%' || ? || '%'"
+	args := make([]any, 0, len(words)+1)
+	for _, w := range words {
+		args = append(args, w)
+	}
+	args = append(args, topK)
+	rows, err := o.db.Query(`SELECT a.article_id, a.article_no, substr(a.content, 1, 80), a.doc_id
+		FROM article a WHERE `+where+` ORDER BY a.article_id LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var hits []search.Hit
+	for rows.Next() {
+		var h search.Hit
+		if err := rows.Scan(&h.ArticleID, &h.ArticleNo, &h.Snippet, &h.DocID); err != nil {
+			return nil, err
+		}
+		hits = append(hits, h)
+	}
+	return hits, rows.Err()
+}
+
+// hasCJK 含中日韩字符（判定多词查询是否中文分词场景）。
+func hasCJK(s string) bool {
+	for _, r := range s {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			return true
+		}
+	}
+	return false
 }
 
 // GetArticle 条文详情（按 article_id）：全文 + 法规名 + 版本区间 + 确认状态 +

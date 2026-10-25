@@ -53,6 +53,21 @@ Data：chain_ok、breaks[]（step/reason/error_code）。
 Data：text（脱敏后）、restore_map（本地还原映射，**不得写入日志**）。
 覆盖：显式名单姓名、身份证号、案号、企业名称、角色上下文人名。
 
+### Search(query string, topK int) Result
+Data：query、hits[]（article_id/article_no/doc_id/law_name/version_id/version_no/
+effective_date/expire_date/confirm_status/lang/snippet）。
+FTS5 优先，零命中 LIKE 兜底；中文多词（空格分词）走多词 AND 路径
+（unicode61 不切 CJK，FTS 短语必失败）；topK 上限 50。
+零命中不是错误：status=ok + warning。pending 命中附人工确认警告（12.3）。
+OpenCourt LawSourcePlugin.SearchLaw 对接面（expire_date 非空 → AMENDED，
+绝不自动判 REPEALED）。
+
+### GetArticle(articleID string) Result
+Data：article_id/article_no/content（全文）/doc_id/law_name/version_id/version_no/
+effective_date/expire_date/confirm_status/lang；Trace 携带 doc_id/pdf_path。
+断链（OL-1006）时 status=broken_chain 但 data 照常完整返回供人工核对。
+OpenCourt LawSourcePlugin.GetLawDetail 对接面（lawID = article_id 约定）。
+
 ## 4. 错误码（5.4）
 
 | 错误码 | 含义 | 处理建议 |

@@ -4,6 +4,8 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **SDK 检索面（Search + GetArticle，OpenCourt M4 对接）**：`Search` 暴露 search/ FTS5+LIKE 能力并补版本上下文——每条命中携带 law_name/version 区间/expire_date/confirm_status/lang/snippet（上层据此映射生效状态：expire 非空→AMENDED，绝不自动判 REPEALED）；中文多词空格分词走多词 AND（unicode61 不切 CJK，FTS 短语必失败的实网修复）；零命中 ok+warning 不是错误；pending 命中附 12.3 提示。`GetArticle` 按 article_id 取全文详情 + trace；断链 OL-1006 数据照常完整返回供人工核对。docs/api.md 同步。OpenCourt 侧 `plugins/law_openlaw.go` 实现 LawSourcePlugin（进程内 sdk，禁直连 DB；go.mod replace 本地联调；config openlaw.data_dir + OPENCOURT_OPENLAW_DATA_DIR；未配置 nil 降级；断链命中透传 UNVERIFIED），真实语料端到端验证通过
+
 - **RL-2 配额探测（openlaw-eu-text -probe + Cellar.Probe）**：EU 站点按客户端指纹分桶限流，curl 探到 200 不代表 Go 桶可用——探测必须同指纹链。`Probe` 走与正式抓取完全相同的 policy/Transport/UA/robots 缓存：robots.txt + 一次 expression RDF GET（robots 拒绝则不发起，合规省配额），结构化判定窗口开/限流/输入错误，结论写 import_log `[cellar-probe]`；退出码 0=窗口开 / 3=限流中 / 2=其他，任务编排可直接判。附带 `HTTPStatusErr` typed 错误（getCellar 非 200 携带状态码——RL-3 退避判据）与 robots 缓存 `LastStatus` 状态暴露
 
 - **EU M1 代码 review 修复**：①`openlaw-eu-text` dry-run 不再多发 FetchWork 元数据请求（省 Cellar 配额，RL 纪律）；②`SplitArticlesEU` 补条号递增过滤（与中文通道交叉引用误拆同型防御；前向引用局限显式钉测试）；③`Cellar.policy()` 惰性缓存——TLS Transport 全生命周期复用（原每请求新建，连接池不复用）；④`FetchText` item 下载失败原因收集入最终错误；⑤文档 parser_version 统一为实际值 `openlaw-parse/0.1.0+formex-eu`（原 formex-eu-v1 系设计稿旧命名）
