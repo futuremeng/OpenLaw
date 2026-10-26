@@ -4,6 +4,8 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **国家行政法规库来源（gov.cn xzfgk，新源）**：两段式合规接入——清单由浏览器脚本 `tools/govcn-xzfgk-export.user.js` 人工导出（sousuo 检索域 robots `Disallow: /`，不得程序发现），`openlaw-govcn` CLI 按清单抓详情页（主站 robots 允许；主机锁 www.gov.cn、限速 ≥2s、UA 如实、import_log、原始 HTML 留证 incoming/govcn/）；TRS 正文容器解析（div 深度配对）→ Markdown → 落款日期保守推断（InferDates 优先、清单 pubtime 兜底、无则转人工）→ effect_level=行政法规、pending 人工闸口、AutoExpirePrior 版本链、无条文结构走全文即一节打标；doc_id=govcn_<content_id> 幂等续跑。合规画像与用法见 docs/sources-govcn.md
+
 - **语料 manifest 许可声明（v2 字段）**：`manifest.json` 新增机器可读 `license`/`attribution`（DATA-LICENSE.md 的签名内形态，默认措辞与 pack 更新包统一为 `validate.DefaultLicense/DefaultAttribution` 单一出处）；`openlaw-check -build-manifest` 支持 `-license/-attribution` 覆盖。字段受 Ed25519 签名覆盖——重新打包换许可即验签失败。EU 语料重使用署名义务（© European Union）自此随 core 包分发闭环；OpenCourt 状态面板透出「数据许可」
 
 - **部署面（make build / build-all + docs/deploy.md）**：OpenLaw 部署形态明确为「CLI 单文件 + 可迁移数据目录 + 进程内 SDK」（无常驻服务/端口）。Makefile 新增 `build`（当前平台 dist/ 11 个 CLI）与 `build-all`（darwin/linux/windows 交叉编译——纯 Go modernc sqlite，CGO_ENABLED=0 即开即用）。docs/deploy.md：三种使用形态（独立 CLI / OpenCourt 内嵌——最终用户不需要 OpenLaw 二进制 / 库模式）、数据目录整体迁移、装后验证、签名私钥与 manifest 首次部署流程（未生成 manifest 时 UNVERIFIED 是闸口正常表现）、日常运维与备份、签名更新包分发、与 OpenCourt 配置对接

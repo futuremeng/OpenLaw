@@ -40,6 +40,9 @@ type Request struct {
 	// WholeTextMode 全文即一节：无「第X条」结构的文档（决定/决议/名单类）以单条
 	// article（article_no=全文）承载全文入库，可检索且语义显式打标，绝不伪装成条文。
 	WholeTextMode bool
+	// WholeTextForce 无条件全文即一节：条文标记实为引文的来源（gov.cn 修改/废止
+	// 决定正文「第X条」是被引法规条文而非本文件边界）——即使切分器切出条文也强制全文。
+	WholeTextForce bool
 	// Lang 正文语言（ISO 639-3；空=默认 zho）。EU 通道必填 eng 等——document.lang
 	// 与 law_version.lang 写入，且 md 回灌时按语言选切分器（eng→SplitArticlesEU）。
 	Lang string
@@ -123,13 +126,15 @@ func (im *Importer) Import(req Request) (*Result, error) {
 		}
 	}
 	wholeText := false
-	if len(arts) == 0 {
-		if !req.WholeTextMode {
+	if req.WholeTextForce || len(arts) == 0 {
+		if !req.WholeTextMode && !req.WholeTextForce {
 			err := fmt.Errorf("未解析出任何条文（检查「第X条」标记；无条文结构文档可用全文模式）: %s", req.MDPath)
 			im.logImport(req, "failed", err.Error())
 			return nil, err
 		}
-		// 全文即一节：单条 article 承载全文，parser_version 打 +whole 标记
+		// 全文即一节：单条 article 承载全文，parser_version 打 +whole 标记。
+		// WholeTextForce：条文标记实为引文的结构化来源（如 gov.cn 修改/废止决定
+		// 正文「第一条」均为被引法规条文而非本文件边界）——无条件全文，防误拆。
 		wholeText = true
 		arts = []parse.Article{{No: parse.WholeArticleNo, Content: string(mdBytes)}}
 	}
