@@ -36,9 +36,9 @@ with open(out, 'w') as fh:
     json.dump(merged, fh, ensure_ascii=False, indent=2)
 print(f'→ {out}')
 
-# 区段覆盖（来自采集日志会话记录，供补采参考）
+# 区段覆盖（来自采集日志会话记录，供补采参考；第 3 参指定日志路径）
 try:
-    log = open('/tmp/govcollect.log').read()
+    log = open(sys.argv[3] if len(sys.argv) > 3 else '/tmp/govcollect.log').read()
     for m in re.finditer(r'浏览 (\d+) 页（起始页 (\d+)）得 (\d+) 条（(\w+)）', log):
         pages, start, n, stop = int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4)
         print(f'区段 {start}-{start+pages-1}: {n} 条（{stop}）')
