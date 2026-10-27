@@ -25,6 +25,11 @@ provenance + 原始 HTML）。
 ① 清单（人工浏览）：浏览器打开法规库检索页 → 安装 tools/govcn-xzfgk-export.user.js
    （Tampermonkey）→ 浏览/人工翻页 → 点「导出法规清单 JSON」→ 得 list.json
    （脚本只整理用户已浏览页面的 DOM，绝不代为调用检索接口——那是 Disallow: / 的域）
+   清单层等价模式（2026-10-26）：**人在环代理浏览**——OpenCourt 内置智能体经
+   BrowserOS neo 驱动用户自己的真实浏览器，只在 www.gov.cn 官方列表页上点官方
+   UI「下一页」翻页浏览并读 DOM 收集条目（neutral/govlistassist.go：起点 URL
+   白名单、翻页间隔下限 2s、单会话 ≤200 页、URL 硬校验、gate 红线 + 审计）。
+   这与用户自己浏览+导出等价；仍绝不程序化访问 sousuo/sousuoht 检索域或鉴权接口。
 ② 获取（程序合规）：openlaw-govcn 按 list.json 抓详情页：
    robots 强制 + 主机锁死 www.gov.cn（重定向逐跳复查）+ 限速（默认 2s/页，不可低于）
    + UA 如实标识 + 每次访问写 import_log + 原始 HTML 留证 data/incoming/govcn/

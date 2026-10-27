@@ -4,6 +4,8 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **清单层新增「人在环代理浏览」模式（gov.cn 两库通用）**：OpenCourt 内置智能体经 BrowserOS neo 驱动用户真实浏览器在官方列表页翻页浏览收集清单（起点 URL 白名单、官方 UI「下一页」两段式点击、限速 ≥2s/页、单会话 ≤200 页、URL 硬校验、审计），产物 list.json 与本仓库清单契约完全一致——合规定位与「人工浏览+导出」等价（主站 robots 允许 /zhengce/）；仍绝不程序化访问 sousuo/sousuoht 检索域、绝不逆向 Athena 鉴权；flk 等硬禁止站不适用（其 robots 禁止一切自动化）。OpenLaw 侧零代码改动，文档边界已更新（README 来源合规边界、docs/sources-govcn.md）
+
 - **国家行政法规库来源（gov.cn xzfgk，新源）**：两段式合规接入——清单由浏览器脚本 `tools/govcn-xzfgk-export.user.js` 人工导出（sousuo 检索域 robots `Disallow: /`，不得程序发现），`openlaw-govcn` CLI 按清单抓详情页（主站 robots 允许；主机锁 www.gov.cn、限速 ≥2s、UA 如实、import_log、原始 HTML 留证 incoming/govcn/）；TRS 正文容器解析（div 深度配对）→ Markdown → 落款日期保守推断（InferDates 优先、清单 pubtime 兜底、无则转人工）→ effect_level=行政法规、pending 人工闸口、AutoExpirePrior 版本链、无条文结构走全文即一节打标（修改/废止决定防误拆 WholeTextForce）；doc_id=govcn_<content_id> 幂等续跑。合规画像与用法见 docs/sources-govcn.md
 - **国家规章库来源（gov.cn gjgzk，同一通道扩展）**：`openlaw-govcn -source gzk` + 浏览器脚本 `tools/govgz-export.user.js`（规章库 SPA 结果 DOM 导出：标题/详情 URL/分类页签 cat/发布机关 puborg；其 Athena 检索接口带 RSA appKey 鉴权——绝不逆向）。effect_level=部门规章/地方政府规章（清单分类直取，缺分类按发布机关保守归类，皆缺 skip_no_meta 转人工）、issuer=清单发布机关；详情页 URL 放宽至任意 gov.cn 路径（公报页可挂），留证分离 incoming/govgz/；清单标题优先于公报页脏 <title>。实网验证：《网络反不正当竞争暂行规定》（市场监管总局令第91号）公报页抓取入库，落款推断 pub=2024-05-06/eff=2024-09-01、43 条正确切分
 

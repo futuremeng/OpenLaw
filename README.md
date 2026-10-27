@@ -110,6 +110,7 @@ case sdk.StatusBrokenChain: // 无法溯源，禁止输出判错结论
 
 - **flk.npc.gov.cn（国家法律法规数据库）**：robots.txt 明确「禁止使用任何自动化工具、脚本、爬虫程序采集或复制网站数据」，代码层已列入硬禁止名单，**任何工具/脚本/浏览器自动化（含 RPA、宏、computer-use）驱动均不得访问该站**。
 - **人工浏览器操作不在此限**：用户本人在浏览器中使用该站**自带的**检索与批量下载功能（检索页勾选下载、翻页），属网站设计用途内的手动使用；法律法规本身为公有领域作品（著作权法第 5 条），本地建库使用合法。下载文件放入 `data/incoming/` 后走正常导入闭环（溯源必填、pending 转人工、扫描件 OL-1009 转 OCR）。
+- **人在环代理浏览（仅限 gov.cn 官方列表页）**：OpenCourt 内置智能体经 BrowserOS neo 驱动用户自己的真实浏览器，在 www.gov.cn 主站 robots 允许的官方列表页（行政法规库/国家规章库）点官方 UI 翻页浏览并收集清单（起点白名单、限速 ≥2s/页、审计留痕；见 OpenCourt `neutral/govlistassist.go`）——与人工浏览+导出等价，适用于本条；**绝不**程序化访问 sousuo/sousuoht 检索域或逆向 Athena 鉴权；**flk 等硬禁止站不适用本条**（其 robots 禁止一切自动化，含浏览器代理）。
 - 礼貌约束：即便手动，也应按类别/年份分批、控制频次，不要连续高频连点。
 - **共享**：法律法规官方文本为公有领域作品，下载后共享/分发合法（前提：获取方式正当）。推荐以签名更新包（`openlaw-pack build/verify/import`）形式共享，接收方可独立验证哈希与签名，防篡改防版本混乱；共享自有 schema 的客观事实字段（法名/日期/效力状态）无碍，但勿整套镜像来源方的数据库编排结构（汇编权益）。
 - **欧盟（EUR-Lex/Cellar）**：EUR-Lex 网页有 WAF 挑战，只能人工浏览；但 Cellar（publications.europa.eu）是官方开放的程序化入口——SPARQL 元数据 + representation 层全文（expression→manifestation→item 四步链，GDPR 全文 XML 实测可下载，2026-10-25）均可自动化，须保守限速。EU 数据重使用须署名（© European Union）。详见 `docs/sources-eu.md`（元数据核实）与 `docs/sources-eu-text.md`（全文通道设计草案）。
