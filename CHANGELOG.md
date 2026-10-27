@@ -4,6 +4,8 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **gzk 清单全量真机采集落地 + skip_bad_url 导入语义**：OpenCourt 跳转驱动批量采集（`cmd/govlistcollect` + 缺口补采）覆盖官方清单全部 1000 页（真机探测证实第 1000 页为末页），11 分片合并去重共 **1970 条**（部门规章 271 / 地方政府规章 1699；www.gov.cn 686 条走本通道，1284 条地方政府直链转人工）；`LoadGovcnList` 不再对不合规 URL 整单拒绝——如实交回并在导入报告记 `skip_bad_url`（保留原 URL 供人工处置，不静默丢弃、不越主机策略抓取）；新增 `scripts/govmerge.py`（分片合并去重 + 区段覆盖分析）；官方清单证实存在大段真实稀疏空区（472–499 连续 28 页空而 500 页恢复），采集侧空页停止阈值可配（-emptystop）。dry-run 小样本验证：主站条目解析正常、地方政府直链全部正确记 skip_bad_url
+
 - **人在环代理浏览模式真机校准**：规章库默认列表为混合清单（无分类页签）——cat 按发布机关逐条推断（与本仓库 `gvgzResolveLevel` 同规则）；翻页为官方分页按钮 DOM 点击；清单 URL 校验放宽至 `.gov.cn` 域名族并如实记录地方政府规章直链（本通道主机锁 www.gov.cn，此类条目报告记 skip_bad_url 转人工，独立通道与否另行评估）；文档边界已同步（docs/sources-govcn.md）
 
 - **清单层新增「人在环代理浏览」模式（gov.cn 两库通用）**：OpenCourt 内置智能体经 BrowserOS neo 驱动用户真实浏览器在官方列表页翻页浏览收集清单（起点 URL 白名单、官方 UI「下一页」两段式点击、限速 ≥2s/页、单会话 ≤200 页、URL 硬校验、审计），产物 list.json 与本仓库清单契约完全一致——合规定位与「人工浏览+导出」等价（主站 robots 允许 /zhengce/）；仍绝不程序化访问 sousuo/sousuoht 检索域、绝不逆向 Athena 鉴权；flk 等硬禁止站不适用（其 robots 禁止一切自动化）。OpenLaw 侧零代码改动，文档边界已更新（README 来源合规边界、docs/sources-govcn.md）

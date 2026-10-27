@@ -34,6 +34,16 @@ provenance + 原始 HTML）。
    或鉴权接口。注意：地方政府规章详情页直链地方政府网站（如 beijing.gov.cn）——
    清单如实记录，但本通道主机锁死 www.gov.cn，此类条目在导入报告中记
    skip_bad_url 转人工（是否为其开设独立合规通道另行评估，见下节）。
+   全库恰为 1000 页（真机 end_of_list 探测证实第 1000 页为末页）> 单会话 200 页
+   硬上限：分批续接经官方「跳转」控件到达起始页并核验页码（等价人工输入页码）。
+   官方清单存在大段真实稀疏空区（如 472–499 连续 28 页空而 500 页恢复数据），
+   空页停止阈值可调（CLI -emptystop，稀疏区补采 25–40）。CLI 批量入口
+   OpenCourt `cmd/govlistcollect`（-start/-pages/-emptystop），产物多份
+   list_agent_*.json 用 `scripts/govmerge.py` 合并去重（或多次直接喂给本 CLI，
+   幂等 skip_dup_db 自动去重）。
+   真机全量采集（2026-10-27）：11 分片合并共 **1970 条**（部门规章 271 +
+   地方政府规章 1699；www.gov.cn 686 条可走本通道抓取，其余 1284 条地方政府
+   直链按上述策略记 skip_bad_url 转人工）。
 ② 获取（程序合规）：openlaw-govcn 按 list.json 抓详情页：
    robots 强制 + 主机锁死 www.gov.cn（重定向逐跳复查）+ 限速（默认 2s/页，不可低于）
    + UA 如实标识 + 每次访问写 import_log + 原始 HTML 留证 data/incoming/govcn/
