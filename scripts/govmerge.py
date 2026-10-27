@@ -5,6 +5,12 @@ import json, sys, glob, os, re, collections
 
 d, out = sys.argv[1], sys.argv[2]
 files = sorted(glob.glob(os.path.join(d, 'list_agent_*.json')))
+
+def norm(u):
+    # 主站 http/https 两形态并一条（与 OpenLaw LoadGovcnList 归一策略一致）；
+    # 地方政府直链不归一（如实保留原 URL）。
+    return 'https://' + u[len('http://'):] if u.startswith('http://www.gov.cn/') else u
+
 seen, merged = {}, []
 for f in files:
     with open(f) as fh:
@@ -12,8 +18,9 @@ for f in files:
     n0 = len(merged)
     for e in entries:
         u = e.get('url', '')
-        if u and u not in seen:
-            seen[u] = f
+        k = norm(u)
+        if u and k not in seen:
+            seen[k] = f
             merged.append(e)
     print(f'{os.path.basename(f)}: {len(entries)} 条（新增 {len(merged)-n0}）')
 
