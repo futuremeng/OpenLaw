@@ -114,6 +114,13 @@ func LoadGovcnList(path string) ([]GovcnEntry, []GovcnEntry, error) {
 	var out, skipped []GovcnEntry
 	for _, e := range entries {
 		e.URL = strings.TrimSpace(e.URL)
+		// 主站 http:// 归一化为 https://：真机实测（2026-10-27）官方清单 docurl
+		// 大量 http:// 形态（主站 301 → https，抓取层主机锁 + 重定向拒绝兜底）。
+		// 只归一主站 GovcnHost；地方政府直链原样（由通道主机策略处置）。
+		// 归一在去重前——同一详情 http/https 两形态并成一条。
+		if strings.HasPrefix(e.URL, "http://"+GovcnHost+"/") {
+			e.URL = "https://" + strings.TrimPrefix(e.URL, "http://")
+		}
 		if e.URL == "" {
 			continue
 		}

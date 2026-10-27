@@ -202,6 +202,32 @@ func TestLoadGovcnList(t *testing.T) {
 	}
 }
 
+// TestLoadGovcnListHTTPNormalize 真机实测（2026-10-27）：官方清单 docurl 大量
+// http:// 主站形态（301 → https）——主站 http 归一化为 https 并与同内容 https
+// 形态去重合并；地方政府 http 直链不归一（原样交回 skip_bad_url 转人工）。
+func TestLoadGovcnListHTTPNormalize(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "list.json")
+	body := `[
+{"title":"甲办法","url":"http://www.gov.cn/zhengce/2021-06/25/content_5723612.htm"},
+{"title":"甲办法","url":"https://www.gov.cn/zhengce/2021-06/25/content_5723612.htm"},
+{"title":"乙规定","url":"http://www.beijing.gov.cn/zhengce/x/doc_1.html"}
+]`
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries, skipped, err := LoadGovcnList(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].URL != "https://www.gov.cn/zhengce/2021-06/25/content_5723612.htm" {
+		t.Fatalf("主站 http 应归一化 https 并去重合并: %+v", entries)
+	}
+	if len(skipped) != 1 || skipped[0].URL != "http://www.beijing.gov.cn/zhengce/x/doc_1.html" {
+		t.Fatalf("地方政府 http 直链不归一、原样交回: %+v", skipped)
+	}
+}
+
 // newGovcnServer robots + 详情页测试服务器（httptest 回环，配合 TestHost 注入）。
 func newGovcnServer(t *testing.T, robots string) *httptest.Server {
 	mux := http.NewServeMux()
