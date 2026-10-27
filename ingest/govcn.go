@@ -97,36 +97,40 @@ func GovcnDocID(rawURL string) (string, error) {
 }
 
 // LoadGovcnList 读取人工导出的 list.json（数组），校验 URL 形态并按 URL 去重。
+// 返回 (可抓取条目, 不符合本通道详情页形态的条目, error)——不合规条目不整单
+// 拒绝而是如实交回（导入报告记 skip_bad_url 转人工；如 gzk 混合清单中的
+// 地方政府直链，是否抓取由通道主机策略决定，清单层不擅自丢弃）。
 // 清单是人工浏览的产物——本函数绝不联网「补全」清单（sousuo 域 robots 禁止自动化）。
-func LoadGovcnList(path string) ([]GovcnEntry, error) {
+func LoadGovcnList(path string) ([]GovcnEntry, []GovcnEntry, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取清单失败: %w", err)
+		return nil, nil, fmt.Errorf("读取清单失败: %w", err)
 	}
 	var entries []GovcnEntry
 	if err := json.Unmarshal(b, &entries); err != nil {
-		return nil, fmt.Errorf("清单 JSON 解析失败: %w", err)
+		return nil, nil, fmt.Errorf("清单 JSON 解析失败: %w", err)
 	}
 	seen := map[string]bool{}
-	var out []GovcnEntry
-	for i, e := range entries {
+	var out, skipped []GovcnEntry
+	for _, e := range entries {
 		e.URL = strings.TrimSpace(e.URL)
 		if e.URL == "" {
 			continue
-		}
-		if _, err := GovcnDocID(e.URL); err != nil {
-			return nil, fmt.Errorf("清单第 %d 条: %w", i+1, err)
 		}
 		if seen[e.URL] {
 			continue
 		}
 		seen[e.URL] = true
+		if _, err := GovcnDocID(e.URL); err != nil {
+			skipped = append(skipped, e)
+			continue
+		}
 		out = append(out, e)
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("清单为空或无有效条目")
+	if len(out) == 0 && len(skipped) == 0 {
+		return nil, nil, fmt.Errorf("清单为空或无有效条目")
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // host 生产锁死 GovcnHost；仅 TestHost 非空（测试）时替换。

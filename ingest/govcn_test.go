@@ -177,15 +177,25 @@ func TestLoadGovcnList(t *testing.T) {
 	if err := os.WriteFile(p, []byte(bad), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadGovcnList(p); err == nil {
-		t.Fatal("含非法主机条目应整单拒绝（清单是人工产物，逐条校验从严）")
+	entries, skipped, err := LoadGovcnList(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || len(skipped) != 1 {
+		t.Fatalf("非法主机条目应如实交回 skip_bad_url（不整单拒绝、不静默丢弃）: entries=%d skipped=%d", len(entries), len(skipped))
+	}
+	if skipped[0].URL != "https://evil.example/zhengce/a/content_2.htm" {
+		t.Errorf("skipped 应保留原 URL 供报告: %s", skipped[0].URL)
 	}
 	if err := os.WriteFile(p, []byte(good), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := LoadGovcnList(p)
+	entries, skipped, err = LoadGovcnList(p)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(skipped) != 0 {
+		t.Errorf("全合法清单不应有 skipped: %d", len(skipped))
 	}
 	if len(entries) != 1 {
 		t.Fatalf("应按 URL 去重: %d 条", len(entries))

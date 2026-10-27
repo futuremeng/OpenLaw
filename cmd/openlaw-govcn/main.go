@@ -49,7 +49,7 @@ func main() {
 	if *delay < 2*time.Second {
 		fatal(fmt.Errorf("-delay 不得低于 2s（礼貌限速纪律）"))
 	}
-	entries, err := ingest.LoadGovcnList(*listP)
+	entries, badURLs, err := ingest.LoadGovcnList(*listP)
 	if err != nil {
 		fatal(err)
 	}
@@ -86,6 +86,15 @@ func main() {
 
 	cnt := map[string]int{}
 	ctx := context.Background()
+	// 清单中不符合本通道详情页形态的条目（如 gzk 混合清单里的地方政府直链）：
+	// 如实记入报告 skip_bad_url 转人工，不静默丢弃、也不越主机策略抓取。
+	for _, e := range badURLs {
+		cnt["skip_bad_url"]++
+		if err := w.Write([]string{e.URL, "", "skip_bad_url", "", "不符合本通道详情页形态（主机锁 " + ingest.GovcnHost + "），转人工"}); err != nil {
+			fatal(err)
+		}
+	}
+	w.Flush()
 	for i, e := range entries {
 		it := g.FetchAndImport(ctx, im, e)
 		cnt[it.Status]++
