@@ -1,18 +1,22 @@
 package ingest
 
-// 国家行政法规库（www.gov.cn/zhengce/xzfgk/）客户端（docs/sources-govcn.md，2026-10-25 实查）。
-// 合规画像（与 flk / Cellar 并列的第三种形态：详情页可抓、清单不可程序发现）：
+// 国家行政法规库（www.gov.cn/zhengce/xzfgk/）与国家规章库（www.gov.cn/zhengce/xxgk/gjgzk/）
+// 客户端（docs/sources-govcn.md，2026-10-25/26 实查）。两库同一合规画像（与 flk / Cellar
+// 并列的第三种形态：详情页可抓、清单不可程序发现），共用本模块，Kind 区分：
 //   - www.gov.cn 主站 robots.txt：User-agent: *，/zhengce/ 不在 Disallow（仅禁 2016 旧路径），
 //     详情页允许抓取；站点主动发布 4 个 sitemap 欢迎机器索引；
-//   - sousuo.www.gov.cn（检索/清单 API）robots.txt：Disallow: / —— 自动化访问禁止，
-//     因此法规清单不得由程序发现：清单由用户浏览器浏览时导出（tools/govcn-xzfgk-export.user.js，
+//   - sousuo.www.gov.cn（检索/清单 API）robots.txt：Disallow: / —— 自动化访问禁止；
+//     国家规章库的 Athena 检索接口（sousuoht.www.gov.cn/athena/forward/<hash>）另带
+//     RSA appKey 应用层鉴权——逆向鉴权属绕过技术措施，绝不尝试。清单一律由用户浏览器
+//     浏览时导出（tools/govcn-xzfgk-export.user.js / tools/govgz-export.user.js，
 //     只整理用户已浏览页面的 DOM，不代为调用检索接口），程序只消费人工导出的 list.json；
 //   - bmfw.www.gov.cn（司法部政策文件库平台）境外 DNS 不可达，不使用；
-//   - 行政法规原文属《著作权法》第 5 条官方文件（公有领域），但不镜像站点汇编：只取法规文本，
+//   - 法规/规章原文属《著作权法》第 5 条官方文件（公有领域），但不镜像站点汇编：只取文本，
 //     自有汇编事实由 manifest 记录，来源 URL 全链路留证。
 // 硬性纪律（与全部抓取通道一致）：默认离线（仅 openlaw-govcn 显式触发）、robots 强制、
 // 主机锁死 www.gov.cn（重定向逐跳复查）、礼貌限速（默认 2s/页）、UA 如实标识、
-// 每次访问写 import_log、原始 HTML 落 incoming/govcn/ 留证、confirm_status=pending 人工闸口。
+// 每次访问写 import_log、原始 HTML 落 incoming/<govcn|govgz>/ 留证、confirm_status=pending 人工闸口。
+// 两库详情页 content_id 站点全局唯一 → doc_id 前缀统一 govcn_（跨库天然去重）。
 
 import (
 	"context"
@@ -35,23 +39,34 @@ import (
 // GovcnHost 法规库详情页所在主机（硬编码白名单；测试注入见 TestHost）。
 const GovcnHost = "www.gov.cn"
 
-// Govcn 国家行政法规库客户端。
+// Govcn 国家行政法规库 / 国家规章库客户端（Kind 区分）。
 type Govcn struct {
 	DataDir     string
 	DB          *store.DB
 	MinInterval time.Duration // 礼貌限速（默认 2s/页）
 	DryRun      bool          // 只抓取与解析（含留证），不入库——人工预览用
+	Kind        string        // "" = xzfgk 行政法规库；"gzk" = 国家规章库
 	TestHost    string        // 仅测试注入（httptest 回环）；生产留空 = GovcnHost
 	robots      *RobotsCache
 	lastGet     time.Time
 }
 
+// subdir 留证子目录（两库分离，互不污染）。
+func (g *Govcn) subdir() string {
+	if g.Kind == "gzk" {
+		return "govgz"
+	}
+	return "govcn"
+}
+
 // GovcnEntry 人工导出清单（list.json）的一条。字段来自用户在浏览器中浏览的检索结果页。
 type GovcnEntry struct {
 	Title   string `json:"title"`
-	PCode   string `json:"pcode"`   // 文号，如 国令第849号（可空）
+	PCode   string `json:"pcode"`   // 文号，如 国令第849号 / 教育部令第53号（可空）
 	PubTime string `json:"pubtime"` // 站点发布日期 2026.10.26（可空，日期兜底用）
 	URL     string `json:"url"`
+	Cat     string `json:"cat"`    // gzk：清单分类 部门规章/地方政府规章（可空，见 govgzResolveLevel）
+	PubOrg  string `json:"puborg"` // gzk：发布机关（DOM 提取，可空）
 }
 
 // GovcnItem 清单一条的处理结果（报告 CSV 行）。
@@ -64,17 +79,19 @@ type GovcnItem struct {
 	Article int    `json:"article,omitempty"`
 }
 
-// govcnContentURLRe 详情页 URL 形态：https://www.gov.cn/zhengce/…/content_<id>.htm。
-var govcnContentURLRe = regexp.MustCompile(`^https://www\.gov\.cn/zhengce/.+/content_(\d+)\.html?$`)
+// govcnContentURLRe 详情页 URL 形态：https://www.gov.cn/<…>/content_<id>.htm[l]。
+// 两库共用：行政法规库为 /zhengce/…，规章库详情页挂在 /zhengce/zhengceku/ 或 /gongbao/…
+// （Athena 返回的 docurl 为完整 URL，形态由站点决定）——主机锁与 content_id 形态不变。
+var govcnContentURLRe = regexp.MustCompile(`^https://www\.gov\.cn/.+/content_(\d+)\.html?$`)
 
 // govcnContentIDRe 详情页路径本体（抓取层主机校验独立于此，便于 httptest 注入回环）。
 var govcnContentIDRe = regexp.MustCompile(`/content_(\d+)\.html?$`)
 
-// GovcnDocID 由详情页 URL 派生 doc_id（govcn_<content_id>）。
+// GovcnDocID 由详情页 URL 派生 doc_id（govcn_<content_id>；content_id 站点全局唯一）。
 func GovcnDocID(rawURL string) (string, error) {
 	m := govcnContentURLRe.FindStringSubmatch(rawURL)
 	if m == nil {
-		return "", fmt.Errorf("URL 不是国家行政法规库详情页（须 https://%s/zhengce/…/content_<id>.htm）: %s", GovcnHost, rawURL)
+		return "", fmt.Errorf("URL 不是 gov.cn 法规/规章详情页（须 https://%s/…/content_<id>.htm）: %s", GovcnHost, rawURL)
 	}
 	return "govcn_" + m[1], nil
 }
@@ -142,7 +159,7 @@ func (g *Govcn) fetchPage(ctx context.Context, rawURL, docID string) (path strin
 	if g.MinInterval == 0 {
 		g.MinInterval = 2 * time.Second
 	}
-	dir := filepath.Join(g.DataDir, "incoming", "govcn")
+	dir := filepath.Join(g.DataDir, "incoming", g.subdir())
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", false, err
 	}
@@ -211,7 +228,7 @@ func (g *Govcn) fetchPage(ctx context.Context, rawURL, docID string) (path strin
 		os.Remove(tmp)
 		return "", false, err
 	}
-	g.logFetch(rawURL, docID, "success", "原始 HTML 已留证 incoming/govcn/", int64(len(body)), resp.Header.Get("Content-Type"))
+	g.logFetch(rawURL, docID, "success", "原始 HTML 已留证 incoming/"+g.subdir()+"/", int64(len(body)), resp.Header.Get("Content-Type"))
 	return dst, false, nil
 }
 
@@ -306,8 +323,39 @@ func govcnToMarkdown(seg string) string {
 	return b.String()
 }
 
-// govcnTitleSuffixRe 标题站点后缀清理。
-var govcnTitleSuffixRe = regexp.MustCompile(`_(?:中国政府网|国务院文件|国务院部门文件|政策解读|政策)$`)
+// govcnTitleSuffixRe 标题站点后缀清理（含公报页的期号后缀，如 __2024年第20号国务院公报）。
+var govcnTitleSuffixRe = regexp.MustCompile(`_{1,2}\d{4}年第\d+号(?:国务院)?公报$|_(?:中国政府网|国务院文件|国务院部门文件|政策解读|政策|国家规章库|国家行政法规库)$`)
+
+// govgzResolveLevel 国家规章库效力等级/发布机关解析（站点自述分类，非猜测）：
+//   - 清单 cat（用户浏览的分类页签）优先：部门规章 / 地方政府规章；
+//   - cat 缺失时按发布机关保守归类：含「人民政府」→ 地方政府规章；其他机关 → 部门规章；
+//   - 两者皆缺 → 不猜，转人工（skip_no_meta）。
+func govgzResolveLevel(cat, puborg string) (level, issuer string, ok bool) {
+	switch cat {
+	case "部门规章", "地方政府规章":
+		level = cat
+	case "":
+		puborg = strings.TrimSpace(puborg)
+		if puborg == "" {
+			return "", "", false
+		}
+		if strings.Contains(puborg, "人民政府") {
+			level = "地方政府规章"
+		} else {
+			level = "部门规章"
+		}
+	default:
+		return "", "", false
+	}
+	if org := strings.TrimSpace(puborg); org != "" {
+		issuer = org
+	} else if level == "地方政府规章" {
+		issuer = "地方人民政府（清单未载机关，待人工补）"
+	} else {
+		issuer = "国务院部门（清单未载机关，待人工补）"
+	}
+	return level, issuer, true
+}
 
 // govcnDecisionTitleRe 修改/废止/停止执行类决定：正文「第X条」全部是被引法规的条文
 // 而非本文件的条文边界（真实结构为「一、二、三、」）→ 强制全文即一节，防条文误拆。
@@ -364,7 +412,7 @@ func mustAtoi(s string) int {
 func (g *Govcn) FetchAndImport(ctx context.Context, im *Importer, e GovcnEntry) GovcnItem {
 	it := GovcnItem{URL: e.URL}
 	// 抓取层校验：主机锁（TestHost 仅测试注入）+ 详情页路径形态。
-	// 清单层 LoadGovcnList 另强制生产形态 https://www.gov.cn/zhengce/…。
+	// 清单层 LoadGovcnList 另强制生产形态 https://www.gov.cn/…。
 	u, err := url.Parse(e.URL)
 	if err != nil {
 		it.Status, it.Reason = "failed", fmt.Sprintf("URL 非法: %v", err)
@@ -403,6 +451,10 @@ func (g *Govcn) FetchAndImport(ctx context.Context, im *Importer, e GovcnEntry) 
 		it.Status, it.Reason = "failed", err.Error()
 		return it
 	}
+	// 清单标题（人工浏览所见）优先——公报页 <title> 带令号/期号噪声；清单缺标题才用 HTML 提取。
+	if t := strings.TrimSpace(e.Title); t != "" {
+		title = t
+	}
 
 	// 日期：正文落款保守推断（parse.InferDates）优先；无生效日退回清单 pubtime
 	// （站点发布日，保守上界）；仍无 → skip_no_date 转人工，绝不猜。
@@ -438,11 +490,22 @@ func (g *Govcn) FetchAndImport(ctx context.Context, im *Importer, e GovcnEntry) 
 
 	sum := sha256.Sum256([]byte(title))
 	lawID := fmt.Sprintf("govcn_%x", sum[:6])
+
+	issuer, effectLevel, sourceType := "中华人民共和国国务院", "行政法规", "gov.cn 国家行政法规库（官方详情页抓取）"
+	if g.Kind == "gzk" {
+		lv, iss, ok := govgzResolveLevel(e.Cat, e.PubOrg)
+		if !ok {
+			it.Status, it.Reason = "skip_no_meta", "规章库条目缺分类且无发布机关，效力等级不可保守判定，转人工"
+			return it
+		}
+		effectLevel, issuer, sourceType = lv, iss, "gov.cn 国家规章库（官方详情页抓取）"
+	}
+
 	res, err := im.Import(Request{
 		DocID: docID, LawID: lawID, LawName: title,
-		Issuer: "中华人民共和国国务院", EffectLevel: "行政法规",
+		Issuer: issuer, EffectLevel: effectLevel,
 		VersionNo: eff, EffectiveDate: eff, PublishDate: pub,
-		SourceURL: e.URL, SourceType: "gov.cn 国家行政法规库（官方详情页抓取）",
+		SourceURL: e.URL, SourceType: sourceType,
 		ConfirmStatus:         "pending",
 		EffectiveDateInferred: inferred,
 		PDFPath:               htmlPath,
@@ -470,9 +533,12 @@ func (g *Govcn) FetchAndImport(ctx context.Context, im *Importer, e GovcnEntry) 
 
 // buildGovcnNotes 导入备注（人工复核线索：文号/日期来源/续跑复用）。
 func buildGovcnNotes(e GovcnEntry, fromCache bool) string {
-	parts := []string{"govcn：日期取自正文落款或站点发布日（inferred 标记见溯源），待人工确认"}
+	parts := []string{"gov.cn 官方库：日期取自正文落款或站点发布日（inferred 标记见溯源），待人工确认"}
 	if e.PCode != "" {
 		parts = append(parts, "文号 "+e.PCode)
+	}
+	if e.Cat != "" {
+		parts = append(parts, "清单分类 "+e.Cat)
 	}
 	if fromCache {
 		parts = append(parts, "HTML 复用既有留证（断点续跑）")

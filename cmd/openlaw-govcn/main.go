@@ -1,10 +1,13 @@
-// openlaw-govcn：国家行政法规库（www.gov.cn/zhengce/xzfgk/）导入 CLI（docs/sources-govcn.md）。
+// openlaw-govcn：gov.cn 官方库导入 CLI（docs/sources-govcn.md）。
+// -source xzfgk（默认）= 国家行政法规库 www.gov.cn/zhengce/xzfgk/；
+// -source gzk        = 国家规章库 www.gov.cn/zhengce/xxgk/gjgzk/（部门规章+地方政府规章）。
 // 默认离线：本命令不运行则绝不联网。两段式合规（详见 ingest/govcn.go 头注释）：
-//   - 清单人工导出（浏览器脚本 tools/govcn-xzfgk-export.user.js；sousuo 检索域 robots 禁止自动化）；
+//   - 清单人工导出（浏览器脚本 tools/govcn-xzfgk-export.user.js / tools/govgz-export.user.js；
+//     sousuo 检索域 robots 禁止自动化，Athena 接口带鉴权——绝不逆向）；
 //   - 详情页按清单抓取（主站 robots 允许 + 主机锁 + 限速 + import_log + HTML 留证）。
 //
 // 流程：list.json → 逐条抓取/解析 → 日期（落款推断优先，绝不猜）→ Importer 入库
-// （行政法规 / pending 人工闸口 / 版本链接续）→ CSV 报告（failed 即退出码 1）。
+// （行政法规/部门规章/地方政府规章 / pending 人工闸口 / 版本链接续）→ CSV 报告（failed 即退出码 1）。
 package main
 
 import (
@@ -24,6 +27,7 @@ import (
 func main() {
 	var (
 		dataDir = flag.String("data", "data", "数据目录")
+		source  = flag.String("source", "xzfgk", "官方库：xzfgk=国家行政法规库；gzk=国家规章库")
 		listP   = flag.String("list", "", "人工导出的清单 list.json（必填）")
 		report  = flag.String("report", "", "CSV 报告输出路径（默认 data/incoming/govcn/report_<ts>.csv）")
 		delay   = flag.Duration("delay", 2*time.Second, "详情页抓取间隔（礼貌限速，勿低于 2s）")
@@ -34,6 +38,13 @@ func main() {
 
 	if *listP == "" {
 		fatal(fmt.Errorf("-list 必填（浏览器人工导出的 list.json；程序不代为检索）"))
+	}
+	if *source != "xzfgk" && *source != "gzk" {
+		fatal(fmt.Errorf("-source 只能为 xzfgk（行政法规库）或 gzk（国家规章库）"))
+	}
+	subdir := "govcn"
+	if *source == "gzk" {
+		subdir = "govgz"
 	}
 	if *delay < 2*time.Second {
 		fatal(fmt.Errorf("-delay 不得低于 2s（礼貌限速纪律）"))
@@ -55,12 +66,12 @@ func main() {
 	}
 	defer db.Close()
 
-	g := &ingest.Govcn{DataDir: *dataDir, DB: db, MinInterval: *delay, DryRun: *dryRun}
+	g := &ingest.Govcn{DataDir: *dataDir, DB: db, MinInterval: *delay, DryRun: *dryRun, Kind: *source}
 	im := &ingest.Importer{DataDir: *dataDir, DB: db}
 
 	rp := *report
 	if rp == "" {
-		rp = filepath.Join(*dataDir, "incoming", "govcn", "report_"+time.Now().UTC().Format("20060102T150405")+".csv")
+		rp = filepath.Join(*dataDir, "incoming", subdir, "report_"+time.Now().UTC().Format("20060102T150405")+".csv")
 	}
 	if err := os.MkdirAll(filepath.Dir(rp), 0o755); err != nil {
 		fatal(err)

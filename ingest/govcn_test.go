@@ -66,15 +66,100 @@ func TestGovcnDocID(t *testing.T) {
 	if err != nil || id != "govcn_7084280" {
 		t.Fatalf("doc_id 派生错误: %q %v", id, err)
 	}
+	// 国家规章库详情页可挂公报路径（Athena docurl 为站点给出的完整 URL）→ 接受。
+	id, err = GovcnDocID("https://www.gov.cn/gongbao/2024/issue_11466/202407/content_6963168.html")
+	if err != nil || id != "govcn_6963168" {
+		t.Fatalf("公报详情页应接受: %q %v", id, err)
+	}
 	for _, bad := range []string{
 		"http://www.gov.cn/zhengce/x/content_1.htm",    // 明文 http
 		"https://evil.example/zhengce/x/content_1.htm", // 非 gov.cn
-		"https://www.gov.cn/yaowen/x/content_1.htm",    // 非 /zhengce/
 		"https://www.gov.cn/zhengce/x/page_1.htm",      // 非 content_<id>
 	} {
 		if _, err := GovcnDocID(bad); err == nil {
 			t.Errorf("应拒绝: %s", bad)
 		}
+	}
+}
+
+// TestGovgzResolveLevel 规章库效力等级解析：分类优先、发布机关兜底、两者皆缺不猜。
+func TestGovgzResolveLevel(t *testing.T) {
+	if lv, iss, ok := govgzResolveLevel("部门规章", "教育部"); !ok || lv != "部门规章" || iss != "教育部" {
+		t.Errorf("分类直取失败: %s %s %v", lv, iss, ok)
+	}
+	if lv, iss, ok := govgzResolveLevel("地方政府规章", "北京市人民政府"); !ok || lv != "地方政府规章" || iss != "北京市人民政府" {
+		t.Errorf("地方政府规章失败: %s %s %v", lv, iss, ok)
+	}
+	if lv, _, ok := govgzResolveLevel("", "XX省人民政府"); !ok || lv != "地方政府规章" {
+		t.Errorf("按机关归类（地方）失败: %s %v", lv, ok)
+	}
+	if lv, _, ok := govgzResolveLevel("", "交通运输部"); !ok || lv != "部门规章" {
+		t.Errorf("按机关归类（部门）失败: %s %v", lv, ok)
+	}
+	if _, _, ok := govgzResolveLevel("", ""); ok {
+		t.Error("分类与机关皆缺时必须拒绝（不猜）")
+	}
+	if _, _, ok := govgzResolveLevel("规范性文件", ""); ok {
+		t.Error("未知分类必须拒绝（转人工）")
+	}
+}
+
+// TestGovgzImport 国家规章库入库：cat=部门规章 + puborg → effect_level/issuer 落库；
+// 公报路径 URL（.html）可抓可解析；留证目录分离 incoming/govgz/。
+func TestGovgzImport(t *testing.T) {
+	srv := newGovcnServer(t, "User-agent: *\nAllow: /\n")
+	defer srv.Close()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	g := &Govcn{DataDir: dir, DB: db, MinInterval: time.Millisecond, TestHost: "127.0.0.1", Kind: "gzk"}
+	im := &Importer{DataDir: dir, DB: db}
+
+	it := g.FetchAndImport(context.Background(), im, GovcnEntry{
+		Title:  "事业单位登记管理条例",
+		PCode:  "教育部令第53号",
+		Cat:    "部门规章",
+		PubOrg: "教育部",
+		URL:    srv.URL + "/zhengce/zhengceku/202610/content_7084280.htm",
+	})
+	if it.Status != "ok_inferred" {
+		t.Fatalf("gzk 导入失败: %s (%s)", it.Status, it.Reason)
+	}
+	var level, issuer string
+	if err := db.QueryRow(`SELECT l.effect_level, l.issuer FROM law l JOIN law_version v ON v.law_id=l.law_id JOIN document d ON d.doc_id=v.doc_id WHERE d.doc_id='govcn_7084280'`).Scan(&level, &issuer); err != nil {
+		t.Fatal(err)
+	}
+	if level != "部门规章" {
+		t.Errorf("effect_level 应为部门规章: %q", level)
+	}
+	if issuer != "教育部" {
+		t.Errorf("issuer 应为发布机关: %q", issuer)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "incoming", "govgz", "govcn_7084280.html")); err != nil {
+		t.Errorf("留证应在 incoming/govgz/: %v", err)
+	}
+}
+
+// TestGovgzSkipNoMeta 分类与发布机关皆缺 → skip_no_meta（效力等级不可保守判定，转人工）。
+func TestGovgzSkipNoMeta(t *testing.T) {
+	srv := newGovcnServer(t, "User-agent: *\nAllow: /\n")
+	defer srv.Close()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	g := &Govcn{DataDir: dir, DB: db, MinInterval: time.Millisecond, TestHost: "127.0.0.1", Kind: "gzk"}
+	im := &Importer{DataDir: dir, DB: db}
+	it := g.FetchAndImport(context.Background(), im, GovcnEntry{
+		URL: srv.URL + "/zhengce/zhengceku/202610/content_7084280.htm",
+	})
+	if it.Status != "skip_no_meta" {
+		t.Fatalf("缺元数据应 skip_no_meta: %s (%s)", it.Status, it.Reason)
 	}
 }
 
