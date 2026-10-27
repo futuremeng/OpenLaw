@@ -41,9 +41,14 @@ provenance + 原始 HTML）。
    OpenCourt `cmd/govlistcollect`（-start/-pages/-emptystop），产物多份
    list_agent_*.json 用 `scripts/govmerge.py` 合并去重（或多次直接喂给本 CLI，
    幂等 skip_dup_db 自动去重）。
-   真机全量采集（2026-10-27）：11 分片合并共 **1970 条**（部门规章 271 +
-   地方政府规章 1699；www.gov.cn 686 条可走本通道抓取，其余 1284 条地方政府
-   直链按上述策略记 skip_bad_url 转人工）。
+   真机全量采集（2026-10-27，http 过滤 bug 修复后）：官方清单恰 1000 页 ×
+   每页 7 条（第 1001 页越界 end_of_list 证实），5 会话合并去重共 **6667 条**
+   （部门规章 1594 + 地方政府规章 5073；www.gov.cn 4026 条走本通道抓取，其余
+   2641 条地方政府直链按上述策略记 skip_bad_url 转人工）。
+   重大教训：官方清单 docurl 大量为 http:// 主站形态（301→https）——清单层
+   URL 校验只收 https 曾把整页条目滤光、满页误判空页（首轮只收到 1970 条）；
+   修复后本通道 LoadGovcnList 对主站 http:// 归一化 https（去重合并），
+   地方政府 http 直链不归一原样交回。
 ② 获取（程序合规）：openlaw-govcn 按 list.json 抓详情页：
    robots 强制 + 主机锁死 www.gov.cn（重定向逐跳复查）+ 限速（默认 2s/页，不可低于）
    + UA 如实标识 + 每次访问写 import_log + 原始 HTML 留证 data/incoming/govcn/

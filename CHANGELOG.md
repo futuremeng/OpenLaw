@@ -4,7 +4,7 @@
 
 ## Unreleased（v0.1.0 开发中）
 
-- **gzk 清单全量真机采集落地 + skip_bad_url 导入语义**：OpenCourt 跳转驱动批量采集（`cmd/govlistcollect` + 缺口补采）覆盖官方清单全部 1000 页（真机探测证实第 1000 页为末页），11 分片合并去重共 **1970 条**（部门规章 271 / 地方政府规章 1699；www.gov.cn 686 条走本通道，1284 条地方政府直链转人工）；`LoadGovcnList` 不再对不合规 URL 整单拒绝——如实交回并在导入报告记 `skip_bad_url`（保留原 URL 供人工处置，不静默丢弃、不越主机策略抓取）；新增 `scripts/govmerge.py`（分片合并去重 + 区段覆盖分析）；官方清单证实存在大段真实稀疏空区（472–499 连续 28 页空而 500 页恢复），采集侧空页停止阈值可配（-emptystop）。dry-run 小样本验证：主站条目解析正常、地方政府直链全部正确记 skip_bad_url
+- **gzk 清单全量真机采集落地 + skip_bad_url 导入语义**：OpenCourt 跳转驱动批量采集（`cmd/govlistcollect` + 缺口补采）覆盖官方清单全部 1000 页（真机探测证实第 1000 页为末页、每页 7 条），http 过滤 bug 修复后 5 分片合并去重共 **6667 条**（部门规章 1594 / 地方政府规章 5073；www.gov.cn 4026 条走本通道，2641 条地方政府直链转人工）；`LoadGovcnList` 不再对不合规 URL 整单拒绝——如实交回并在导入报告记 `skip_bad_url`（保留原 URL 供人工处置，不静默丢弃、不越主机策略抓取）；主站 `http://` 详情页 URL 归一化 `https://`（去重前，两形态并一条；真机证实官方清单 docurl 大量 http 形态，301→https）；新增 `scripts/govmerge.py`（分片合并去重 + 区段覆盖分析）；dry-run 小样本验证：主站条目解析正常、地方政府直链全部正确记 skip_bad_url
 
 - **人在环代理浏览模式真机校准**：规章库默认列表为混合清单（无分类页签）——cat 按发布机关逐条推断（与本仓库 `gvgzResolveLevel` 同规则）；翻页为官方分页按钮 DOM 点击；清单 URL 校验放宽至 `.gov.cn` 域名族并如实记录地方政府规章直链（本通道主机锁 www.gov.cn，此类条目报告记 skip_bad_url 转人工，独立通道与否另行评估）；文档边界已同步（docs/sources-govcn.md）
 
