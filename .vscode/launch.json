@@ -76,6 +76,43 @@
       "args": ["-data", "data"]
     },
     {
+      // OL-9 清单浏览采集：需本机 BrowserOS neo 在跑（端点按实际端口改 env）。
+      // 默认离线护栏：端点未配置/不可达即报错给指引，绝不降级其他抓取。
+      "name": "govlist: 清单浏览试跑（3 页，需 BrowserOS neo）",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/openlaw-govlist",
+      "cwd": "${workspaceFolder}",
+      "args": ["-max-pages", "3"],
+      "env": { "OPENLAW_BROWSEROS_ENDPOINT": "http://127.0.0.1:9211/mcp" }
+    },
+    {
+      // OL-10 桌面端「OpenLaw 语料台」。必须带 wails 构建标签——无标签会链入
+      // stub（日志打「will not build without the correct build tags」且无窗口）。
+      // devtools 标签开右键 Inspect Element，便于排查前端；断点直接打在
+      // desktop/ 与 store/ ingest/ validate/ 上（同包同进程，全部可命中）。
+      "name": "桌面端: openlaw-desktop（语料台 + webview devtools）",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/desktop",
+      "buildFlags": ["-tags", "desktop,production,devtools"],
+      "cwd": "${workspaceFolder}",
+      "args": ["-data", "data"]
+    },
+    {
+      // 与发布形态完全一致（README/CI 验证的构建命令同款标签），复现打包行为用它。
+      "name": "桌面端: openlaw-desktop（production 形态）",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/desktop",
+      "buildFlags": ["-tags", "desktop,production"],
+      "cwd": "${workspaceFolder}",
+      "args": ["-data", "data"]
+    },
+    {
       // 桌面端打包形态调试（.app）：在 ../OpenCourt 执行 wails build -debug（带调试符号），
       // Delve 直接执行 .app 内二进制。编译经 replace => ../OpenLaw，SDK 源码断点照样命中；
       // 可验证仅 .app 形态生效的链路（自更新、dmg 安装形态、bundle 路径的语料发现）。
