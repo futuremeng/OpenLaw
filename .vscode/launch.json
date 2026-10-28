@@ -113,48 +113,6 @@
       "args": ["-data", "data"]
     },
     {
-      // 桌面端打包形态调试（.app）：在 ../OpenCourt 执行 wails build -debug（带调试符号），
-      // Delve 直接执行 .app 内二进制。编译经 replace => ../OpenLaw，SDK 源码断点照样命中；
-      // 可验证仅 .app 形态生效的链路（自更新、dmg 安装形态、bundle 路径的语料发现）。
-      "name": "桌面端: OpenCourt 打包 .app（debug 符号，自更新/打包形态验证）",
-      "type": "go",
-      "request": "launch",
-      "mode": "exec",
-      "program": "${workspaceFolder}/../OpenCourt/build/bin/OpenCourt.app/Contents/MacOS/OpenCourt",
-      "cwd": "${workspaceFolder}/../OpenCourt",
-      "preLaunchTask": "oc: wails build -debug"
-    },
-    {
-      // 桌面端联调（推荐起步）：Delve 编译并启动 OpenCourt 桌面应用（原生窗口）。
-      // OpenCourt go.mod 有 replace => ../OpenLaw，二进制源码路径即本工作区文件——
-      // 断点直接打在 search/ store/ sdk/ validate/ ingest/ 等任意 SDK 代码上可命中。
-      // 前端用 OpenCourt 已构建的 frontend/dist（改前端先 cd ../OpenCourt/frontend && npm run build）。
-      "name": "桌面端: OpenCourt（Delve 直接启动，SDK 源码断点）",
-      "type": "go",
-      "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}/../OpenCourt",
-      "cwd": "${workspaceFolder}/../OpenCourt",
-      "env": {
-        "GOPROXY": "https://goproxy.cn,direct"
-      }
-    },
-    {
-      // 桌面端联调（前端热重载）：在 ../OpenCourt 启动 wails dev（DevServer :34115），
-      // 任务等待应用进程出现后 headless 附加 Delve（:2346，避开 OpenCourt 工作区的 2345）。
-      // 注意：与 OpenCourt 工作区的同类配置勿同时运行（两个窗口抢同一进程）。
-      "name": "桌面端: OpenCourt（wails dev 热重载 + 自动附加）",
-      "type": "go",
-      "request": "attach",
-      "mode": "remote",
-      "backend": "dlv-dap",
-      "debugAdapter": "dlv-dap",
-      "port": 2346,
-      "cwd": "${workspaceFolder}/../OpenCourt",
-      "preLaunchTask": "oc: start wails dev then dlv",
-      "showLog": true
-    },
-    {
       "name": "调试当前文件所在命令",
       "type": "go",
       "request": "launch",
