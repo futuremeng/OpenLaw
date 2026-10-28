@@ -4,6 +4,14 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **语料台 M3（OL-10 运维面板 + 设置面板，六面板全部转正）**：全库体检
+  （validate.VerifyManifest + CheckAllArticles，openlaw-check 同路径只读，
+  断链明细前 100 条如实标注）；manifest 六要素 + 签名状态（缺失如实报告并给
+  CLI 指引）；离线更新包 build/verify/import（pack.* 同路径，build/import
+  经单槽任务队列，私钥只经路径引用，import 失败保留旧数据、新条目全 pending）;
+  设置面板（语料/schema/通道状态只读 + 风险缓存重载）。测试：体检如实、
+  pack 守门、缓存重载。OL-10 M1–M3 主体完成。
+
 - **语料台 M2（OL-10 采集任务面板）**：新增**任务管理器**（单槽互斥、context
   取消贯穿限速点、状态机 + 历史环形 20 条、Wails 事件推进度）。采集面板：
   BrowserOS 通道状态、清单发现（incoming/*/list*.json）、govcn 详情导入任务

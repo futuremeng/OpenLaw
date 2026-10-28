@@ -22,7 +22,7 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 | OL-5 | 程序期限规则查询（带法条引用） | P2 | OpenCourt 程序守护的规则溯源（违例 V4，v0.3） |
 | OL-6 | sdk 接口稳定性承诺 | 持续 | OpenCourt 进程内 import 是编译期耦合 |
 | OL-9 | 清单采集通道内聚本仓库（browser 包 + `openlaw-govlist`） | **P0**（✅ 2026-10-28 完成） | 独立分发时清单层曾依赖 OpenCourt（违例 V5） |
-| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1（🚧 M1+M2 完成 2026-10-28：状态+分诊/检索/确认/采集任务；M3 运维与设置待建） | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
+| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1（✅ 2026-10-28 M1–M3 完成：状态+分诊/检索/确认/采集任务/运维 check·pack/设置） | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
 
 > 边界前提（OpenCourt `docs/integration-model.md`）：**代码各自分发，语料只有一份；
 > 谁生产语料谁独占写权，消费方一律只读。** OL-7/OL-8 就是把这条纪律写进本仓库的
@@ -261,6 +261,21 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
 - 测试：TaskManager（互斥/进度/取消/失败详情/环形历史）+ 面板校验
   （非法 source/缺清单/端点未配置拒绝/清单发现排除报告文件）。
 - 下一期 M3：运维面板（check/pack/manifest/serve 状态）+ 设置面板。
+
+**M3 运维面板 + 设置面板（2026-10-28）**：六面板全部转正。
+
+- 运维面板（`desktop/ops.go`）：全库体检 = `validate.VerifyManifest` +
+  `validate.CheckAllArticles`（openlaw-check 同路径，只读；断链明细前 100 条
+  超出如实标注）；manifest 六要素 + 签名状态展示（`LoadManifest`，缺失如实
+  给 CLI 指引——当前真实语料即无 manifest，面板如实报告）；
+  pack build/verify/import（`pack.Build/Verify/Import` 同路径；build/import
+  经任务队列单槽互斥；私钥只经路径引用，内容不进 UI/日志；import 失败保留
+  旧数据、成功条目全 pending）。
+- 设置面板：语料/schema/产出者只读展示、BrowserOS 通道状态、风险缓存重载。
+- 测试：体检无 manifest 如实报告、pack 守门（缺目录/缺私钥/私钥不可读拒绝）、
+  风险缓存重载。
+- OL-10 主体完成（M1 状态/检索/确认 + M2 采集 + M3 运维/设置）；后续为增强
+  （如 serve 状态、更多通道 M4）。
 
 ---
 

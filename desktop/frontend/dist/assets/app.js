@@ -6,12 +6,14 @@
 document.querySelectorAll(".nav:not(.off)").forEach((b) =>
   b.addEventListener("click", () => {
     document.querySelectorAll(".nav").forEach((x) => x.classList.toggle("active", x === b));
-    for (const p of ["status", "search", "confirm", "tasks"]) {
+    for (const p of ["status", "search", "confirm", "tasks", "ops", "settings"]) {
       $("#panel-" + p).classList.toggle("hidden", p !== b.dataset.panel);
     }
     if (b.dataset.panel === "status") loadStatus();
     if (b.dataset.panel === "confirm") { loadQueue(); loadStats(); }
     if (b.dataset.panel === "tasks") { loadTasks(); loadTaskInit(); }
+    if (b.dataset.panel === "ops") loadManifestBox();
+    if (b.dataset.panel === "settings") loadSettings();
   })
 );
 
@@ -228,6 +230,62 @@ async function startGovListTask() {
   } catch (e) { toast("提交被拒：" + (e.message || e)); }
 }
 
+/* ---------- 面板五：运维 check/pack ---------- */
+async function loadManifestBox() {
+  const m = await app().ManifestStatus();
+  $("#manifest-box").textContent = m.exists
+    ? `manifest：生成 ${m.generated_at} · 工具 ${m.tool_version} · 产出者 ${m.producer_version || "—"} · schema ${m.schema_version || "—"} · 收录文件 ${num(m.files)}\n许可：${m.license || "—"}\n署名：${m.attribution || "—"}`
+      + (m.verify_err ? `\n签名校验失败：${m.verify_err}` : "\n签名校验：通过")
+    : `manifest 缺失或不可读：${m.verify_err}\n提示：用 openlaw-check -build-manifest -key <私钥> 生成（私钥不得进数据目录）。`;
+}
+
+async function doCheck() {
+  $("#check-info").textContent = "体检中…";
+  try {
+    const v = await app().CorpusCheck();
+    const head = `<div class="rep ${v.manifest_ok ? "" : "hasfail"}"><div class="rep-h"><b>manifest 签名：</b>${v.manifest_ok ? '<span class="ok">通过</span>' : '<span class="bad">失败</span>'}</div>${v.manifest_err ? `<div class="rep-n bad">${escapeHTML(v.manifest_err)}</div>` : ""}</div>`;
+    const broken = v.broken && v.broken.length
+      ? `<div class="rep hasfail"><div class="rep-h"><b>断链检测：</b><span class="bad">${num(v.broken_count)} 条条文有断点</span></div>`
+        + v.broken.map((b) => `<div class="rep-n"><code>${escapeHTML(b.key)}</code> [${escapeHTML(b.error_code)}] ${escapeHTML(b.step)}：${escapeHTML(b.reason)}</div>`).join("")
+        + (v.truncated ? '<div class="muted">（明细仅显示前 100 条）</div>' : "") + "</div>"
+      : `<div class="rep"><div class="rep-h"><b>断链检测：</b><span class="ok">${num(v.broken_count)} 条断点——溯源链完好</span></div></div>`;
+    $("#check-out").innerHTML = head + broken;
+    $("#check-info").textContent = "体检完成（只读，未改动任何数据）。";
+  } catch (e) { $("#check-info").textContent = "体检失败：" + (e.message || e); }
+}
+
+async function packBuild() {
+  try {
+    const info = await app().StartPackBuildTask($("#p-dir").value.trim(), $("#p-key").value.trim(), $("#p-license").value.trim(), $("#p-attrib").value.trim());
+    toast(`pack build 任务已提交 #${info.id}`);
+    if (!$("#panel-tasks").classList.contains("hidden")) loadTasks();
+  } catch (e) { toast("build 被拒：" + (e.message || e)); }
+}
+
+async function packVerify() {
+  const msg = await app().PackVerify($("#p-dir").value.trim());
+  toast(msg ? "校验失败：" + msg : "更新包校验通过（签名有效、哈希一致、无未收录文件）");
+}
+
+async function packImport() {
+  if (!confirm("确认导入该更新包？校验通过后写入本语料，新条目一律 pending 转人工；失败保留旧数据。")) return;
+  try {
+    const info = await app().StartPackImportTask($("#p-dir").value.trim());
+    toast(`pack import 任务已提交 #${info.id}`);
+  } catch (e) { toast("import 被拒：" + (e.message || e)); }
+}
+
+/* ---------- 面板六：设置 ---------- */
+async function loadSettings() {
+  const v = await app().Status();
+  $("#settings-box").textContent =
+    `数据目录：${v.data_dir}\nschema：v${v.schema_version}（支持 ${v.schema_min}–${v.schema_max}）\n产出者：${v.producer_version}\n文档：${num(v.documents)} · 条文：${num(v.articles)} · pending：${num(v.pending)}`;
+  const st = await app().BrowserStatus();
+  $("#settings-browser").innerHTML = st.enabled
+    ? '<span class="ok">BrowserOS neo 端点已配置</span>'
+    : '<span class="bad">BrowserOS 未配置</span><span class="muted">清单浏览通道不可用（不影响 gov.cn 清单抓取导入）。</span>';
+}
+
 /* ---------- 绑定与启动 ---------- */
 $("#btn-search").addEventListener("click", doSearch);
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
@@ -243,6 +301,11 @@ $("#btn-govlist").addEventListener("click", startGovListTask);
 $("#btn-cancel-task").addEventListener("click", async () => {
   toast((await app().CancelTask()) ? "已请求取消（在限速点安全停下，已采部分如实保留）" : "当前没有运行中的任务");
 });
+$("#btn-check").addEventListener("click", doCheck);
+$("#btn-pack-build").addEventListener("click", packBuild);
+$("#btn-pack-verify").addEventListener("click", packVerify);
+$("#btn-pack-import").addEventListener("click", packImport);
+$("#btn-risk-reload").addEventListener("click", async () => { await app().ReloadRiskCache(); toast("风险缓存已清空，下次载入队列时重扫"); });
 
 waitBindings(() => {
   loadStatus();

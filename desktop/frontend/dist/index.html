@@ -15,8 +15,8 @@
       <button class="nav" data-panel="search">条文检索</button>
       <button class="nav" data-panel="confirm">人工确认</button>
       <button class="nav" data-panel="tasks">采集任务</button>
-      <button class="nav off" disabled>运维 check/pack<small>M3 待建</small></button>
-      <button class="nav off" disabled>设置<small>M3 待建</small></button>
+      <button class="nav" data-panel="ops">运维 check/pack</button>
+      <button class="nav" data-panel="settings">设置</button>
     </nav>
     <div id="side-foot"><span id="schema-badge"></span></div>
   </aside>
@@ -128,6 +128,42 @@
           <p class="muted">前置：启动 BrowserOS neo，把回环 MCP 端点放入环境变量 OPENLAW_BROWSEROS_ENDPOINT；未配置时任务会被拒并给指引（绝不降级到其他抓取方式）。</p>
         </div>
       </div>
+    </section>
+
+    <!-- 运维 check/pack -->
+    <section id="panel-ops" class="panel hidden">
+      <div class="toolbar">
+        <button id="btn-check">全库体检（openlaw-check 同路径）</button>
+        <span id="check-info" class="muted">manifest 签名校验 + 条文溯源断链检测（只读）。</span>
+      </div>
+      <div id="manifest-box" class="kv"></div>
+      <div id="check-out" class="reports"></div>
+      <h2>离线更新包 pack（openlaw-pack 同路径；私钥只经路径引用，内容不进 UI）</h2>
+      <div class="form">
+        <label>包目录 <input id="p-dir" placeholder="如 packs/govcn_20261028（相对数据目录）"/></label>
+        <label>签名私钥路径 <input id="p-key" placeholder="如 ~/keys/openlaw-ed25519.key（不得进数据目录/仓库）"/></label>
+        <label>许可声明 <input id="p-license" placeholder="空 = 默认（公有领域+署出处）"/></label>
+        <label>来源署名 <input id="p-attrib" placeholder="空 = 默认"/></label>
+        <div class="rowbtns">
+          <button id="btn-pack-build">build（导出+签名）</button>
+          <button id="btn-pack-verify">verify（仅校验）</button>
+          <button id="btn-pack-import" class="warn">import（写入本语料，新条目 pending）</button>
+        </div>
+      </div>
+      <p class="muted">build/import 作为任务提交（与采集任务共用单槽互斥队列）；import 失败保留旧数据、成功条目全部 pending 转人工。</p>
+    </section>
+
+    <!-- 设置 -->
+    <section id="panel-settings" class="panel hidden">
+      <h2>语料与版本</h2>
+      <div id="settings-box" class="kv"></div>
+      <h2>采集通道</h2>
+      <div id="settings-browser" class="qstats"></div>
+      <div class="toolbar" style="margin-top:14px">
+        <button id="btn-risk-reload">重载风险缓存</button>
+        <span class="muted">风险缓存 TTL 5 分钟，仅影响读侧展示，不影响写纪律。</span>
+      </div>
+      <p class="muted">纪律：桌面端是生产者路径（store.Open）；消费方（OpenCourt 等）必须用 sdk.OpenReadOnly。serve 与签名私钥管理仍建议经 CLI。</p>
     </section>
   </main>
 </div>

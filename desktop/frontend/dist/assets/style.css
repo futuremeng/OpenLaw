@@ -75,4 +75,8 @@ th { color:var(--muted); font-weight:500; }
 .form input, .form select { background:var(--panel); border:1px solid var(--line); color:var(--fg); padding:6px 9px; border-radius:6px; min-width:170px; }
 .form label.chk { justify-content:flex-start; color:var(--fg); }
 .form button { align-self:flex-start; background:var(--ok); border:1px solid var(--ok); color:#fff; padding:8px 14px; border-radius:6px; cursor:pointer; }
+.rowbtns { display:flex; gap:8px; flex-wrap:wrap; }
+.rowbtns button { background:var(--panel); border:1px solid var(--line); color:var(--fg); padding:8px 14px; border-radius:6px; cursor:pointer; }
+.rowbtns button.warn { background:var(--warn); border-color:var(--warn); color:#fff; }
+code { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#c3ccd6; }
 #toast { position:fixed; bottom:20px; right:20px; background:var(--acc); padding:10px 16px; border-radius:8px; display:none; max-width:60vw; }
