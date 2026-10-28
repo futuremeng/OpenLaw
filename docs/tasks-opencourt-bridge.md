@@ -13,6 +13,8 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 
 | # | 任务 | 优先级 | 阻塞什么 |
 |---|---|---|---|
+| OL-7 | sdk 只读入口 `OpenReadOnly` | **P0** | 一并安装时的数据完整性（隐患 H1） |
+| OL-8 | schema 版本协商（不匹配即拒） | **P0** | schema 版本被消费方回写降级（隐患 H2） |
 | OL-2 | 构成要件导入 CLI（`openlaw-element`） | **P0** | OpenCourt v0.2 M4 全部（`element` 表当前 **0 行**） |
 | OL-1 | 显式 `effect_status` 字段 | **P0** | OpenCourt 停止自行推导法条效力（违例 V1） |
 | OL-3 | 要件名封闭候选集查询 | P1 | OpenCourt 阅卷抽取的要件归属（违例 V3） |
@@ -20,7 +22,61 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 | OL-5 | 程序期限规则查询（带法条引用） | P2 | OpenCourt 程序守护的规则溯源（违例 V4，v0.3） |
 | OL-6 | sdk 接口稳定性承诺 | 持续 | OpenCourt 进程内 import 是编译期耦合 |
 
+> 边界前提（OpenCourt `docs/integration-model.md`）：**代码各自分发，语料只有一份；
+> 谁生产语料谁独占写权，消费方一律只读。** OL-7/OL-8 就是把这条纪律写进本仓库的
+> 打开路径——现状是任何调用方一打开库就会跑迁移并回写 `schema_version`。
+
 ---
+
+## OL-7 sdk 只读入口（P0）
+
+**现状**：`store.Open()` 的 DSN 是
+`file:...?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)`
+——**读写打开**，且 `Open()` 无条件执行 `migrate()`。任何调用方（含 OpenCourt）一打开
+语料就会写库：这是「消费方修改生产者数据」，与边界纪律冲突（隐患 H1）。
+
+**要求**
+
+- 新增 `sdk.OpenReadOnly(dataDir) (*OpenLaw, error)`：
+  - DSN 追加 `_pragma=query_only(1)`；
+  - **不执行 migrate**、不写 `meta`；
+  - `schema_version` 高于支持范围时直接返回错误（见 OL-8）。
+- `sdk.New` 保留给本仓库自己的写入路径（ingest / confirm / pack import / check）。
+- 在 `docs/api.md` 明确写：**上层应用必须用 `OpenReadOnly`**；用 `New` 打开他人语料
+  属于越权。
+
+> 为什么不用 `mode=ro`：WAL 模式库只读打开仍需 `-shm`/`-wal` 可写，容易失败；
+> `query_only` 是按连接生效的 pragma，与 WAL 兼容，且能挡住误写的 SQL。
+
+**验收**：只读入口打开语料后 `md5`/`mtime` 不变；对只读连接执行 `INSERT` 报错；
+单测覆盖「只读入口不跑迁移」。
+
+## OL-8 schema 版本协商（P0）
+
+**现状**：`migrate()` 末尾执行
+
+```sql
+INSERT INTO meta(key, value) VALUES('schema_version', ?)
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value
+```
+
+把 `meta.schema_version` 无条件写成**内嵌 SDK 的** `SchemaVersion`（当前 `"3"`）。
+若语料由更新的 OpenLaw 产出（schema v4），旧 SDK 一打开就把标记**回写成 v3**：
+结构仍是 v4，声称却是 v3，后续新版 CLI 会重跑迁移（隐患 H2，数据完整性事故）。
+
+**要求**
+
+- 导出 `SchemaMin` / `SchemaMax`（本 SDK 可读写与可只读的范围）。
+- 打开流程改为：先读 `meta.schema_version`（不写）→
+  - `> SchemaMax` ⇒ **返回错误**，不迁移、不部分读；
+  - `< SchemaMin` ⇒ 返回错误（提示用 OpenLaw 升级语料）；
+  - 范围内 ⇒ 写入路径才跑 `migrate()`；只读路径跳过。
+- `manifest.json` 增加 `producer_version`（产出该语料的 OpenLaw 版本）与
+  `schema_version`，受 Ed25519 签名覆盖；消费方可据此显示来源。
+- 错误文案包含两条出路：升级消费方应用 / 用兼容语料包。
+
+**验收**：构造 `schema_version='99'` 的库，旧 SDK 两种入口均报错且**不改动该值**；
+`producer_version` 缺失时按「来源未知」处理而非报错。
 
 ## OL-1 显式 `effect_status`（P0）
 

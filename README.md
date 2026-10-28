@@ -22,6 +22,11 @@
 
 OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用，禁止直连数据库或让模型自行生成法条（开发文档 12.1）。
 
+三项目各自可独立分发、通常一并安装，因此语料纪律是：**代码各自分发，语料只有一份；
+本仓库是法规语料的唯一写入者（导入/确认/关系判定/schema 迁移），消费方一律只读打开**。
+消费方不得触发迁移、不得改写 `meta`（详见 OpenCourt `docs/integration-model.md`；
+本仓库侧待办 OL-7 只读入口、OL-8 版本协商见 [docs/tasks-opencourt-bridge.md](docs/tasks-opencourt-bridge.md)）。
+
 ## 四层架构（单向数据流，禁止反向写回）
 
 ```
@@ -91,6 +96,10 @@ go run ./cmd/openlaw-eu -data data -celex 32016R0679 -name 欧盟通用数据保
 ```
 
 ## SDK 调用示例（OpenCourt 侧）
+
+> ⚠️ 上层应用打开语料**必须走只读入口**（OL-7 `sdk.OpenReadOnly`，尚未实现）。
+> 下例的 `sdk.New` 是写入路径——它会执行 schema 迁移并回写 `meta.schema_version`，
+> 只供本仓库自己的 CLI（ingest/confirm/pack/check）使用；消费方用它属于越权（隐患 H1/H2）。
 
 ```go
 import "github.com/futuremeng/OpenLaw/sdk"
