@@ -6,11 +6,12 @@
 document.querySelectorAll(".nav:not(.off)").forEach((b) =>
   b.addEventListener("click", () => {
     document.querySelectorAll(".nav").forEach((x) => x.classList.toggle("active", x === b));
-    for (const p of ["status", "search", "confirm"]) {
+    for (const p of ["status", "search", "confirm", "tasks"]) {
       $("#panel-" + p).classList.toggle("hidden", p !== b.dataset.panel);
     }
     if (b.dataset.panel === "status") loadStatus();
     if (b.dataset.panel === "confirm") { loadQueue(); loadStats(); }
+    if (b.dataset.panel === "tasks") { loadTasks(); loadTaskInit(); }
   })
 );
 
@@ -180,6 +181,53 @@ async function bulkApply() {
   } catch (e) { toast("批量失败：" + (e.message || e)); }
 }
 
+/* ---------- 面板四：采集任务 ---------- */
+async function loadTasks() {
+  const ts = (await app().TaskList()) || [];
+  $("#task-list").innerHTML = ts.length
+    ? ts.map((t) => `<div class="task ${t.state}">
+        <b>#${t.id} ${escapeHTML(t.kind)}</b> <span class="pill st-${t.state}">${t.state}</span>
+        <div class="m">${escapeHTML(t.params)} · 起 ${t.started_at}${t.ended_at ? " · 止 " + t.ended_at : ""}</div>
+        ${t.progress ? `<div class="muted">进度：${escapeHTML(t.progress)}</div>` : ""}
+        ${t.detail ? `<div class="bad">错误：${escapeHTML(t.detail)}</div>` : ""}
+      </div>`).join("")
+    : '<p class="muted">尚无任务。</p>';
+}
+
+async function loadTaskInit() {
+  const st = await app().BrowserStatus();
+  $("#browser-status").innerHTML = st.enabled
+    ? '<span class="ok">BrowserOS neo 通道已配置（OPENLAW_BROWSEROS_ENDPOINT）</span>'
+    : `<span class="bad">BrowserOS 未配置/不可用</span><span class="muted">${escapeHTML(st.guidance)}</span>`;
+  const lists = (await app().GovcnLists()) || [];
+  $("#g-list").innerHTML = lists.length
+    ? lists.map((l) => `<option value="${escapeHTML(l.path)}">${escapeHTML(l.name)} · ${l.mtime}</option>`).join("")
+    : '<option value="">（未找到清单——先用浏览器脚本人工导出 list.json）</option>';
+}
+
+async function startGovcnTask() {
+  try {
+    const info = await app().StartGovcnTask({
+      source: $("#g-source").value, list_path: $("#g-list").value,
+      delay_sec: +$("#g-delay").value, limit: +$("#g-limit").value,
+      dry_run: $("#g-dry").checked, local: $("#g-local").checked,
+    });
+    toast(`任务已提交 #${info.id} ${info.kind}（${info.params}）`);
+    loadTasks();
+  } catch (e) { toast("提交被拒：" + (e.message || e)); }
+}
+
+async function startGovListTask() {
+  try {
+    const info = await app().StartGovListTask({
+      cat: $("#l-cat").value, max_pages: +$("#l-pages").value, start_page: +$("#l-start").value,
+      delay_ms: +$("#l-delay").value, empty_stop: +$("#l-empty").value,
+    });
+    toast(`任务已提交 #${info.id} ${info.kind}（${info.params}）`);
+    loadTasks();
+  } catch (e) { toast("提交被拒：" + (e.message || e)); }
+}
+
 /* ---------- 绑定与启动 ---------- */
 $("#btn-search").addEventListener("click", doSearch);
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
@@ -190,5 +238,18 @@ $("#btn-reject").addEventListener("click", () => judge("reject"));
 $("#btn-reset").addEventListener("click", () => judge("reset"));
 $("#btn-bulk-preview").addEventListener("click", bulkPreview);
 $("#btn-bulk-apply").addEventListener("click", bulkApply);
+$("#btn-govcn").addEventListener("click", startGovcnTask);
+$("#btn-govlist").addEventListener("click", startGovListTask);
+$("#btn-cancel-task").addEventListener("click", async () => {
+  toast((await app().CancelTask()) ? "已请求取消（在限速点安全停下，已采部分如实保留）" : "当前没有运行中的任务");
+});
 
-waitBindings(() => loadStatus());
+waitBindings(() => {
+  loadStatus();
+  // 任务进度经 Wails 事件推送；事件不可用时（如浏览器直开）3s 轮询兜底。
+  if (window.runtime && window.runtime.EventsOn) {
+    window.runtime.EventsOn("task", () => loadTasks());
+  } else {
+    setInterval(() => { if (!$("#panel-tasks").classList.contains("hidden")) loadTasks(); }, 3000);
+  }
+});

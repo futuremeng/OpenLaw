@@ -22,7 +22,7 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 | OL-5 | 程序期限规则查询（带法条引用） | P2 | OpenCourt 程序守护的规则溯源（违例 V4，v0.3） |
 | OL-6 | sdk 接口稳定性承诺 | 持续 | OpenCourt 进程内 import 是编译期耦合 |
 | OL-9 | 清单采集通道内聚本仓库（browser 包 + `openlaw-govlist`） | **P0**（✅ 2026-10-28 完成） | 独立分发时清单层曾依赖 OpenCourt（违例 V5） |
-| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1（🚧 M1 完成 2026-10-28：状态+报告分诊/检索/确认增强；M2 采集任务、M3 运维待建） | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
+| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1（🚧 M1+M2 完成 2026-10-28：状态+分诊/检索/确认/采集任务；M3 运维与设置待建） | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
 
 > 边界前提（OpenCourt `docs/integration-model.md`）：**代码各自分发，语料只有一份；
 > 谁生产语料谁独占写权，消费方一律只读。** OL-7/OL-8 就是把这条纪律写进本仓库的
@@ -244,6 +244,23 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   Judge/BulkApply 且库层强制审计，前端无直连 DB/网络路径。
 - 下一期 M2：任务管理器（单槽互斥/取消/进度事件）+ 采集面板（govcn/govlist
   任务化）；M3 运维（check/pack/manifest）。
+
+**M2 采集任务面板（2026-10-28）**：
+
+- 共享 runner 提取（消除第二写路径）：`ingest.RunGovcnBatch`（清单→抓取→入库→
+  CSV 报告逐行落盘，ctx 取消保留已写部分）与 `browser.RunGovListAgent`
+  （浏览护栏 + list.json/govlist_report 原子落盘，中断也出 partial 报告）；
+  openlaw-govcn / openlaw-govlist CLI 改为薄壳调用同一 runner，
+  `RunGovListBrowse` 增加每页 progress 回调（可 nil）。
+- `desktop/tasks.go` TaskManager：单槽互斥（运行中第二提交拒绝）、context 取消
+  （贯穿到限速点）、状态机 running/done/failed/cancelled、历史环形 20 条、
+  每次变化 Wails 事件 "task" 推送前端。
+- 采集面板：BrowserOS 通道状态（未配置如实给指引，绝不降级抓取）、清单发现
+  （incoming/*/list*.json 下拉）、govcn 导入任务（通道/限速≥2s 钳制/上限/
+  dry-run/local）、govlist 浏览任务（分类/页数/起始页续接/间隔≥2000ms/真空页）。
+- 测试：TaskManager（互斥/进度/取消/失败详情/环形历史）+ 面板校验
+  （非法 source/缺清单/端点未配置拒绝/清单发现排除报告文件）。
+- 下一期 M3：运维面板（check/pack/manifest/serve 状态）+ 设置面板。
 
 ---
 

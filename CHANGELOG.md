@@ -4,6 +4,15 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **语料台 M2（OL-10 采集任务面板）**：新增**任务管理器**（单槽互斥、context
+  取消贯穿限速点、状态机 + 历史环形 20 条、Wails 事件推进度）。采集面板：
+  BrowserOS 通道状态、清单发现（incoming/*/list*.json）、govcn 详情导入任务
+  （通道/限速≥2s/上限/dry-run/local）、govlist 清单浏览任务（分类/页数/
+  起始页续接/间隔≥2000ms）。共享 runner 提取到库层——`ingest.RunGovcnBatch`
+  与 `browser.RunGovListAgent`（中断保留已采 + partial 报告），两个采集 CLI
+  改为薄壳调用同一 runner（桌面端不是第二写路径）；`RunGovListBrowse`
+  增加每页进度回调。测试：互斥/取消/失败详情/环形历史 + 面板离线守门。
+
 - **语料台 M1（OL-10 全功能控制面板第一期）**：六面板导航（状态/检索/确认 可用，
   采集/运维/设置 置灰待建）。状态面板新增**报告分诊**（读 incoming/ 既有
   report_*.csv/batch_report.csv/govlist_report_*.json：ok/failed/skip 计数 +

@@ -60,4 +60,19 @@ th { color:var(--muted); font-weight:500; }
 .cite h3 { font-size:13px; color:var(--muted); }
 .cite textarea { min-height:64px; }
 .muted { color:var(--muted); }
+/* 采集任务面板 */
+.tasks { display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+.task { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:9px 12px; }
+.task.running { border-color:#3d6a99; }
+.task.failed { border-color:#5a3a33; }
+.task .m { color:var(--muted); font-size:11.5px; margin-top:2px; }
+.pill.st-running { background:#22435f; border-color:#3d6a99; color:#bcd4ea; }
+.pill.st-done { background:#20362a; border-color:#2e7d4f; color:#9ed3b2; }
+.pill.st-failed { background:#3a2c26; border-color:#5a3a33; color:#e0b3a2; }
+.pill.st-cancelled { background:#2c2c2c; border-color:#555; color:#bbb; }
+.form { display:flex; flex-direction:column; gap:8px; max-width:420px; margin-bottom:10px; }
+.form label { display:flex; justify-content:space-between; align-items:center; gap:10px; color:var(--muted); font-size:13px; }
+.form input, .form select { background:var(--panel); border:1px solid var(--line); color:var(--fg); padding:6px 9px; border-radius:6px; min-width:170px; }
+.form label.chk { justify-content:flex-start; color:var(--fg); }
+.form button { align-self:flex-start; background:var(--ok); border:1px solid var(--ok); color:#fff; padding:8px 14px; border-radius:6px; cursor:pointer; }
 #toast { position:fixed; bottom:20px; right:20px; background:var(--acc); padding:10px 16px; border-radius:8px; display:none; max-width:60vw; }

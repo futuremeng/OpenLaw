@@ -311,14 +311,15 @@ func waitListControlReady(ctx context.Context, b PageBrowser, pageID int) error 
 // RunGovListBrowse 执行规章库清单浏览：打开官方列表页（唯一允许起点）→
 // 逐页经官方「跳转」控件到达并核验页码 → 抽取条目（cat 按发布机关推断）→
 // 直到越过末页（end_of_list）/达上限/连续真空页。
+// progress(pages, entries) 每页回调（可 nil，供 UI 进度）。
 //
 // 时钟注入（clock/pauseCh/pauseDur）仅供单测用虚拟时钟加速；生产路径恒为
 // nil（time.Sleep / time.After 真实限速）。
-func RunGovListBrowse(ctx context.Context, b PageBrowser, opts GovListOptions) (GovListReport, error) {
-	return runGovListBrowse(ctx, b, opts, nil, nil, 0)
+func RunGovListBrowse(ctx context.Context, b PageBrowser, opts GovListOptions, progress func(pages, entries int)) (GovListReport, error) {
+	return runGovListBrowse(ctx, b, opts, progress, nil, nil, 0)
 }
 
-func runGovListBrowse(ctx context.Context, b PageBrowser, opts GovListOptions,
+func runGovListBrowse(ctx context.Context, b PageBrowser, opts GovListOptions, progress func(pages, entries int),
 	clock *time.Time, pauseCh chan time.Duration, pauseDur time.Duration) (GovListReport, error) {
 	sleep := func(d time.Duration) {
 		if pauseCh != nil {
@@ -418,6 +419,9 @@ func runGovListBrowse(ctx context.Context, b PageBrowser, opts GovListOptions,
 				rep.Entries = append(rep.Entries, e)
 			}
 			rep.Pages = pageno
+		}
+		if progress != nil {
+			progress(rep.Pages, len(rep.Entries))
 		}
 		if pageno == opts.MaxPages {
 			rep.StoppedAt = "max_pages"

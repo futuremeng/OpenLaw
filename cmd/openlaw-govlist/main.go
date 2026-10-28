@@ -8,11 +8,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/futuremeng/OpenLaw/browser"
@@ -36,50 +34,24 @@ func main() {
 		fatal(fmt.Errorf("%s", browser.Guidance))
 	}
 
-	ctx := context.Background()
-	rep, err := browser.RunGovListBrowse(ctx, b, browser.GovListOptions{
-		Cat: *cat, MaxPages: *maxPages, Delay: *delay, StartPage: *startPage, EmptyStop: *emptyStop,
-	})
-	if err != nil {
-		fatal(fmt.Errorf("清单浏览失败（已采 %d 页 %d 条如实报告）: %w", rep.Pages, len(rep.Entries), err))
-	}
-
 	outPath := *out
 	if outPath == "" {
-		outPath = filepath.Join(*dataDir, "incoming", "govgz", "list_agent_"+time.Now().UTC().Format("20060102T150405")+".json")
+		outPath = browser.DefaultGovListOutPath(*dataDir)
 	}
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-		fatal(err)
-	}
-	entries := rep.Entries
-	if entries == nil {
-		entries = []browser.GovListEntry{}
-	}
-	body, err := json.MarshalIndent(entries, "", "  ")
+	rep, err := browser.RunGovListAgent(context.Background(), b, browser.GovListOptions{
+		Cat: *cat, MaxPages: *maxPages, Delay: *delay, StartPage: *startPage, EmptyStop: *emptyStop,
+	}, outPath, nil)
 	if err != nil {
-		fatal(err)
-	}
-	tmp := outPath + ".part"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		fatal(err)
-	}
-	if err := os.Rename(tmp, outPath); err != nil {
-		os.Remove(tmp)
-		fatal(err)
-	}
-	rep.OutPath = outPath
-	sum := sha256.Sum256(body)
-	repPath := filepath.Join(filepath.Dir(outPath), "govlist_report_"+filepath.Base(outPath))
-	rb, err := json.MarshalIndent(rep, "", "  ")
-	if err != nil {
-		fatal(err)
-	}
-	if err := os.WriteFile(repPath, rb, 0o644); err != nil {
-		fatal(err)
+		fatal(fmt.Errorf("清单浏览失败（已采 %d 页 %d 条如实报告，清单已落盘 %s）: %w", rep.Pages, len(rep.Entries), rep.OutPath, err))
 	}
 
-	fmt.Printf("规章库清单浏览完成: 页 %d（起始 %d）条 %d 停止原因 %s\n清单: %s (sha256 %s)\n报告: %s\n下一步: go run ./cmd/openlaw-govcn -source gzk -local -list %s\n",
-		rep.Pages, rep.StartPage, len(entries), rep.StoppedAt, outPath, hex.EncodeToString(sum[:16]), repPath, outPath)
+	body, err := os.ReadFile(rep.OutPath)
+	if err != nil {
+		fatal(err)
+	}
+	sum := sha256.Sum256(body)
+	fmt.Printf("规章库清单浏览完成: 页 %d（起始 %d）条 %d 停止原因 %s\n清单: %s (sha256 %s)\n下一步: go run ./cmd/openlaw-govcn -source gzk -local -list %s\n",
+		rep.Pages, rep.StartPage, len(rep.Entries), rep.StoppedAt, rep.OutPath, hex.EncodeToString(sum[:16]), rep.OutPath)
 }
 
 func fatal(err error) {

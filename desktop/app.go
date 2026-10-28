@@ -11,11 +11,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/futuremeng/OpenLaw/browser"
 	"github.com/futuremeng/OpenLaw/ingest"
 	"github.com/futuremeng/OpenLaw/search"
 	"github.com/futuremeng/OpenLaw/store"
@@ -34,9 +38,19 @@ type App struct {
 	risk     ingest.RiskSet
 	riskAt   time.Time
 	riskLoad string // 最近一次加载错误（如实展示用）
+
+	tm *TaskManager // 采集任务管理器（单槽互斥，见 tasks.go）
 }
 
-func NewApp(dataDir string) *App { return &App{dataDir: dataDir} }
+func NewApp(dataDir string) *App {
+	a := &App{dataDir: dataDir}
+	a.tm = NewTaskManager(func(ev string, data ...interface{}) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, ev, data...)
+		}
+	})
+	return a
+}
 
 func (a *App) Open() error {
 	if err := os.MkdirAll(filepath.Join(a.dataDir, "db"), 0o755); err != nil {
@@ -436,4 +450,137 @@ func (a *App) BulkApply(sourceLike, level, verdict, reviewer, reason string) (*i
 	}
 	c := &ingest.Confirmer{DataDir: a.dataDir, DB: a.db}
 	return c.Bulk(ingest.BulkFilter{SourceLike: sourceLike, Level: level}, verdict, reviewer, reason)
+}
+
+// ---- 采集任务面板（M2）----
+
+// TaskList 当前任务（在前）+ 历史（最近在前）。
+func (a *App) TaskList() []TaskInfo { return a.tm.Tasks() }
+
+// CancelTask 请求取消当前采集任务。
+func (a *App) CancelTask() bool { return a.tm.Cancel() }
+
+// BrowserStatus BrowserOS 代理浏览通道状态（只读环境配置，不主动联网探测）。
+func (a *App) BrowserStatus() map[string]any {
+	b := browser.NewBrowserOS(os.Getenv("OPENLAW_BROWSEROS_ENDPOINT"))
+	guide := ""
+	if !b.Enabled() {
+		guide = browser.Guidance
+	}
+	return map[string]any{"enabled": b.Enabled(), "guidance": guide}
+}
+
+// GovcnLists 可选的已导出清单（incoming/*/list*.json，最近在前）。
+func (a *App) GovcnLists() []map[string]string {
+	var out []map[string]string
+	roots, _ := filepath.Glob(filepath.Join(a.dataDir, "incoming", "*", "*.json"))
+	for _, p := range roots {
+		base := filepath.Base(p)
+		if !strings.HasPrefix(base, "list") {
+			continue
+		}
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		out = append(out, map[string]string{
+			"path":  p,
+			"name":  filepath.Base(filepath.Dir(p)) + "/" + base,
+			"mtime": fi.ModTime().UTC().Format(time.RFC3339),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i]["mtime"] > out[j]["mtime"] })
+	if len(out) > 30 {
+		out = out[:30]
+	}
+	return out
+}
+
+// GovcnTaskOptions govcn 详情导入任务参数（与 openlaw-govcn CLI flag 同语义）。
+type GovcnTaskOptions struct {
+	Source   string `json:"source"` // xzfgk | gzk
+	ListPath string `json:"list_path"`
+	DelaySec int    `json:"delay_sec"`
+	Limit    int    `json:"limit"`
+	DryRun   bool   `json:"dry_run"`
+	Local    bool   `json:"local"`
+}
+
+// StartGovcnTask 提交 gov.cn 清单抓取导入任务（ingest.RunGovcnBatch——与 CLI 同路径）。
+func (a *App) StartGovcnTask(o GovcnTaskOptions) (TaskInfo, error) {
+	if o.Source != "xzfgk" && o.Source != "gzk" {
+		return TaskInfo{}, errors.New("source 只能为 xzfgk（行政法规库）或 gzk（国家规章库）")
+	}
+	if o.ListPath == "" {
+		return TaskInfo{}, errors.New("清单必填（浏览器人工导出的 list.json；程序不代为检索）")
+	}
+	if !filepath.IsAbs(o.ListPath) {
+		o.ListPath = filepath.Join(a.dataDir, o.ListPath)
+	}
+	if o.DelaySec < 2 {
+		o.DelaySec = 2 // 礼貌限速纪律，与 CLI 同样钳制
+	}
+	entries, badURLs, err := ingest.LoadGovcnList(o.ListPath, o.Local)
+	if err != nil {
+		return TaskInfo{}, err
+	}
+	if o.Limit > 0 && o.Limit < len(entries) {
+		entries = entries[:o.Limit]
+	}
+	subdir := "govcn"
+	if o.Source == "gzk" {
+		subdir = "govgz"
+	}
+	params := fmt.Sprintf("source=%s list=%s limit=%d dry_run=%v local=%v delay=%ds",
+		o.Source, filepath.Base(o.ListPath), o.Limit, o.DryRun, o.Local, o.DelaySec)
+	return a.tm.Submit("govcn-import", params, func(ctx context.Context, progress func(string)) error {
+		db, err := store.Open(filepath.Join(a.dataDir, "db", "openlaw.db"))
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		g := &ingest.Govcn{DataDir: a.dataDir, DB: db, MinInterval: time.Duration(o.DelaySec) * time.Second,
+			DryRun: o.DryRun, Kind: o.Source, LocalGov: o.Local}
+		im := &ingest.Importer{DataDir: a.dataDir, DB: db}
+		res, err := ingest.RunGovcnBatch(ctx, g, im, entries, badURLs, ingest.DefaultGovcnReportPath(a.dataDir, subdir),
+			func(i, total int, it ingest.GovcnItem) {
+				progress(fmt.Sprintf("%d/%d %s %s", i, total, it.Status, it.DocID))
+			})
+		if res != nil {
+			progress(fmt.Sprintf("完成 %d/%d %v（报告 %s）", res.Total, len(entries), res.Counts, filepath.Base(res.ReportPath)))
+		}
+		return err
+	})
+}
+
+// GovListTaskOptions govlist 清单浏览任务参数（与 openlaw-govlist CLI flag 同语义）。
+type GovListTaskOptions struct {
+	Cat       string `json:"cat"` // 空 | 部门规章 | 地方政府规章
+	MaxPages  int    `json:"max_pages"`
+	StartPage int    `json:"start_page"`
+	DelayMs   int    `json:"delay_ms"`
+	EmptyStop int    `json:"empty_stop"`
+}
+
+// StartGovListTask 提交国家规章库清单浏览任务（browser.RunGovListAgent——与 CLI 同路径）。
+// 默认离线纪律不变：BrowserOS 端点未配置直接拒绝，绝不降级到其他抓取方式。
+func (a *App) StartGovListTask(o GovListTaskOptions) (TaskInfo, error) {
+	b := browser.NewBrowserOS(os.Getenv("OPENLAW_BROWSEROS_ENDPOINT"))
+	if !b.Enabled() {
+		return TaskInfo{}, errors.New(browser.Guidance)
+	}
+	if o.DelayMs < 2000 {
+		o.DelayMs = 2500 // 与 CLI 一致：低于下限钳回默认
+	}
+	params := fmt.Sprintf("cat=%s pages=%d start=%d delay=%dms empty_stop=%d",
+		o.Cat, o.MaxPages, o.StartPage, o.DelayMs, o.EmptyStop)
+	return a.tm.Submit("govlist-browse", params, func(ctx context.Context, progress func(string)) error {
+		_, err := browser.RunGovListAgent(ctx, b, browser.GovListOptions{
+			Cat: o.Cat, MaxPages: o.MaxPages, Delay: time.Duration(o.DelayMs) * time.Millisecond,
+			StartPage: o.StartPage, EmptyStop: o.EmptyStop,
+		}, browser.DefaultGovListOutPath(a.dataDir), func(pages, entries int) {
+			progress(fmt.Sprintf("页 %d 条 %d", pages, entries))
+		})
+		return err
+	})
 }

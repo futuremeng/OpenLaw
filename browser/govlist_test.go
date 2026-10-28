@@ -89,7 +89,7 @@ func govcnEntries(page int) []govListRawEntry {
 
 func TestGovListMultiPageToEnd(t *testing.T) {
 	f := &fakeBrowser{pageCount: 3, entries: govcnEntries}
-	rep, err := RunGovListBrowse(context.Background(), f, GovListOptions{MaxPages: 50, Delay: 2 * time.Second})
+	rep, err := RunGovListBrowse(context.Background(), f, GovListOptions{MaxPages: 50, Delay: 2 * time.Second}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestGovListCatFilterAndStartPage(t *testing.T) {
 	f := &fakeBrowser{pageCount: 4, entries: govcnEntries}
 	rep, err := RunGovListBrowse(context.Background(), f, GovListOptions{
 		Cat: "地方政府规章", MaxPages: 2, StartPage: 3, Delay: 2 * time.Second,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +135,11 @@ func TestGovListCatFilterAndStartPage(t *testing.T) {
 
 func TestGovListGuardrails(t *testing.T) {
 	f := &fakeBrowser{pageCount: 1, entries: govcnEntries}
-	if _, err := RunGovListBrowse(context.Background(), f, GovListOptions{Cat: "瞎填"}); err == nil {
+	if _, err := RunGovListBrowse(context.Background(), f, GovListOptions{Cat: "瞎填"}, nil); err == nil {
 		t.Error("未知分类必须拒绝")
 	}
 	rep, err := runGovListBrowse(context.Background(), &fakeBrowser{pageCount: 50, entries: govcnEntries},
-		GovListOptions{}, new(time.Time), make(chan time.Duration, 200), time.Second)
+		GovListOptions{}, nil, new(time.Time), make(chan time.Duration, 200), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestGovListDelayFloor(t *testing.T) {
 	pauseCh := make(chan time.Duration, 200)
 	f := &fakeBrowser{pageCount: 4, entries: govcnEntries}
 	rep, err := runGovListBrowse(context.Background(), f, GovListOptions{MaxPages: 4, Delay: time.Millisecond},
-		&clock, pauseCh, 30*time.Second)
+		nil, &clock, pauseCh, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

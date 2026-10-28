@@ -12,7 +12,6 @@ package main
 
 import (
 	"context"
-	"encoding/csv"
 	"flag"
 	"fmt"
 	"os"
@@ -72,46 +71,18 @@ func main() {
 
 	rp := *report
 	if rp == "" {
-		rp = filepath.Join(*dataDir, "incoming", subdir, "report_"+time.Now().UTC().Format("20060102T150405")+".csv")
+		rp = ingest.DefaultGovcnReportPath(*dataDir, subdir)
 	}
-	if err := os.MkdirAll(filepath.Dir(rp), 0o755); err != nil {
-		fatal(err)
-	}
-	f, err := os.Create(rp)
+	res, err := ingest.RunGovcnBatch(context.Background(), g, im, entries, badURLs, rp,
+		func(i, total int, it ingest.GovcnItem) {
+			fmt.Printf("[%d/%d] %s %s %s\n", i, total, it.Status, it.DocID, truncate(it.Reason, 80))
+		})
 	if err != nil {
-		fatal(err)
+		fatal(fmt.Errorf("批量中断（报告已保留 %s）: %w", res.ReportPath, err))
 	}
-	defer f.Close()
-	w := csv.NewWriter(f)
-	_ = w.Write([]string{"url", "doc_id", "status", "articles", "reason"})
-
-	cnt := map[string]int{}
-	ctx := context.Background()
-	// 清单中不符合本通道详情页形态的条目（如 gzk 混合清单里的地方政府直链）：
-	// 如实记入报告 skip_bad_url 转人工，不静默丢弃、也不越主机策略抓取。
-	for _, e := range badURLs {
-		cnt["skip_bad_url"]++
-		if err := w.Write([]string{e.URL, "", "skip_bad_url", "", "不符合本通道详情页形态（主机锁 " + ingest.GovcnHost + "），转人工"}); err != nil {
-			fatal(err)
-		}
-	}
-	w.Flush()
-	for i, e := range entries {
-		it := g.FetchAndImport(ctx, im, e)
-		cnt[it.Status]++
-		if err := w.Write([]string{it.URL, it.DocID, it.Status, fmt.Sprint(it.Article), it.Reason}); err != nil {
-			fatal(err)
-		}
-		w.Flush()
-		fmt.Printf("[%d/%d] %s %s %s\n", i+1, len(entries), it.Status, it.DocID, truncate(it.Reason, 80))
-	}
-	w.Flush()
-	if err := w.Error(); err != nil {
-		fatal(err)
-	}
-	fmt.Printf("govcn 完成: 共 %d 条 %v\n报告: %s\n", len(entries), cnt, rp)
+	fmt.Printf("govcn 完成: 共 %d 条 %v\n报告: %s\n", res.Total, res.Counts, res.ReportPath)
 	fmt.Println("提示: 全部条目 confirm_status=pending，用 openlaw-confirm 复核后方可视为已证。")
-	if cnt["failed"] > 0 {
+	if res.Counts["failed"] > 0 {
 		os.Exit(1)
 	}
 }

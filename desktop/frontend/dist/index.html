@@ -14,7 +14,7 @@
       <button class="nav active" data-panel="status">语料状态</button>
       <button class="nav" data-panel="search">条文检索</button>
       <button class="nav" data-panel="confirm">人工确认</button>
-      <button class="nav off" disabled>采集任务<small>M2 待建</small></button>
+      <button class="nav" data-panel="tasks">采集任务</button>
       <button class="nav off" disabled>运维 check/pack<small>M3 待建</small></button>
       <button class="nav off" disabled>设置<small>M3 待建</small></button>
     </nav>
@@ -90,6 +90,43 @@
       <div class="split">
         <div id="queue-list" class="list"></div>
         <div id="preview" class="preview"><p class="muted">点选左侧条目查看留证正文与审计历史。机器不裁决：确认/驳回必须署名并写明依据。</p></div>
+      </div>
+    </section>
+
+    <!-- 采集任务 -->
+    <section id="panel-tasks" class="panel hidden">
+      <div id="browser-status" class="qstats"></div>
+      <h2>当前 / 最近任务（单槽互斥，可取消；历史留 20 条）</h2>
+      <div class="toolbar">
+        <button id="btn-cancel-task" class="warn">取消当前任务</button>
+        <span class="muted">任务走与 CLI 完全相同的 runner（ingest.RunGovcnBatch / browser.RunGovListAgent），报告照常落 incoming/。</span>
+      </div>
+      <div id="task-list" class="tasks"></div>
+      <div class="cols">
+        <div>
+          <h2>gov.cn 详情导入（openlaw-govcn 同路径）</h2>
+          <div class="form">
+            <label>通道 <select id="g-source"><option value="xzfgk">国家行政法规库 xzfgk</option><option value="gzk">国家规章库 gzk</option></select></label>
+            <label>清单 <select id="g-list"></select></label>
+            <label>限速（秒，≥2） <input id="g-delay" type="number" value="2" min="2"/></label>
+            <label>条数上限（0=全部） <input id="g-limit" type="number" value="20" min="0"/></label>
+            <label class="chk"><input id="g-dry" type="checkbox" checked/> dry-run（抓取留证但不入库）</label>
+            <label class="chk"><input id="g-local" type="checkbox"/> 地方政府子域通道（-local）</label>
+            <button id="btn-govcn" class="ok">启动导入任务</button>
+          </div>
+        </div>
+        <div>
+          <h2>国家规章库清单浏览（BrowserOS 代理浏览；默认离线）</h2>
+          <div class="form">
+            <label>分类 <select id="l-cat"><option value="">混合清单全收</option><option>部门规章</option><option>地方政府规章</option></select></label>
+            <label>页数上限（≤200） <input id="l-pages" type="number" value="10" min="1" max="200"/></label>
+            <label>起始页（续接） <input id="l-start" type="number" value="1" min="1"/></label>
+            <label>跳页间隔 ms（≥2000） <input id="l-delay" type="number" value="2500" min="2000"/></label>
+            <label>连续真空页停止 <input id="l-empty" type="number" value="10" min="1"/></label>
+            <button id="btn-govlist" class="ok">启动浏览任务</button>
+          </div>
+          <p class="muted">前置：启动 BrowserOS neo，把回环 MCP 端点放入环境变量 OPENLAW_BROWSEROS_ENDPOINT；未配置时任务会被拒并给指引（绝不降级到其他抓取方式）。</p>
+        </div>
       </div>
     </section>
   </main>
