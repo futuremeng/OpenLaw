@@ -49,6 +49,16 @@ provenance + 原始 HTML）。
    URL 校验只收 https 曾把整页条目滤光、满页误判空页（首轮只收到 1970 条）；
    修复后本通道 LoadGovcnList 对主站 http:// 归一化 https（去重合并），
    地方政府 http 直链不归一原样交回。
+①b 清单采集内聚 OpenLaw（2026-10-28，OL-9）：按边界纪律「谁拥有语料，谁拥有
+    该语料的采集」，人在环代理浏览通道落位本仓库——`browser` 包（自实现最小
+    MCP Streamable HTTP 客户端 + BrowserOS neo 客户端：懒握手、最小工具面校验、
+    回环端点硬校验、防注入包裹剥离、默认离线未配置即报错）+ `cmd/openlaw-govlist`
+    （-endpoint/OPENLAW_BROWSEROS_ENDPOINT、-cat/-max-pages/-start-page/-delay/
+    -empty-stop；护栏与 OpenCourt neutral/govlistassist.go 同源：起点 URL 白名单、
+    跳转控件等价人工、≥2s 限速、≤200 页/会话、页码核验、URL 硬校验、cat 推断）。
+    产物 list_agent_<ts>.json + 报告（含 sha256）落 incoming/govgz/。
+    OpenCourt 侧 cmd/govlistcollect 为历史入口（同一合规画像），保留不动；
+    本仓库独立分发时不再依赖 OpenCourt 即可完成清单采集。
 
 ## 地方政府子域通道（-local，2026-10-27 开通）
 

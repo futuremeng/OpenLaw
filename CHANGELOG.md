@@ -4,6 +4,20 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **浏览器能力内聚（OL-9）：清单采集通道落位本仓库**。新增 `browser` 包：自实现
+  最小 MCP Streamable HTTP 客户端（initialize/tools/list/tools/call，SSE 帧与
+  会话头处理；**端点回环硬校验**——非 127.0.0.1/localhost/::1 直接拒绝）+
+  BrowserOS neo 客户端（懒握手、最小工具面校验 tabs/read/grep/evaluate、
+  UNTRUSTED_PAGE_CONTENT 防注入包裹剥离、默认离线：端点未配置调用即报错给指引，
+  绝不降级其他抓取）。新增 `cmd/openlaw-govlist`：国家规章库清单人在环代理浏览
+  （官方列表页唯一起点、跳转控件等价人工跳页并核验选中页码、≥2s 限速、≤200 页/
+  会话、URL 硬校验 http(s)+.gov.cn 族+.htm(l)/.shtml、cat 按发布机关推断、
+  产物 list_agent_<ts>.json + sha256 报告落盘）。护栏与 OpenCourt
+  neutral/govlistassist.go 同源（真机 1000 页验证过的形态），按「谁拥有语料谁
+  拥有采集」边界落位——本仓库独立分发不再依赖 OpenCourt 完成清单层。
+  测试：fake 浏览器跳转驱动多页/去重/分类过滤/起始页续接/end_of_list/限速下限
+  （虚拟时钟）/伪装域过滤 + MCP 回环拒绝 + httptest 握手全链路。
+
 - **地方政府子域抓取通道（-local）**：`openlaw-govcn -source gzk -local` 放行
   混合清单 2629 条地方政府规章直链（*.gov.cn 子域）抓取。主机策略后缀族匹配
   （防伪装域 gov.cn.evil.example）、重定向逐跳复查、**每站 robots 独立强制

@@ -21,6 +21,8 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 | OL-4 | 法名规范化/别名解析 + 候选列表 | P1 | 文书引用核验可用性（简称引用极常见） |
 | OL-5 | 程序期限规则查询（带法条引用） | P2 | OpenCourt 程序守护的规则溯源（违例 V4，v0.3） |
 | OL-6 | sdk 接口稳定性承诺 | 持续 | OpenCourt 进程内 import 是编译期耦合 |
+| OL-9 | 清单采集通道内聚本仓库（browser 包 + `openlaw-govlist`） | **P0**（✅ 2026-10-28 完成） | 独立分发时清单层曾依赖 OpenCourt（违例 V5） |
+| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1 | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
 
 > 边界前提（OpenCourt `docs/integration-model.md`）：**代码各自分发，语料只有一份；
 > 谁生产语料谁独占写权，消费方一律只读。** OL-7/OL-8 就是把这条纪律写进本仓库的
@@ -171,6 +173,38 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
 - 破坏性变更（字段改名/删除、`Result` 结构变化）⇒ 主版本 + 迁移脚本 + 迁移前自动备份；
 - 新增能力 ⇒ 次版本；`sdk.Result` / `Status` 五种 / `OL-100x` 错误码视为稳定契约；
 - 上层禁止直连 `data/db`，禁止绕过 sdk。
+
+---
+
+## OL-9 清单采集通道内聚（P0，✅ 2026-10-28 完成）
+
+**违例 V5**：本仓库语料管线的清单层曾依赖 OpenCourt 代码（`cmd/govlistcollect` +
+`neutral/govlistassist.go` 驱动 BrowserOS）——独立分发时 OpenLaw 无法自行完成
+清单采集，与「各自独立分发」前提冲突；且按「谁拥有语料，谁拥有该语料的索引、
+检索与语料层校验」，清单作为本仓库语料输入，采集工具本就归属本仓库。
+
+**修法（已落地）**：`browser` 包（最小 MCP Streamable HTTP 客户端 + BrowserOS neo
+客户端，端点回环硬校验、默认离线）+ `cmd/openlaw-govlist`（护栏与 OpenCourt 同源，
+真机 1000 页验证过的形态）。OpenCourt 侧入口保留为历史通道不动（同一合规画像），
+后续是否退役由 OpenCourt 侧自行决定，不在本清单范围。
+
+## OL-10 桌面客户端（P1，规划）
+
+边界前提（OpenCourt `docs/integration-model.md` §1/§6）：三项目**自带管理界面与
+客户端**，OpenLaw 界面负责语料导入、人工确认、关系判定、schema 迁移、更新包生成。
+现状只有 CLI——5250 条 pending 的人工确认闸口以 CSV 队列流转，是语料管线最大瓶颈。
+
+定案要点：
+
+- **技术栈统一 Wails v2**（对齐 OpenCourt；本仓库纯 Go 无 CGO，进程内直调
+  `ingest/confirm/pack` 同一代码路径，桌面端只是 UI 壳，不新增写入逻辑）。
+- 「不暴露监听端口」是 **OpenCourt** 的安全模型约束，不约束本仓库：桌面端可选
+  内建回环 serve（per-run token + 发现文件，参照 LocalCases 模式）供远程/无头场景，
+  默认仍进程内调用，不默认起服务。
+- 面板范围（§6 职责）：语料状态（计数/manifest/producer_version/schema/许可）、
+  确认闸口 UI（原文留证对照 + 逐条/批量判定 + review_log）、采集/抓取任务面板
+  （含 openlaw-govlist / openlaw-govcn 进度与报告）、pack/check 运维视图。
+- 浏览器能力复用 OL-9 的 `browser` 包；确认闸口与采集面板都不得绕过 pending 纪律。
 
 ---
 
