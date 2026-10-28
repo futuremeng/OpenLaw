@@ -12,9 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/futuremeng/OpenLaw/ingest"
+	"github.com/futuremeng/OpenLaw/search"
 	"github.com/futuremeng/OpenLaw/store"
 	"github.com/futuremeng/OpenLaw/validate"
 )
@@ -24,6 +27,13 @@ type App struct {
 	dataDir string
 	db      *store.DB
 	openErr string
+
+	// 风险标记缓存：LoadRiskSetFromProvenance 要扫数千 provenance JSON，
+	// 不能每次刷队列都扫。TTL 5 分钟；只影响读侧展示，不影响写纪律。
+	riskMu   sync.Mutex
+	risk     ingest.RiskSet
+	riskAt   time.Time
+	riskLoad string // 最近一次加载错误（如实展示用）
 }
 
 func NewApp(dataDir string) *App { return &App{dataDir: dataDir} }
@@ -137,16 +147,17 @@ func (a *App) Status() (StatusView, error) {
 // ---- 人工确认闸口面板 ----
 
 type PendingItem struct {
-	DocID      string `json:"doc_id"`
-	Title      string `json:"title"`
-	Level      string `json:"level"`
-	Issuer     string `json:"issuer"`
-	VersionNo  string `json:"version_no"`
-	Effective  string `json:"effective_date"`
-	Publish    string `json:"publish_date"`
-	SourceType string `json:"source_type"`
-	SourceURL  string `json:"source_url"`
-	Articles   int    `json:"articles"`
+	DocID      string   `json:"doc_id"`
+	Title      string   `json:"title"`
+	Level      string   `json:"level"`
+	Issuer     string   `json:"issuer"`
+	VersionNo  string   `json:"version_no"`
+	Effective  string   `json:"effective_date"`
+	Publish    string   `json:"publish_date"`
+	SourceType string   `json:"source_type"`
+	SourceURL  string   `json:"source_url"`
+	Articles   int      `json:"articles"`
+	Flags      []string `json:"flags,omitempty"` // inferred_date/whole_text/no_publish_date
 }
 
 // PendingList 分页列出 pending 文档（filter 匹配 doc_id/source_type/法规名）。
@@ -175,6 +186,9 @@ func (a *App) PendingList(filter string, limit, offset int) ([]PendingItem, erro
 		if err := rows.Scan(&p.DocID, &p.Title, &p.Level, &p.Issuer, &p.VersionNo,
 			&p.Effective, &p.Publish, &p.SourceType, &p.SourceURL, &p.Articles); err != nil {
 			return nil, err
+		}
+		if fl := a.riskSet()[p.DocID]; len(fl) > 0 {
+			p.Flags = append([]string(nil), fl...)
 		}
 		out = append(out, p)
 	}
@@ -274,4 +288,152 @@ func (a *App) Judge(docIDs []string, verdict, reviewer, reason string) (*ingest.
 	}
 	c := &ingest.Confirmer{DataDir: a.dataDir, DB: a.db}
 	return c.Apply(path)
+}
+
+// ---- 风险标记缓存 ----
+
+var riskTTL = 5 * time.Minute
+
+// riskSet 带 TTL 的风险标记集（读侧展示用；加载失败保留旧值并记录错误）。
+func (a *App) riskSet() ingest.RiskSet {
+	a.riskMu.Lock()
+	defer a.riskMu.Unlock()
+	if a.risk != nil && time.Since(a.riskAt) < riskTTL {
+		return a.risk
+	}
+	rs, err := ingest.LoadRiskSetFromProvenance(a.dataDir)
+	if err != nil {
+		a.riskLoad = "风险标记加载失败: " + err.Error()
+		if a.risk == nil {
+			a.risk = ingest.RiskSet{}
+		}
+	} else {
+		a.risk, a.riskLoad = rs, ""
+	}
+	a.riskAt = time.Now()
+	return a.risk
+}
+
+// ---- 总览增强 ----
+
+// RecentReports 最近导入/采集报告分诊（读 incoming/ 报告文件，不碰 DB）。
+func (a *App) RecentReports() []ReportSummary {
+	return ScanReports(a.dataDir, 2)
+}
+
+type ReviewRow struct {
+	DocID     string `json:"doc_id"`
+	LawName   string `json:"law_name"`
+	Action    string `json:"action"`
+	From      string `json:"from_status"`
+	To        string `json:"to_status"`
+	Reviewer  string `json:"reviewer"`
+	Reason    string `json:"reason"`
+	CreatedAt string `json:"created_at"`
+}
+
+// RecentReviews 最近人工确认流转（review_log 审计流水）。
+func (a *App) RecentReviews(limit int) ([]ReviewRow, error) {
+	if a.db == nil {
+		return nil, errors.New(a.openErr)
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := a.db.Query(`SELECT r.doc_id, COALESCE(l.name,''), r.action, r.from_status, r.to_status,
+		r.reviewer, COALESCE(r.reason,''), r.created_at
+		FROM review_log r LEFT JOIN law_version v ON v.doc_id=r.doc_id LEFT JOIN law l ON l.law_id=v.law_id
+		ORDER BY r.review_id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ReviewRow
+	for rows.Next() {
+		var r ReviewRow
+		if err := rows.Scan(&r.DocID, &r.LawName, &r.Action, &r.From, &r.To,
+			&r.Reviewer, &r.Reason, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ---- 检索面板 ----
+
+type SearchRow struct {
+	ArticleID string `json:"article_id"`
+	ArticleNo string `json:"article_no"`
+	Snippet   string `json:"snippet"`
+	DocID     string `json:"doc_id"`
+	LawName   string `json:"law_name"`
+	Level     string `json:"level"`
+	VersionNo string `json:"version_no"`
+}
+
+// SearchArticles FTS5 条文检索 + 法规名/效力等级补全（原样透出，无重排——
+// 语料层可复现纪律）。每条结果必带 doc_id。
+func (a *App) SearchArticles(query string, topK int) ([]SearchRow, error) {
+	if a.db == nil {
+		return nil, errors.New(a.openErr)
+	}
+	hits, err := search.Search(a.db, query, topK)
+	if err != nil {
+		return nil, err
+	}
+	var out []SearchRow
+	for _, h := range hits {
+		r := SearchRow{ArticleID: h.ArticleID, ArticleNo: h.ArticleNo, Snippet: h.Snippet, DocID: h.DocID}
+		err := a.db.QueryRow(`SELECT COALESCE(l.name,''), COALESCE(l.effect_level,'（未标注）'), COALESCE(v.version_no,'')
+			FROM law_version v LEFT JOIN law l ON l.law_id=v.law_id WHERE v.doc_id=? LIMIT 1`, h.DocID).
+			Scan(&r.LawName, &r.Level, &r.VersionNo)
+		if errors.Is(err, sql.ErrNoRows) {
+			r.LawName, r.Level = "（未挂法规）", ""
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// CheckCitation 引用核验（validate 六环节原样透出：命中/相似度/失效版本提示/
+// 断链问题/待确认状态，五态语义不粉饰）。
+func (a *App) CheckCitation(lawName, articleNo, quote, atDate string) (validate.CitationResult, error) {
+	if a.db == nil {
+		return validate.CitationResult{}, errors.New(a.openErr)
+	}
+	today := time.Now().Format("2006-01-02")
+	return validate.CheckCitation(a.db, a.dataDir, lawName, articleNo, quote, atDate, today)
+}
+
+// ---- 确认面板增强：统计与批量 ----
+
+// QueueStats 确认进度与风险面统计（ingest.Confirmer.Stats 原样）。
+func (a *App) QueueStats() (*ingest.ConfirmStats, error) {
+	if a.db == nil {
+		return nil, errors.New(a.openErr)
+	}
+	c := &ingest.Confirmer{DataDir: a.dataDir, DB: a.db}
+	return c.Stats(a.riskSet())
+}
+
+// BulkPreview 批量流转 dry-run：只计数不写库（先看清楚再动手）。
+func (a *App) BulkPreview(sourceLike, level, verdict string) (int, error) {
+	if a.db == nil {
+		return 0, errors.New(a.openErr)
+	}
+	c := &ingest.Confirmer{DataDir: a.dataDir, DB: a.db}
+	return c.BulkMatch(ingest.BulkFilter{SourceLike: sourceLike, Level: level}, verdict)
+}
+
+// BulkApply 批量流转执行：署名与依据必填（库层同样强制，双保险）。
+func (a *App) BulkApply(sourceLike, level, verdict, reviewer, reason string) (*ingest.ApplySummary, error) {
+	if a.db == nil {
+		return nil, errors.New(a.openErr)
+	}
+	if strings.TrimSpace(reviewer) == "" || strings.TrimSpace(reason) == "" {
+		return nil, errors.New("批量流转必须署名（reviewer）并写明依据（reason）")
+	}
+	c := &ingest.Confirmer{DataDir: a.dataDir, DB: a.db}
+	return c.Bulk(ingest.BulkFilter{SourceLike: sourceLike, Level: level}, verdict, reviewer, reason)
 }

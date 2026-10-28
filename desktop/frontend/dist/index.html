@@ -7,43 +7,95 @@
 <link rel="stylesheet" href="./assets/style.css"/>
 </head>
 <body>
-<header>
-  <h1>OpenLaw 语料台</h1>
-  <nav>
-    <button class="tab active" data-tab="status">语料状态</button>
-    <button class="tab" data-tab="confirm">人工确认</button>
-  </nav>
-  <span id="schema-badge" class="badge"></span>
-</header>
-<main>
-  <section id="tab-status" class="panel">
-    <div id="status-err" class="err"></div>
-    <div id="status-cards" class="cards"></div>
-    <h2>按效力等级（pending / confirmed / rejected）</h2>
-    <table id="level-table"><thead><tr><th>效力等级</th><th>pending</th><th>confirmed</th><th>rejected</th></tr></thead><tbody></tbody></table>
-    <h2>来源与许可</h2>
-    <div id="provenance" class="kv"></div>
-  </section>
+<div id="layout">
+  <aside id="side">
+    <div class="brand">OpenLaw 语料台</div>
+    <nav>
+      <button class="nav active" data-panel="status">语料状态</button>
+      <button class="nav" data-panel="search">条文检索</button>
+      <button class="nav" data-panel="confirm">人工确认</button>
+      <button class="nav off" disabled>采集任务<small>M2 待建</small></button>
+      <button class="nav off" disabled>运维 check/pack<small>M3 待建</small></button>
+      <button class="nav off" disabled>设置<small>M3 待建</small></button>
+    </nav>
+    <div id="side-foot"><span id="schema-badge"></span></div>
+  </aside>
 
-  <section id="tab-confirm" class="panel hidden">
-    <div class="toolbar">
-      <input id="filter" placeholder="过滤：doc_id / 法规名 / 来源"/>
-      <button id="btn-load">载入队列</button>
-      <span id="queue-info"></span>
-      <span class="spacer"></span>
-      <input id="reviewer" placeholder="署名 reviewer（必填）"/>
-      <input id="reason" placeholder="依据 reason（必填）"/>
-      <button id="btn-confirm" class="ok">确认 ✓</button>
-      <button id="btn-reject" class="warn">驳回 ✗</button>
-      <button id="btn-reset">重置 pending</button>
-    </div>
-    <div class="split">
-      <div id="queue-list" class="list"></div>
-      <div id="preview" class="preview"><p class="muted">点选左侧条目查看留证正文与审计历史。机器不裁决：确认/驳回必须署名并写明依据。</p></div>
-    </div>
-  </section>
-</main>
+  <main>
+    <!-- 语料状态 -->
+    <section id="panel-status" class="panel">
+      <div id="status-err" class="err"></div>
+      <div id="status-cards" class="cards"></div>
+      <div class="cols">
+        <div>
+          <h2>按效力等级（pending / confirmed / rejected）</h2>
+          <table id="level-table"><thead><tr><th>效力等级</th><th>pending</th><th>confirmed</th><th>rejected</th></tr></thead><tbody></tbody></table>
+          <h2>来源与许可</h2>
+          <div id="provenance" class="kv"></div>
+        </div>
+        <div>
+          <h2>最近导入/采集报告分诊</h2>
+          <div id="reports" class="reports"></div>
+          <h2>最近审计流转</h2>
+          <div id="reviews" class="reviews"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 条文检索 -->
+    <section id="panel-search" class="panel hidden">
+      <div class="toolbar">
+        <input id="q" placeholder="全文检索词（FTS5）"/>
+        <button id="btn-search">检索</button>
+        <span id="search-info" class="muted"></span>
+      </div>
+      <div class="split">
+        <div id="search-list" class="list"></div>
+        <div id="search-preview" class="preview"><p class="muted">点选左侧命中查看留证正文；下方可做引用核验。</p>
+          <div class="cite">
+            <h3>引用核验（validate 六环节）</h3>
+            <input id="c-law" placeholder="法规名"/>
+            <input id="c-art" placeholder="条款号（如 第一条）"/>
+            <textarea id="c-quote" placeholder="引用文本"></textarea>
+            <input id="c-date" placeholder="时间点 YYYY-MM-DD（空=今天）"/>
+            <button id="btn-cite">核验</button>
+            <pre id="cite-out" class="muted"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 人工确认 -->
+    <section id="panel-confirm" class="panel hidden">
+      <div id="qstats" class="qstats"></div>
+      <div class="toolbar">
+        <input id="filter" placeholder="过滤：doc_id / 法规名 / 来源"/>
+        <button id="btn-load">载入队列</button>
+        <span id="queue-info"></span>
+        <span class="spacer"></span>
+        <input id="reviewer" placeholder="署名 reviewer（必填）"/>
+        <input id="reason" placeholder="依据 reason（必填）"/>
+        <button id="btn-confirm" class="ok">确认 ✓</button>
+        <button id="btn-reject" class="warn">驳回 ✗</button>
+        <button id="btn-reset">重置 pending</button>
+      </div>
+      <div class="bulk">
+        批量：source LIKE <input id="b-source" placeholder="如 gov.cn% / flk%"/>
+        效力等级 <input id="b-level" placeholder="如 部门规章" size="8"/>
+        <select id="b-verdict"><option>confirm</option><option>reject</option><option>reset</option></select>
+        <button id="btn-bulk-preview">dry-run 计数</button>
+        <span id="bulk-info" class="muted"></span>
+        <button id="btn-bulk-apply" class="ok">执行（需署名+依据）</button>
+      </div>
+      <div class="split">
+        <div id="queue-list" class="list"></div>
+        <div id="preview" class="preview"><p class="muted">点选左侧条目查看留证正文与审计历史。机器不裁决：确认/驳回必须署名并写明依据。</p></div>
+      </div>
+    </section>
+  </main>
+</div>
 <div id="toast"></div>
+<script src="./assets/api.js"></script>
 <script src="./assets/app.js"></script>
 </body>
 </html>

@@ -4,6 +4,15 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **语料台 M1（OL-10 全功能控制面板第一期）**：六面板导航（状态/检索/确认 可用，
+  采集/运维/设置 置灰待建）。状态面板新增**报告分诊**（读 incoming/ 既有
+  report_*.csv/batch_report.csv/govlist_report_*.json：ok/failed/skip 计数 +
+  失败原因 top5 直方图，缺列如实标注）与**审计流水**；新增**条文检索面板**
+  （FTS5 原样透出 + 法规名/等级补全 + 留证预览 + validate 引用核验五态如实）;
+  确认面板增强（风险标记列 TTL 缓存、统计条、批量 dry-run→执行，署名+依据
+  库层强制）。前端拆 api.js/app.js。测试：报告分诊（合成 CSV/JSON/坏格式容错）+
+  面板方法（临时语料：检索 join/风险标记/统计/批量 dry-run/落判审计/引用核验）。
+
 - **边界纪律进代码（OL-7/OL-8）**：新增 `sdk.OpenReadOnly`（消费方唯一合法入口：
   `_pragma=query_only(1)`、不跑迁移、不写 meta；不用 `mode=ro`——WAL 只读仍需
   -shm/-wal 可写）。版本协商：`Open`/`OpenReadOnly` 先只读 `meta.schema_version`，

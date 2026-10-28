@@ -22,7 +22,7 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 | OL-5 | 程序期限规则查询（带法条引用） | P2 | OpenCourt 程序守护的规则溯源（违例 V4，v0.3） |
 | OL-6 | sdk 接口稳定性承诺 | 持续 | OpenCourt 进程内 import 是编译期耦合 |
 | OL-9 | 清单采集通道内聚本仓库（browser 包 + `openlaw-govlist`） | **P0**（✅ 2026-10-28 完成） | 独立分发时清单层曾依赖 OpenCourt（违例 V5） |
-| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1（🚧 2026-10-28 首版：状态面板 + 确认闸口 UI 已可用；采集/pack 视图待建） | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
+| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1（🚧 M1 完成 2026-10-28：状态+报告分诊/检索/确认增强；M2 采集任务、M3 运维待建） | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
 
 > 边界前提（OpenCourt `docs/integration-model.md`）：**代码各自分发，语料只有一份；
 > 谁生产语料谁独占写权，消费方一律只读。** OL-7/OL-8 就是把这条纪律写进本仓库的
@@ -227,6 +227,23 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   （wails v2.17 darwin 生产构建缺该链接）；核心库保持纯 Go。
 - 待建：采集/抓取任务面板（govlist/govcn 进度与报告）、pack/check 运维视图、
   可选回环 serve（per-run token）。
+
+**M1 全功能控制面板改造（2026-10-28）**：六面板导航定型（状态/检索/确认 可用，
+采集 M2、运维 M3、设置 M3 置灰）。
+
+- 状态面板增强：`desktop/reports.go` 报告分诊——读 incoming/ 既有报告
+  （report_*.csv / batch_report.csv / govlist_report_*.json，只读不发明新格式），
+  ok/failed/skip 计数 + 失败原因 top5 直方图（awk 分诊套路 Go 化，缺列如实
+  malformed）；最近审计流水（review_log）。
+- 检索面板：`search.Search` FTS5 原样透出（无重排）+ 法规名/效力等级补全 +
+  留证预览复用 + `validate.CheckCitation` 引用核验（五态语义不粉饰）。
+- 确认面板增强：风险标记列（provenance inferred_date 等，TTL 5min 缓存）、
+  QueueStats 统计条、批量 dry-run 计数（BulkMatch）→ 署名+依据执行（Bulk），
+  前端二次确认。
+- 前端拆 `api.js`（绑定层）/`app.js`（面板逻辑）；纪律不变：写操作仅
+  Judge/BulkApply 且库层强制审计，前端无直连 DB/网络路径。
+- 下一期 M2：任务管理器（单槽互斥/取消/进度事件）+ 采集面板（govcn/govlist
+  任务化）；M3 运维（check/pack/manifest）。
 
 ---
 
