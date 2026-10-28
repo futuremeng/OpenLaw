@@ -1,318 +1,420 @@
-// app.js 面板逻辑：语料状态 / 条文检索 / 人工确认（M1）。
-// 全部调用 api.js 的绑定；写操作只有 Judge/BulkApply，且库层强制署名审计。
+// app.js 「开源法律法规数据库」前端逻辑：
+//   公众模式（默认）：查法规（搜索为中心）+ 按目录浏览（类别→法规→条款）；
+//   专业模式：库总览 / 法规检索 / 人工复核 / 数据采集与更新。
+// 全部数据经 api.js → Go 只读/受控写路径，前端不做任何裁决。
 "use strict";
 
-/* ---------- 导航 ---------- */
-document.querySelectorAll(".nav:not(.off)").forEach((b) =>
-  b.addEventListener("click", () => {
-    document.querySelectorAll(".nav").forEach((x) => x.classList.toggle("active", x === b));
-    for (const p of ["status", "search", "confirm", "tasks", "ops", "settings"]) {
-      $("#panel-" + p).classList.toggle("hidden", p !== b.dataset.panel);
-    }
-    if (b.dataset.panel === "status") loadStatus();
-    if (b.dataset.panel === "confirm") { loadQueue(); loadStats(); }
-    if (b.dataset.panel === "tasks") { loadTasks(); loadTaskInit(); }
-    if (b.dataset.panel === "ops") loadManifestBox();
-    if (b.dataset.panel === "settings") loadSettings();
-  })
-);
-
-/* ---------- 面板一：语料状态 ---------- */
-async function loadStatus() {
-  if (!app()) return;
-  const v = await app().Status();
-  $("#schema-badge").textContent = `schema v${v.schema_version}（支持 ${v.schema_min}–${v.schema_max}）`;
-  $("#status-err").textContent = v.open_err ? "语料打开失败：" + v.open_err : "";
-  const cards = [
-    ["法规", v.laws], ["版本", v.versions], ["条文", v.articles], ["文档", v.documents],
-    ["pending", v.pending], ["confirmed", v.confirmed], ["rejected", v.rejected],
-    ["gov.cn 主站", v.govcn], ["gov.cn 地方政府", v.govlocal],
-  ];
-  $("#status-cards").innerHTML = cards
-    .map(([k, n]) => `<div class="card"><b>${num(n)}</b><span>${k}</span></div>`)
-    .join("");
-  $("#level-table tbody").innerHTML = (v.by_level || [])
-    .map((r) => `<tr><td>${r.level}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`)
-    .join("");
-  $("#provenance").textContent =
-    `数据目录：${v.data_dir}\n产出者：${v.producer_version}\nmanifest 生成：${v.manifest_at || "—"}\n许可：${v.license || "—"}`;
-  await loadReports();
-  await loadReviews();
+const $ = (s) => document.querySelector(s);
+const num = (n) => (n == null ? "0" : Number(n).toLocaleString("zh-CN"));
+function escapeHTML(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+let toastTimer = null;
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 3500);
 }
 
-async function loadReports() {
-  const reps = (await app().RecentReports()) || [];
-  $("#reports").innerHTML = reps.length ? reps.map((r) => {
-    const fails = (r.top_failures || [])
-      .map((f) => `<span class="pill">${escapeHTML(f.reason)} ×${f.count}</span>`).join("");
-    const cls = r.failed > 0 ? " hasfail" : "";
-    return `<div class="rep${cls}">
-      <div class="rep-h"><b>${r.source}</b> <span class="muted">${escapeHTML((r.path || "").split("/").pop())} · ${r.modified_at || ""}</span></div>
-      <div class="rep-n">共 ${num(r.total)} · 成功 ${num(r.ok)} · <b class="${r.failed ? "bad" : ""}">失败 ${num(r.failed)}</b> · 跳过 ${num(r.skipped)}${r.other ? ` · 其他 ${r.other}` : ""}</div>
-      ${fails ? `<div class="rep-f">${fails}</div>` : ""}
-      ${r.note ? `<div class="muted">${escapeHTML(r.note)}</div>` : ""}
-    </div>`;
-  }).join("") : '<p class="muted">尚无 incoming/ 报告。</p>';
+/* ---------- 模式与导航 ---------- */
+let mode = localStorage.getItem("ol-mode") || "public";
+function showPanel(p) {
+  document.querySelectorAll(".nav").forEach((x) => x.classList.toggle("active", x.dataset.panel === p));
+  document.querySelectorAll("main section").forEach((s) => s.classList.toggle("hidden", s.id !== "panel-" + p));
+  if (p === "home") loadHome();
+  if (p === "browse") loadLaws();
+  if (p === "overview") loadOverview();
+  if (p === "confirm") { loadStats(); loadQueue(); }
+  if (p === "collect") { loadSources(); loadTasks(); loadTasksTick(); }
+}
+function applyMode() {
+  document.querySelectorAll(".nav").forEach((b) => (b.hidden = b.dataset.mode !== mode));
+  $("#mode-public").classList.toggle("active", mode === "public");
+  $("#mode-pro").classList.toggle("active", mode === "pro");
+  showPanel(mode === "public" ? "home" : "overview");
+}
+document.querySelectorAll(".nav").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.panel)));
+$("#mode-public").addEventListener("click", () => { mode = "public"; localStorage.setItem("ol-mode", mode); applyMode(); });
+$("#mode-pro").addEventListener("click", () => { mode = "pro"; localStorage.setItem("ol-mode", mode); applyMode(); });
+
+/* ---------- 共享组件：徽章 / 法规要素 / 预览 / 引用格式 ---------- */
+const FLAG_TEXT = { inferred_date: "公布日期由文本推断", whole_text: "全文未分条", no_publish_date: "缺少公布日期" };
+const KIND_TEXT = { "govcn-import": "官方原文获取", "govlist-browse": "官方规章目录抓取", "pack-build": "生成数据包", "pack-verify": "校验数据包", "pack-import": "导入数据包" };
+const SRC_TEXT = { govcn: "国家行政法规库", govgz: "国家规章库", govlocal: "地方规章", govlist: "规章目录", batch: "批量导入" };
+
+function statusBadge(s) {
+  if (s === "confirmed") return '<span class="badge ok">已复核</span>';
+  if (s === "rejected") return '<span class="badge no">已驳回</span>';
+  return '<span class="badge pend">尚未复核</span>';
+}
+function validBadge(eff, exp) {
+  if (exp) return `<span class="badge exp">已失效（${escapeHTML(exp)} 起）</span>`;
+  return eff ? '<span class="badge ok">现行有效</span>' : "";
+}
+function metaLine(p) {
+  const b = [];
+  if (p.publish_date) b.push("公布 " + p.publish_date);
+  if (p.effective_date) b.push("施行 " + p.effective_date);
+  if (p.expire_date) b.push("失效 " + p.expire_date);
+  if (p.issuer) b.push("发布机关：" + p.issuer);
+  if (p.level) b.push(p.level);
+  return b.join(" · ");
+}
+function citationOf(p, articleNo) {
+  let s = "《" + (p.law_name || p.doc_id) + "》" + (articleNo || "");
+  const n = [];
+  if (p.publish_date) n.push(p.publish_date + " 公布");
+  if (p.effective_date) n.push(p.effective_date + " 起施行");
+  if (p.expire_date) n.push(p.expire_date + " 失效");
+  if (p.version_no) n.push("版本：" + p.version_no);
+  if (n.length) s += "（" + n.join("，") + "）";
+  return s + "。摘自开源法律法规数据库（官方渠道抓取留证），引用前请核对官方原文。";
+}
+function legalHTML(p, articleNo) {
+  return `<div class="pv">
+    <h3>${escapeHTML(p.law_name || p.doc_id)} ${statusBadge(p.confirm_status)} ${validBadge(p.effective_date, p.expire_date)}</h3>
+    <div class="meta">${escapeHTML(metaLine(p))}</div>
+    <div class="meta">原文出处：<a href="${escapeHTML(p.source_url || "#")}" target="_blank" rel="noopener">${escapeHTML(p.source_url || "（无链接）")}</a> · 条目编号 ${escapeHTML(p.doc_id)}</div>
+    ${p.confirm_status === "pending" ? '<div class="warnbox">⚠ 本条目尚未人工复核，引用前请核对官方原文。</div>' : ""}
+    <button class="copycite" data-cite="${escapeHTML(citationOf(p, articleNo))}">复制引用格式</button>
+    <pre>${escapeHTML(p.content)}</pre>
+    ${p.truncated ? '<p class="muted">（内容较长，已截断显示）</p>' : ""}
+    ${p.missing ? '<p class="bad">' + escapeHTML(p.missing) + "</p>" : ""}
+  </div>`;
+}
+function bindCopy(el) {
+  const b = el.querySelector(".copycite");
+  if (b) b.addEventListener("click", () => navigator.clipboard.writeText(b.dataset.cite).then(() => toast("引用格式已复制到剪贴板")));
+}
+function openModal(p, articleNo) {
+  const box = $("#modal-body");
+  box.innerHTML = legalHTML(p, articleNo);
+  bindCopy(box);
+  $("#modal").classList.remove("hidden");
+}
+$("#modal-close").addEventListener("click", () => $("#modal").classList.add("hidden"));
+$("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("#modal").classList.add("hidden"); });
+
+
+/* ---------- 公众 · 查法规（搜索为中心） ---------- */
+async function loadHome() {
+  try {
+    const v = await app().Status();
+    const levels = ["行政法规", "部门规章", "地方政府规章"];
+    let html = levels.map((lv) => {
+      const r = (v.by_level || []).find((x) => x.level === lv) || { pending: 0, confirmed: 0, rejected: 0 };
+      return `<div class="card big"><b>${num(r.pending + r.confirmed + r.rejected)}</b><span>${lv}</span><span class="muted">已复核 ${num(r.confirmed)}</span></div>`;
+    }).join("");
+    const lf = Object.values(v.last_fetch || {}).sort().reverse()[0];
+    if (lf) html += `<div class="card big"><b>${escapeHTML(lf.slice(0, 10))}</b><span>数据最近更新</span></div>`;
+    $("#h-cards").innerHTML = html;
+  } catch (e) { /* 首页卡片失败不阻塞搜索 */ }
+}
+async function homeSearch() {
+  const q = $("#hq").value.trim();
+  if (!q) return;
+  $("#h-results").innerHTML = '<p class="muted">正在检索…</p>';
+  try {
+    const rows = (await app().SearchArticles(q, 20)) || [];
+    $("#h-results").innerHTML = rows.length ? rows.map((r) => `
+      <div class="lawcard" data-doc="${escapeHTML(r.doc_id)}">
+        <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
+        <div class="snip">${escapeHTML(r.snippet)}</div>
+        <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""} · <b class="view">查看原文 →</b></div>
+      </div>`).join("") : '<p class="muted">没有找到相关条文，试试更短的关键词。</p>';
+    document.querySelectorAll("#h-results .lawcard").forEach((el) =>
+      el.addEventListener("click", async () => openModal(await app().Preview(el.dataset.doc))));
+  } catch (e) {
+    $("#h-results").innerHTML = '<p class="bad">检索失败：' + escapeHTML(e.message || e) + "</p>";
+  }
+}
+$("#btn-hsearch").addEventListener("click", homeSearch);
+$("#hq").addEventListener("keydown", (e) => { if (e.key === "Enter") homeSearch(); });
+
+/* ---------- 公众 · 按目录浏览 ---------- */
+async function loadLaws() {
+  try {
+    const rows = (await app().BrowseLaws($("#b-level").value, $("#b-kw").value.trim(), 300, 0)) || [];
+    $("#law-list").innerHTML = rows.length ? rows.map((r) => `
+      <div class="item" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
+        <div class="t">${escapeHTML(r.name)} ${statusBadge(r.status)} ${validBadge(r.effective_date, r.expire_date)}</div>
+        <div class="m">${escapeHTML(r.level)} · ${escapeHTML(r.issuer || "发布机关未标注")}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
+      </div>`).join("") : '<p class="muted">该类别下暂无收录法规。</p>';
+    document.querySelectorAll("#law-list .item").forEach((el) =>
+      el.addEventListener("click", () => openLaw(el.dataset.law, el.dataset.name)));
+  } catch (e) {
+    $("#law-list").innerHTML = '<p class="bad">读取失败：' + escapeHTML(e.message || e) + "</p>";
+  }
+}
+async function openLaw(lawID, name) {
+  document.querySelectorAll("#law-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.law === lawID));
+  const vs = (await app().LawVersions(lawID)) || [];
+  const arts = (await app().BrowseArticles(lawID)) || [];
+  const tl = vs.map((x) => `<div class="tl-row"><b>${escapeHTML(x.version_no)}</b> ${escapeHTML(x.effective)} 起施行${x.expire ? "，" + escapeHTML(x.expire) + " 失效" : "，现行有效"} ${statusBadge(x.status)}</div>`).join("");
+  const list = arts.map((x) => `<div class="item art" data-doc="${escapeHTML(x.doc_id)}" data-no="${escapeHTML(x.article_no)}"><div class="t">${escapeHTML(x.article_no)}</div><div class="m">${escapeHTML(x.snippet)}…</div></div>`).join("");
+  $("#law-detail").innerHTML = `<h3>${escapeHTML(name)}</h3>
+    <h4>修订沿革</h4><div class="tl">${tl || '<p class="muted">暂无版本记录。</p>'}</div>
+    <h4>条款（${arts.length} 条）</h4>${list || '<p class="muted">该法规暂未收录分条文本（可在「查法规」中全文检索）。</p>'}`;
+  document.querySelectorAll("#law-detail .art").forEach((el) =>
+    el.addEventListener("click", async () => openModal(await app().Preview(el.dataset.doc), el.dataset.no)));
+}
+$("#btn-browse").addEventListener("click", loadLaws);
+$("#b-level").addEventListener("change", loadLaws);
+$("#b-kw").addEventListener("keydown", (e) => { if (e.key === "Enter") loadLaws(); });
+
+/* ---------- 专业 · 库总览 ---------- */
+async function loadOverview() {
+  try {
+    const v = await app().Status();
+    $("#status-err").textContent = v.open_err || "";
+    $("#schema-badge").textContent = "数据库版本 " + (v.schema_version || "?");
+    const lf = Object.values(v.last_fetch || {}).sort().reverse()[0];
+    $("#ov-hero").innerHTML = `
+      <div class="card big"><b>${num(v.laws)}</b><span>收录法规</span></div>
+      <div class="card big"><b>${num(v.confirmed)}</b><span>已复核可用</span></div>
+      <div class="card big warn"><b>${num(v.pending)}</b><span>待人工复核</span></div>
+      <div class="card big"><b>${escapeHTML(lf ? lf.slice(0, 10) : "—")}</b><span>数据最近更新</span></div>`;
+    let acts = "";
+    if (v.pending > 0) acts += `<span>${num(v.pending)} 条新条目等待人工复核</span><button data-go="confirm">去复核 →</button>`;
+    acts += `<button data-go="collect">采集与更新 →</button>`;
+    $("#ov-actions").innerHTML = acts;
+    document.querySelectorAll("#ov-actions [data-go]").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.go)));
+    $("#level-table tbody").innerHTML = (v.by_level || []).map((r) =>
+      `<tr><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
+    const reps = (await app().RecentReports(5)) || [];
+    $("#reports").innerHTML = reps.map((r) => `<div class="rep"><b>${escapeHTML(SRC_TEXT[r.source] || r.source)}</b> ${escapeHTML(r.modified_at || "")}<br><span class="muted">成功 ${num(r.ok)} · 失败 ${num(r.failed)}${r.pages ? " · 页数 " + num(r.pages) : ""}</span></div>`).join("") || '<p class="muted">暂无采集记录。</p>';
+    const revs = (await app().RecentReviews(5)) || [];
+    $("#reviews").innerHTML = revs.map((r) => `<div class="rep">${escapeHTML(r.created_at || "")} · ${escapeHTML(r.reviewer)} <span class="muted">${escapeHTML(r.action === "confirm" ? "确认" : r.action === "reject" ? "驳回" : "重新复核")} ${escapeHTML(r.doc_id)}</span></div>`).join("") || '<p class="muted">暂无复核记录。</p>';
+  } catch (e) {
+    $("#status-err").textContent = "读取失败：" + (e.message || e);
+  }
 }
 
-async function loadReviews() {
-  const revs = (await app().RecentReviews(15)) || [];
-  $("#reviews").innerHTML = revs.length ? revs.map((r) =>
-    `<div class="rev"><b>${escapeHTML(r.law_name || r.doc_id)}</b> ${r.action} ${r.from_status}→${r.to_status}
-      <span class="muted">by ${escapeHTML(r.reviewer)}：${escapeHTML(r.reason)} @${r.created_at}</span></div>`).join("")
-    : '<p class="muted">尚无审计流转。</p>';
-}
 
-/* ---------- 面板二：条文检索 ---------- */
+/* ---------- 专业 · 法规检索 ---------- */
+$("#search-preview").insertAdjacentHTML("afterbegin", '<div id="sp-slot"></div>');
 async function doSearch() {
   const q = $("#q").value.trim();
-  if (!q) return toast("输入检索词");
-  const rows = (await app().SearchArticles(q, 50)) || [];
-  $("#search-info").textContent = `命中 ${rows.length} 条（FTS5 原样透出，无重排）`;
-  $("#search-list").innerHTML = rows.map((r) =>
-    `<div class="item" data-doc="${escapeHTML(r.doc_id)}" data-law="${escapeHTML(r.law_name)}" data-art="${escapeHTML(r.article_no)}">
-      <div class="t">${escapeHTML(r.law_name || r.doc_id)} · ${escapeHTML(r.article_no)}</div>
-      <div class="m">${escapeHTML(r.snippet)}</div>
-      <div class="m">${escapeHTML(r.doc_id)} · ${escapeHTML(r.level || "")} ${escapeHTML(r.version_no || "")}</div>
-    </div>`).join("") || '<p class="muted" style="padding:10px">无命中。</p>';
-  document.querySelectorAll("#search-list .item").forEach((el) =>
-    el.addEventListener("click", async () => {
-      document.querySelectorAll("#search-list .item").forEach((x) => x.classList.toggle("sel", x === el));
-      if (!$("#c-law").value) { $("#c-law").value = el.dataset.law || ""; $("#c-art").value = el.dataset.art || ""; }
-      renderPreview(await app().Preview(el.dataset.doc), $("#search-preview"));
-    })
-  );
-}
-
-async function doCite() {
-  const out = $("#cite-out");
-  out.textContent = "核验中…";
-  const c = await app().CheckCitation($("#c-law").value.trim(), $("#c-art").value.trim(),
-    $("#c-quote").value, $("#c-date").value.trim());
-  const issues = (c.chain_issues || []).map((i) => (i.step || "") + " " + (i.detail || "")).join("；");
-  out.textContent = [
-    c.hit ? `✓ 命中（相似度 ${(c.similarity * 100).toFixed(1)}%）` : `✗ 未命中${c.error_code ? " [" + c.error_code + "]" : ""}`,
-    c.reason ? "原因：" + c.reason : "",
-    c.version_no ? `命中版本：${c.version_no}（doc ${c.doc_id}）` : "",
-    c.expired ? `⚠ 该版本已失效；当前有效版本：${c.current_version}` : "",
-    c.confirm_status && c.confirm_status !== "confirmed" ? `⚠ 确认状态：${c.confirm_status}（待人工确认）` : "",
-    issues ? "断链问题：" + issues : "",
-    c.content ? "原文：" + c.content : "",
-  ].filter(Boolean).join("\n");
-}
-
-/* ---------- 预览（检索/确认共用） ---------- */
-function renderPreview(p, target) {
-  let box = target.querySelector(".pv");
-  if (!box) { box = document.createElement("div"); box.className = "pv"; target.prepend(box); }
-  box.innerHTML = `
-    <div class="meta">${escapeHTML(p.doc_id)} · ${escapeHTML(p.confirm_status)} · ${escapeHTML(p.source_type || "—")}<br/>
-      来源：${escapeHTML(p.source_url || "—")} · 公布日：${escapeHTML(p.publish_date || "—")} · sha256 ${escapeHTML((p.sha256 || "").slice(0, 16))}…<br/>
-      留证：${escapeHTML(p.file_path)}${p.truncated ? "（正文截断显示）" : ""}</div>
-    ${p.missing ? `<div class="err">${escapeHTML(p.missing)}</div>` : ""}
-    <pre>${escapeHTML(p.content)}</pre>
-    <div class="log">审计历史：${(p.review_log || []).map(escapeHTML).join("；") || "尚无流转"}</div>`;
-}
-
-/* ---------- 面板三：人工确认 ---------- */
-let queue = [];
-let selected = null;
-
-async function loadStats() {
-  const st = await app().QueueStats();
-  if (!st) return;
-  $("#qstats").innerHTML = `
-    <span>文档 ${num(st.total)}</span><span class="bad">pending ${num(st.pending)}</span>
-    <span class="ok">confirmed ${num(st.confirmed)}</span><span>rejected ${num(st.rejected)}</span>
-    <span class="muted">风险面：日期推断 ${st.risk.inferred_date} · 全文即一节 ${st.risk.whole_text} · 缺公布日 ${st.risk.no_publish_date} · 审计流转 ${st.reviewed}</span>`;
-}
-
-async function loadQueue() {
-  queue = (await app().PendingList($("#filter").value || "", 200, 0)) || [];
-  $("#queue-info").textContent = `本页 ${queue.length} 条（上限 200）`;
-  $("#queue-list").innerHTML = queue.map((p) => {
-    const flags = (p.flags || []).map((f) => `<span class="pill warn">${escapeHTML(f)}</span>`).join("");
-    return `<div class="item" data-id="${escapeHTML(p.doc_id)}">
-      <div class="t">${escapeHTML(p.title || p.doc_id)} ${flags}</div>
-      <div class="m">${escapeHTML(p.doc_id)} · ${escapeHTML(p.level)} · ${escapeHTML(p.issuer || "—")} · 条文 ${p.articles} · ${escapeHTML(p.source_type || "—")}</div>
-    </div>`;
-  }).join("");
-  document.querySelectorAll("#queue-list .item").forEach((el) =>
-    el.addEventListener("click", async () => {
-      document.querySelectorAll("#queue-list .item").forEach((x) => x.classList.toggle("sel", x === el));
-      selected = el.dataset.id;
-      renderPreview(await app().Preview(selected), $("#preview"));
-    })
-  );
-}
-
-async function judge(verdict) {
-  if (!selected) return toast("先点选左侧条目");
-  const reviewer = $("#reviewer").value.trim();
-  const reason = $("#reason").value.trim();
+  if (!q) return;
+  $("#search-info").textContent = "检索中…";
   try {
-    const sum = await app().Judge([selected], verdict, reviewer, reason);
-    toastSum(`落判完成`, sum);
-    await loadQueue(); await loadStats();
-    if (queue.some((p) => p.doc_id === selected)) renderPreview(await app().Preview(selected), $("#preview"));
-    else { selected = null; const b = $("#preview .pv"); if (b) b.remove(); }
-  } catch (e) { toast("落判失败：" + (e.message || e)); }
+    let rows = (await app().SearchArticles(q, 50)) || [];
+    const lv = $("#s-level").value;
+    if (lv) rows = rows.filter((r) => r.level === lv);
+    if ($("#s-confirmed").checked) rows = rows.filter((r) => r.confirm_status === "confirmed");
+    $("#search-info").textContent = `命中 ${rows.length} 条（全文检索，未重排序）`;
+    $("#search-list").innerHTML = rows.map((r) => `
+      <div class="item" data-doc="${escapeHTML(r.doc_id)}" data-no="${escapeHTML(r.article_no)}" data-law="${escapeHTML(r.law_name)}">
+        <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
+        <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
+        <div class="m">${escapeHTML(r.snippet)}</div>
+      </div>`).join("") || '<p class="muted">无命中。</p>';
+    document.querySelectorAll("#search-list .item").forEach((el) =>
+      el.addEventListener("click", () => showSearchPreview(el.dataset.doc, el.dataset.no, el.dataset.law)));
+  } catch (e) {
+    $("#search-info").textContent = "检索失败：" + (e.message || e);
+  }
 }
-
-function toastSum(prefix, sum) {
-  if (!sum) return toast(prefix + " 失败");
-  toast(`${prefix}：确认 ${sum.confirmed} 驳回 ${sum.rejected} 重置 ${sum.reset} 跳过 ${sum.skipped}`
-    + (sum.failures && sum.failures.length ? `；失败 ${sum.failures.length} 条（首条：${sum.failures[0]}）` : ""));
+async function showSearchPreview(docID, articleNo, lawName) {
+  document.querySelectorAll("#search-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.doc === docID));
+  const p = await app().Preview(docID);
+  const slot = $("#sp-slot");
+  slot.innerHTML = legalHTML(p, articleNo);
+  bindCopy(slot);
+  if (p.law_id) {
+    const vs = (await app().LawVersions(p.law_id)) || [];
+    if (vs.length > 1) {
+      slot.insertAdjacentHTML("beforeend", `<h4>修订沿革</h4><div class="tl">` + vs.map((x) =>
+        `<div class="tl-row"><b>${escapeHTML(x.version_no)}</b> ${escapeHTML(x.effective)} 起施行${x.expire ? "，" + escapeHTML(x.expire) + " 失效" : "，现行有效"} ${statusBadge(x.status)}</div>`).join("") + "</div>");
+    }
+  }
+  if (lawName && !$("#c-law").value) $("#c-law").value = lawName;
+  if (articleNo && !$("#c-art").value) $("#c-art").value = articleNo;
+  slot.scrollIntoView({ block: "start" });
 }
-
-let bulkMatched = -1;
-async function bulkPreview() {
-  bulkMatched = await app().BulkPreview($("#b-source").value.trim(), $("#b-level").value.trim(), $("#b-verdict").value);
-  $("#bulk-info").textContent = `dry-run 命中 ${bulkMatched} 条（未写库）`;
-}
-
-async function bulkApply() {
-  if (bulkMatched < 0) return toast("先 dry-run 计数，看清命中再执行");
-  if (!confirm(`确认对 ${bulkMatched} 条执行 ${$("#b-verdict").value}？署名与依据将写入 review_log。`)) return;
-  try {
-    const sum = await app().BulkApply($("#b-source").value.trim(), $("#b-level").value.trim(),
-      $("#b-verdict").value, $("#reviewer").value.trim(), $("#reason").value.trim());
-    toastSum("批量落判", sum);
-    bulkMatched = -1; $("#bulk-info").textContent = "";
-    await loadQueue(); await loadStats();
-  } catch (e) { toast("批量失败：" + (e.message || e)); }
-}
-
-/* ---------- 面板四：采集任务 ---------- */
-async function loadTasks() {
-  const ts = (await app().TaskList()) || [];
-  $("#task-list").innerHTML = ts.length
-    ? ts.map((t) => `<div class="task ${t.state}">
-        <b>#${t.id} ${escapeHTML(t.kind)}</b> <span class="pill st-${t.state}">${t.state}</span>
-        <div class="m">${escapeHTML(t.params)} · 起 ${t.started_at}${t.ended_at ? " · 止 " + t.ended_at : ""}</div>
-        ${t.progress ? `<div class="muted">进度：${escapeHTML(t.progress)}</div>` : ""}
-        ${t.detail ? `<div class="bad">错误：${escapeHTML(t.detail)}</div>` : ""}
-      </div>`).join("")
-    : '<p class="muted">尚无任务。</p>';
-}
-
-async function loadTaskInit() {
-  const st = await app().BrowserStatus();
-  $("#browser-status").innerHTML = st.enabled
-    ? '<span class="ok">BrowserOS neo 通道已配置（OPENLAW_BROWSEROS_ENDPOINT）</span>'
-    : `<span class="bad">BrowserOS 未配置/不可用</span><span class="muted">${escapeHTML(st.guidance)}</span>`;
-  const lists = (await app().GovcnLists()) || [];
-  $("#g-list").innerHTML = lists.length
-    ? lists.map((l) => `<option value="${escapeHTML(l.path)}">${escapeHTML(l.name)} · ${l.mtime}</option>`).join("")
-    : '<option value="">（未找到清单——先用浏览器脚本人工导出 list.json）</option>';
-}
-
-async function startGovcnTask() {
-  try {
-    const info = await app().StartGovcnTask({
-      source: $("#g-source").value, list_path: $("#g-list").value,
-      delay_sec: +$("#g-delay").value, limit: +$("#g-limit").value,
-      dry_run: $("#g-dry").checked, local: $("#g-local").checked,
-    });
-    toast(`任务已提交 #${info.id} ${info.kind}（${info.params}）`);
-    loadTasks();
-  } catch (e) { toast("提交被拒：" + (e.message || e)); }
-}
-
-async function startGovListTask() {
-  try {
-    const info = await app().StartGovListTask({
-      cat: $("#l-cat").value, max_pages: +$("#l-pages").value, start_page: +$("#l-start").value,
-      delay_ms: +$("#l-delay").value, empty_stop: +$("#l-empty").value,
-    });
-    toast(`任务已提交 #${info.id} ${info.kind}（${info.params}）`);
-    loadTasks();
-  } catch (e) { toast("提交被拒：" + (e.message || e)); }
-}
-
-/* ---------- 面板五：运维 check/pack ---------- */
-async function loadManifestBox() {
-  const m = await app().ManifestStatus();
-  $("#manifest-box").textContent = m.exists
-    ? `manifest：生成 ${m.generated_at} · 工具 ${m.tool_version} · 产出者 ${m.producer_version || "—"} · schema ${m.schema_version || "—"} · 收录文件 ${num(m.files)}\n许可：${m.license || "—"}\n署名：${m.attribution || "—"}`
-      + (m.verify_err ? `\n签名校验失败：${m.verify_err}` : "\n签名校验：通过")
-    : `manifest 缺失或不可读：${m.verify_err}\n提示：用 openlaw-check -build-manifest -key <私钥> 生成（私钥不得进数据目录）。`;
-}
-
-async function doCheck() {
-  $("#check-info").textContent = "体检中…";
-  try {
-    const v = await app().CorpusCheck();
-    const head = `<div class="rep ${v.manifest_ok ? "" : "hasfail"}"><div class="rep-h"><b>manifest 签名：</b>${v.manifest_ok ? '<span class="ok">通过</span>' : '<span class="bad">失败</span>'}</div>${v.manifest_err ? `<div class="rep-n bad">${escapeHTML(v.manifest_err)}</div>` : ""}</div>`;
-    const broken = v.broken && v.broken.length
-      ? `<div class="rep hasfail"><div class="rep-h"><b>断链检测：</b><span class="bad">${num(v.broken_count)} 条条文有断点</span></div>`
-        + v.broken.map((b) => `<div class="rep-n"><code>${escapeHTML(b.key)}</code> [${escapeHTML(b.error_code)}] ${escapeHTML(b.step)}：${escapeHTML(b.reason)}</div>`).join("")
-        + (v.truncated ? '<div class="muted">（明细仅显示前 100 条）</div>' : "") + "</div>"
-      : `<div class="rep"><div class="rep-h"><b>断链检测：</b><span class="ok">${num(v.broken_count)} 条断点——溯源链完好</span></div></div>`;
-    $("#check-out").innerHTML = head + broken;
-    $("#check-info").textContent = "体检完成（只读，未改动任何数据）。";
-  } catch (e) { $("#check-info").textContent = "体检失败：" + (e.message || e); }
-}
-
-async function packBuild() {
-  try {
-    const info = await app().StartPackBuildTask($("#p-dir").value.trim(), $("#p-key").value.trim(), $("#p-license").value.trim(), $("#p-attrib").value.trim());
-    toast(`pack build 任务已提交 #${info.id}`);
-    if (!$("#panel-tasks").classList.contains("hidden")) loadTasks();
-  } catch (e) { toast("build 被拒：" + (e.message || e)); }
-}
-
-async function packVerify() {
-  const msg = await app().PackVerify($("#p-dir").value.trim());
-  toast(msg ? "校验失败：" + msg : "更新包校验通过（签名有效、哈希一致、无未收录文件）");
-}
-
-async function packImport() {
-  if (!confirm("确认导入该更新包？校验通过后写入本语料，新条目一律 pending 转人工；失败保留旧数据。")) return;
-  try {
-    const info = await app().StartPackImportTask($("#p-dir").value.trim());
-    toast(`pack import 任务已提交 #${info.id}`);
-  } catch (e) { toast("import 被拒：" + (e.message || e)); }
-}
-
-/* ---------- 面板六：设置 ---------- */
-async function loadSettings() {
-  const v = await app().Status();
-  $("#settings-box").textContent =
-    `数据目录：${v.data_dir}\nschema：v${v.schema_version}（支持 ${v.schema_min}–${v.schema_max}）\n产出者：${v.producer_version}\n文档：${num(v.documents)} · 条文：${num(v.articles)} · pending：${num(v.pending)}`;
-  const st = await app().BrowserStatus();
-  $("#settings-browser").innerHTML = st.enabled
-    ? '<span class="ok">BrowserOS neo 端点已配置</span>'
-    : '<span class="bad">BrowserOS 未配置</span><span class="muted">清单浏览通道不可用（不影响 gov.cn 清单抓取导入）。</span>';
-}
-
-/* ---------- 绑定与启动 ---------- */
 $("#btn-search").addEventListener("click", doSearch);
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+async function doCite() {
+  $("#cite-out").textContent = "核对中…";
+  try {
+    const c = await app().CheckCitation($("#c-law").value.trim(), $("#c-art").value.trim(), $("#c-quote").value, $("#c-date").value.trim());
+    if (!c.hit) {
+      $("#cite-out").textContent = "未找到对应条文" + (c.reason ? "：" + c.reason : "") + "。请核对法规名称、条款号与引用文本。";
+      return;
+    }
+    let out = `命中：与留证原文相似度 ${(c.similarity * 100).toFixed(1)}%（条目 ${c.doc_id}，版本 ${c.version_no}，${c.confirm_status === "confirmed" ? "已复核" : "尚未复核"}）。`;
+    if (c.expired) out += ` 注意：该版本已失效，现行版本为「${c.current_version}」，请核实现行条文。`;
+    if (c.chain_issues && c.chain_issues.length) out += " 来源链提示：" + c.chain_issues.map((i) => i.code).join("、") + "。";
+    out += " 以下为留证原文，供逐字比对：\n" + (c.content || "");
+    $("#cite-out").textContent = out;
+  } catch (e) {
+    $("#cite-out").textContent = "核对失败：" + (e.message || e);
+  }
+}
 $("#btn-cite").addEventListener("click", doCite);
-$("#btn-load").addEventListener("click", loadQueue);
+
+
+/* ---------- 专业 · 人工复核 ---------- */
+let queue = [];
+let selectedDoc = null;
+async function loadStats() {
+  try {
+    const st = await app().QueueStats();
+    const risk = Object.entries(st.risk || {}).map(([k, n]) => `<span class="pill">${escapeHTML(FLAG_TEXT[k] || k)} ${num(n)}</span>`).join("");
+    $("#qstats").innerHTML = `<span>待复核 <b>${num(st.pending)}</b></span><span>已复核确认 <b>${num(st.confirmed)}</b></span><span>已驳回 <b>${num(st.rejected)}</b></span><span class="muted">来源提示：</span>${risk || '<span class="muted">无</span>'}`;
+  } catch (e) { $("#qstats").textContent = "统计读取失败：" + (e.message || e); }
+}
+async function loadQueue() {
+  const f = $("#filter").value.trim();
+  try {
+    queue = (await app().PendingList(f, 300, 0)) || [];
+    $("#queue-info").textContent = `队列 ${queue.length} 条（最多显示 300）`;
+    $("#queue-list").innerHTML = queue.map((r) => `
+      <div class="item ${r.doc_id === selectedDoc ? "sel" : ""}" data-doc="${escapeHTML(r.doc_id)}">
+        <div class="t">${escapeHTML(r.law_name || r.doc_id)} ${statusBadge("pending")}</div>
+        <div class="m">${escapeHTML(r.doc_id)} · ${escapeHTML(r.source_type || "")}${r.publish_date ? " · 公布 " + r.publish_date : ""}</div>
+        <div class="m">${(r.flags || []).map((x) => `<span class="pill warn">${escapeHTML(FLAG_TEXT[x] || x)}</span>`).join(" ")}</div>
+      </div>`).join("") || '<p class="muted">队列为空（或过滤无匹配）。</p>';
+    document.querySelectorAll("#queue-list .item").forEach((el) => el.addEventListener("click", () => showPreview(el.dataset.doc)));
+  } catch (e) { $("#queue-list").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
+}
+async function showPreview(docID) {
+  selectedDoc = docID;
+  document.querySelectorAll("#queue-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.doc === docID));
+  const p = await app().Preview(docID);
+  const el = $("#preview");
+  el.innerHTML = legalHTML(p) + `<h4>复核记录</h4><ul class="log">${(p.review_log || []).map((x) => "<li>" + escapeHTML(x) + "</li>").join("") || '<li class="muted">暂无</li>'}</ul>`;
+  bindCopy(el);
+}
+async function judge(action) {
+  if (!selectedDoc) return toast("请先在左侧点选条目");
+  const reviewer = $("#reviewer").value.trim(), reason = $("#reason").value.trim();
+  try {
+    const sum = await app().Judge([selectedDoc], action, reviewer, reason);
+    toast(`已处理：确认 ${sum.confirmed} · 驳回 ${sum.rejected} · 重新复核 ${sum.reset}`);
+    loadStats(); loadQueue();
+  } catch (e) { toast("操作失败：" + (e.message || e)); }
+}
 $("#btn-confirm").addEventListener("click", () => judge("confirm"));
 $("#btn-reject").addEventListener("click", () => judge("reject"));
 $("#btn-reset").addEventListener("click", () => judge("reset"));
+$("#btn-load").addEventListener("click", () => { loadStats(); loadQueue(); });
+
+
+/* ---------- 专业 · 人工复核 · 批量 ---------- */
+async function bulkPreview() {
+  try {
+    const n = await app().BulkPreview($("#b-source").value.trim(), $("#b-level2").value.trim(), $("#b-verdict").value);
+    $("#bulk-info").textContent = `影响范围：${num(n)} 条`;
+  } catch (e) { $("#bulk-info").textContent = "失败：" + (e.message || e); }
+}
+async function bulkApply() {
+  const reviewer = $("#reviewer").value.trim(), reason = $("#reason").value.trim();
+  if (!reviewer || !reason) return toast("批量复核须填写复核人与结论依据");
+  try {
+    const sum = await app().BulkApply($("#b-source").value.trim(), $("#b-level2").value.trim(), $("#b-verdict").value, reviewer, reason);
+    toast(`批量完成：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 重新复核 ${num(sum.reset)}`);
+    loadStats(); loadQueue();
+  } catch (e) { toast("批量失败：" + (e.message || e)); }
+}
 $("#btn-bulk-preview").addEventListener("click", bulkPreview);
 $("#btn-bulk-apply").addEventListener("click", bulkApply);
-$("#btn-govcn").addEventListener("click", startGovcnTask);
-$("#btn-govlist").addEventListener("click", startGovListTask);
-$("#btn-cancel-task").addEventListener("click", async () => {
-  toast((await app().CancelTask()) ? "已请求取消（在限速点安全停下，已采部分如实保留）" : "当前没有运行中的任务");
-});
-$("#btn-check").addEventListener("click", doCheck);
-$("#btn-pack-build").addEventListener("click", packBuild);
-$("#btn-pack-verify").addEventListener("click", packVerify);
-$("#btn-pack-import").addEventListener("click", packImport);
-$("#btn-risk-reload").addEventListener("click", async () => { await app().ReloadRiskCache(); toast("风险缓存已清空，下次载入队列时重扫"); });
 
-waitBindings(() => {
-  loadStatus();
-  // 任务进度经 Wails 事件推送；事件不可用时（如浏览器直开）3s 轮询兜底。
-  if (window.runtime && window.runtime.EventsOn) {
-    window.runtime.EventsOn("task", () => loadTasks());
-  } else {
-    setInterval(() => { if (!$("#panel-tasks").classList.contains("hidden")) loadTasks(); }, 3000);
-  }
+/* ---------- 专业 · 数据采集与更新 ---------- */
+async function loadSources() {
+  try {
+    const v = await app().Status();
+    const lf = v.last_fetch || {};
+    const srcs = [["govcn", "国家行政法规库"], ["govgz", "国家规章库"], ["govlocal", "地方规章"]];
+    $("#src-cards").innerHTML = srcs.map((s) => `<div class="card"><b>${escapeHTML(lf[s[0]] ? lf[s[0]].slice(0, 10) : "尚未抓取")}</b><span>${s[1]}</span></div>`).join("");
+    const bs = await app().BrowserStatus();
+    $("#browser-hint").textContent = bs.enabled ? "BrowserOS 已连接，可抓取官方规章目录。" : (bs.guidance || "BrowserOS 未配置，目录抓取不可用。");
+    const lists = (await app().GovcnLists()) || [];
+    $("#g-list").innerHTML = lists.map((l) => `<option value="${escapeHTML(l.path)}">${escapeHTML(l.name || l.path)}</option>`).join("") || '<option value="">（未找到已导出清单文件）</option>';
+  } catch (e) { $("#src-cards").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
+}
+let taskTimer = null;
+function renderTasks(tasks) {
+  const st = { running: "进行中", done: "完成", failed: "失败", cancelled: "已取消" };
+  $("#task-list").innerHTML = (tasks || []).map((t) => `
+    <div class="task ${escapeHTML(t.state)}"><b>${escapeHTML(KIND_TEXT[t.kind] || t.kind)} #${t.id}</b><span class="state">${st[t.state] || escapeHTML(t.state)}</span>
+    <div class="m">${escapeHTML(t.progress || t.detail || "")}</div>
+    <div class="m">${escapeHTML(t.started_at)}${t.ended_at ? " → " + escapeHTML(t.ended_at) : ""} · ${escapeHTML(t.params)}</div></div>`).join("") || '<p class="muted">暂无任务记录。</p>';
+}
+async function loadTasks() { try { renderTasks(await app().TaskList()); } catch (e) { /* 绑定未就绪 */ } }
+function loadTasksTick() {
+  if (taskTimer) return;
+  taskTimer = setInterval(loadTasks, 1500);
+}
+$("#btn-cancel-task").addEventListener("click", async () => toast((await app().CancelTask()) ? "已请求取消，已获取部分将如实保留" : "当前没有进行中的任务"));
+$("#btn-govcn").addEventListener("click", async () => {
+  try {
+    const info = await app().StartGovcnTask({
+      source: $("#g-source").value, list_path: $("#g-list").value,
+      delay_sec: Number($("#g-delay").value) || 2, limit: Number($("#g-limit").value) || 0,
+      dry_run: $("#g-dry").checked, local: $("#g-local").checked
+    });
+    toast(`任务 #${info.id} 已开始`); loadTasks();
+  } catch (e) { toast("无法开始：" + (e.message || e)); }
 });
+$("#btn-govlist").addEventListener("click", async () => {
+  try {
+    const info = await app().StartGovListTask({
+      cat: $("#l-cat").value, max_pages: Number($("#l-pages").value) || 10,
+      start_page: Number($("#l-start").value) || 1, delay_ms: Number($("#l-delay").value) || 2500,
+      empty_stop: Number($("#l-empty").value) || 10
+    });
+    toast(`任务 #${info.id} 已开始`); loadTasks();
+  } catch (e) { toast("无法开始：" + (e.message || e)); }
+});
+
+
+/* ---------- 专业 · 高级设置（自检 / 完整性档案 / 离线数据包） ---------- */
+async function loadManifest() {
+  try {
+    const m = await app().ManifestStatus();
+    $("#manifest-box").innerHTML = m.exists
+      ? `<span>完整性档案：${m.verify_err ? "校验未通过 — " + escapeHTML(m.verify_err) : "校验通过 ✓"}</span>
+         <span>生成时间 ${escapeHTML(m.generated_at)} · 文件 ${num(m.files)} 个</span>
+         <span>来源版本 ${escapeHTML(m.producer_version || "未知")} · 数据库版本 ${escapeHTML(m.schema_version || "?")} · 许可 ${escapeHTML(m.license || "—")}</span>`
+      : '<span class="bad">完整性档案缺失</span><span>尚未生成离线数据包（CLI：openlaw-pack build），数据自检仅做留证完整性扫描。</span>';
+  } catch (e) { $("#manifest-box").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
+}
+$("#btn-check").addEventListener("click", async () => {
+  $("#check-info").textContent = "自检中（只读，可能需要十几秒）…";
+  try {
+    const c = await app().CorpusCheck();
+    loadManifest();
+    const rows = (c.broken || []).map((b) => `<div class="rep bad">${escapeHTML(b.doc_id || "")} ${escapeHTML(b.file_path || "")} ${escapeHTML(b.reason || "")}</div>`).join("");
+    $("#check-out").innerHTML = `<div class="rep">${c.broken_count ? "留证完整性问题 " + num(c.broken_count) + " 条" : "留证文件全部完整 ✓"}${c.truncated ? "（明细仅显示前 100 条）" : ""}</div>` + rows;
+    $("#check-info").textContent = "自检完成";
+  } catch (e) { $("#check-info").textContent = "自检失败：" + (e.message || e); }
+});
+$("#btn-pack-build").addEventListener("click", async () => {
+  try { const t = await app().StartPackBuildTask($("#p-dir").value.trim(), $("#p-key").value.trim(), $("#p-license").value.trim(), $("#p-attrib").value.trim()); toast(`数据包生成 #${t.id} 已开始`); loadTasks(); } catch (e) { toast("无法开始：" + (e.message || e)); }
+});
+$("#btn-pack-verify").addEventListener("click", async () => {
+  const out = await app().PackVerify($("#p-dir").value.trim());
+  toast("校验结果：" + out.slice(0, 120));
+});
+$("#btn-pack-import").addEventListener("click", async () => {
+  try { const t = await app().StartPackImportTask($("#p-dir").value.trim()); toast(`数据包导入 #${t.id} 已开始（新条目进入待复核）`); loadTasks(); } catch (e) { toast("无法开始：" + (e.message || e)); }
+});
+$("#btn-risk-reload").addEventListener("click", async () => { await app().ReloadRiskCache(); toast("来源提示缓存已重载"); });
+async function loadSettings() {
+  try {
+    const v = await app().Status();
+    $("#settings-box").innerHTML = `<span>数据目录：${escapeHTML(v.data_dir)}</span>
+      <span>数据库版本 ${escapeHTML(v.schema_version || "?")}（本程序支持 ${escapeHTML(v.schema_min)}–${escapeHTML(v.schema_max)}）</span>
+      <span>数据来源版本：${escapeHTML(v.producer_version || "未知")}</span>`;
+  } catch (e) { /* 已在别处报错 */ }
+}
+
+/* ---------- 启动 ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  loadManifest(); loadSettings();
+  waitBindings(() => applyMode());
+});
+

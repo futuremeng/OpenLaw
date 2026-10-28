@@ -3,170 +3,198 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>OpenLaw 语料台</title>
+<title>开源法律法规数据库</title>
 <link rel="stylesheet" href="./assets/style.css"/>
 </head>
 <body>
 <div id="layout">
   <aside id="side">
-    <div class="brand">OpenLaw 语料台</div>
-    <nav>
-      <button class="nav active" data-panel="status">语料状态</button>
-      <button class="nav" data-panel="search">条文检索</button>
-      <button class="nav" data-panel="confirm">人工确认</button>
-      <button class="nav" data-panel="tasks">采集任务</button>
-      <button class="nav" data-panel="ops">运维 check/pack</button>
-      <button class="nav" data-panel="settings">设置</button>
+    <div class="brand">OpenLaw<br><b>开源法律法规数据库</b></div>
+    <div class="modes">
+      <button id="mode-public" class="mode active">公众模式</button>
+      <button id="mode-pro" class="mode">专业模式</button>
+    </div>
+    <nav id="nav">
+      <button class="nav active" data-panel="home" data-mode="public">查法规</button>
+      <button class="nav" data-panel="browse" data-mode="public">按目录浏览</button>
+      <button class="nav" data-panel="overview" data-mode="pro" hidden>库总览</button>
+      <button class="nav" data-panel="search" data-mode="pro" hidden>法规检索</button>
+      <button class="nav" data-panel="confirm" data-mode="pro" hidden>人工复核</button>
+      <button class="nav" data-panel="collect" data-mode="pro" hidden>数据采集与更新</button>
     </nav>
     <div id="side-foot"><span id="schema-badge"></span></div>
   </aside>
 
   <main>
-    <!-- 语料状态 -->
-    <section id="panel-status" class="panel">
-      <div id="status-err" class="err"></div>
-      <div id="status-cards" class="cards"></div>
-      <div class="cols">
-        <div>
-          <h2>按效力等级（pending / confirmed / rejected）</h2>
-          <table id="level-table"><thead><tr><th>效力等级</th><th>pending</th><th>confirmed</th><th>rejected</th></tr></thead><tbody></tbody></table>
-          <h2>来源与许可</h2>
-          <div id="provenance" class="kv"></div>
+    <!-- 公众 · 查法规（搜索为中心） -->
+    <section id="panel-home" class="panel">
+      <div class="hero">
+        <h1>查法规，认准官方原文</h1>
+        <p class="muted">收录国家行政法规库、国家规章库等官方渠道的法规原文。输入关键词，例如「工伤」「营业执照」「房屋租赁」。</p>
+        <div class="bigsearch">
+          <input id="hq" placeholder="想知道什么规定？直接输入关键词"/>
+          <button id="btn-hsearch">搜索</button>
         </div>
-        <div>
-          <h2>最近导入/采集报告分诊</h2>
-          <div id="reports" class="reports"></div>
-          <h2>最近审计流转</h2>
-          <div id="reviews" class="reviews"></div>
-        </div>
+      </div>
+      <div id="h-cards" class="cards"></div>
+      <div id="h-results" class="cards results"></div>
+      <details class="disclose">
+        <summary>数据来源与使用说明</summary>
+        <p class="muted">本库法规原文抓取自国务院「国家行政法规库」「国家规章库」等官方网站，并保留抓取时间与原文链接供核对。
+        标注「尚未复核」的条目尚未经人工与官方原文逐条比对，引用前请以官网文本为准。
+        本工具为开源辅助工具，不构成法律意见。</p>
+      </details>
+    </section>
+
+    <!-- 公众 · 按目录浏览 -->
+    <section id="panel-browse" class="panel hidden">
+      <div class="toolbar">
+        <select id="b-level">
+          <option value="">全部类别</option>
+          <option>行政法规</option><option>部门规章</option>
+          <option>地方政府规章</option><option>法律</option><option>司法解释</option>
+        </select>
+        <input id="b-kw" placeholder="按法规名称过滤，如「工伤保险」"/>
+        <button id="btn-browse">浏览</button>
+      </div>
+      <div class="split">
+        <div id="law-list" class="list"><p class="muted">先选类别或直接浏览，共收录法规将列于此处。</p></div>
+        <div id="law-detail" class="preview"><p class="muted">点选左侧法规，查看其条款与修订沿革。</p></div>
       </div>
     </section>
 
-    <!-- 条文检索 -->
+    <!-- 专业 · 库总览 -->
+    <section id="panel-overview" class="panel hidden">
+      <div id="status-err" class="err"></div>
+      <div id="ov-hero" class="hero-cards"></div>
+      <div id="ov-actions" class="actions"></div>
+      <h2>覆盖情况（按效力等级）</h2>
+      <table id="level-table"><thead><tr><th>效力等级</th><th>待复核</th><th>已复核确认</th><th>已驳回</th></tr></thead><tbody></tbody></table>
+      <div class="cols">
+        <div><h2>最近采集记录</h2><div id="reports" class="reports"></div></div>
+        <div><h2>最近复核记录</h2><div id="reviews" class="reviews"></div></div>
+      </div>
+    </section>
+
+
+    <!-- 专业 · 法规检索 -->
     <section id="panel-search" class="panel hidden">
       <div class="toolbar">
-        <input id="q" placeholder="全文检索词（FTS5）"/>
+        <input id="q" placeholder="全文检索（FTS5 语法亦支持）"/>
+        <select id="s-level"><option value="">全部等级</option><option>行政法规</option><option>部门规章</option><option>地方政府规章</option></select>
+        <label class="chk"><input id="s-confirmed" type="checkbox"/> 仅显示已复核</label>
         <button id="btn-search">检索</button>
         <span id="search-info" class="muted"></span>
       </div>
       <div class="split">
         <div id="search-list" class="list"></div>
-        <div id="search-preview" class="preview"><p class="muted">点选左侧命中查看留证正文；下方可做引用核验。</p>
+        <div id="search-preview" class="preview"><p class="muted">点选左侧命中查看条文全文、修订沿革与引用格式；下方可做引用核对。</p>
           <div class="cite">
-            <h3>引用核验（validate 六环节）</h3>
-            <input id="c-law" placeholder="法规名"/>
+            <h3>引用核对（与官方留证原文比对）</h3>
+            <input id="c-law" placeholder="法规名称"/>
             <input id="c-art" placeholder="条款号（如 第一条）"/>
-            <textarea id="c-quote" placeholder="引用文本"></textarea>
-            <input id="c-date" placeholder="时间点 YYYY-MM-DD（空=今天）"/>
-            <button id="btn-cite">核验</button>
+            <textarea id="c-quote" placeholder="您手头的引用文本"></textarea>
+            <input id="c-date" placeholder="引用时点 YYYY-MM-DD（空=今天）"/>
+            <button id="btn-cite">核对</button>
             <pre id="cite-out" class="muted"></pre>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 人工确认 -->
+    <!-- 专业 · 人工复核 -->
     <section id="panel-confirm" class="panel hidden">
       <div id="qstats" class="qstats"></div>
       <div class="toolbar">
-        <input id="filter" placeholder="过滤：doc_id / 法规名 / 来源"/>
-        <button id="btn-load">载入队列</button>
+        <input id="filter" placeholder="过滤：编号 / 法规名 / 来源"/>
+        <button id="btn-load">载入待复核队列</button>
         <span id="queue-info"></span>
         <span class="spacer"></span>
-        <input id="reviewer" placeholder="署名 reviewer（必填）"/>
-        <input id="reason" placeholder="依据 reason（必填）"/>
+        <input id="reviewer" placeholder="复核人（必填）"/>
+        <input id="reason" placeholder="结论依据（必填）"/>
         <button id="btn-confirm" class="ok">确认 ✓</button>
         <button id="btn-reject" class="warn">驳回 ✗</button>
-        <button id="btn-reset">重置 pending</button>
+        <button id="btn-reset">重新复核</button>
       </div>
       <div class="bulk">
-        批量：source LIKE <input id="b-source" placeholder="如 gov.cn% / flk%"/>
-        效力等级 <input id="b-level" placeholder="如 部门规章" size="8"/>
-        <select id="b-verdict"><option>confirm</option><option>reject</option><option>reset</option></select>
-        <button id="btn-bulk-preview">dry-run 计数</button>
+        批量复核：来源 <input id="b-source" placeholder="如 gov.cn% / flk%"/>
+        效力等级 <input id="b-level2" placeholder="如 部门规章" size="8"/>
+        <select id="b-verdict"><option value="confirm">确认</option><option value="reject">驳回</option><option value="reset">重新复核</option></select>
+        <button id="btn-bulk-preview">先查看影响范围</button>
         <span id="bulk-info" class="muted"></span>
-        <button id="btn-bulk-apply" class="ok">执行（需署名+依据）</button>
+        <button id="btn-bulk-apply" class="ok">执行（须复核人+依据）</button>
       </div>
       <div class="split">
         <div id="queue-list" class="list"></div>
-        <div id="preview" class="preview"><p class="muted">点选左侧条目查看留证正文与审计历史。机器不裁决：确认/驳回必须署名并写明依据。</p></div>
+        <div id="preview" class="preview"><p class="muted">点选左侧条目查看条文全文与复核记录。复核须由人工完成：确认/驳回须填写复核人与结论依据。</p></div>
       </div>
     </section>
 
-    <!-- 采集任务 -->
-    <section id="panel-tasks" class="panel hidden">
-      <div id="browser-status" class="qstats"></div>
-      <h2>当前 / 最近任务（单槽互斥，可取消；历史留 20 条）</h2>
+    <!-- 专业 · 数据采集与更新 -->
+    <section id="panel-collect" class="panel hidden">
+      <h2>官方渠道状态</h2>
+      <div id="src-cards" class="cards"></div>
+      <h2>进行中的任务</h2>
       <div class="toolbar">
         <button id="btn-cancel-task" class="warn">取消当前任务</button>
-        <span class="muted">任务走与 CLI 完全相同的 runner（ingest.RunGovcnBatch / browser.RunGovListAgent），报告照常落 incoming/。</span>
+        <span class="muted">同一时间只运行一个采集任务；中断时已获取部分如实保留。</span>
       </div>
       <div id="task-list" class="tasks"></div>
       <div class="cols">
         <div>
-          <h2>gov.cn 详情导入（openlaw-govcn 同路径）</h2>
+          <h2>官方原文获取（已导出目录 → 抓取全文）</h2>
           <div class="form">
-            <label>通道 <select id="g-source"><option value="xzfgk">国家行政法规库 xzfgk</option><option value="gzk">国家规章库 gzk</option></select></label>
-            <label>清单 <select id="g-list"></select></label>
-            <label>限速（秒，≥2） <input id="g-delay" type="number" value="2" min="2"/></label>
-            <label>条数上限（0=全部） <input id="g-limit" type="number" value="20" min="0"/></label>
-            <label class="chk"><input id="g-dry" type="checkbox" checked/> dry-run（抓取留证但不入库）</label>
-            <label class="chk"><input id="g-local" type="checkbox"/> 地方政府子域通道（-local）</label>
-            <button id="btn-govcn" class="ok">启动导入任务</button>
+            <label>抓取通道 <select id="g-source"><option value="xzfgk">国家行政法规库</option><option value="gzk">国家规章库</option></select></label>
+            <label>目录清单 <select id="g-list"></select></label>
+            <label>抓取间隔（秒，≥2） <input id="g-delay" type="number" value="2" min="2"/></label>
+            <label>本次上限（0=全部） <input id="g-limit" type="number" value="20" min="0"/></label>
+            <label class="chk"><input id="g-dry" type="checkbox" checked/> 试采（只留存原文，不写入数据库）</label>
+            <label class="chk"><input id="g-local" type="checkbox"/> 含地方政府站点</label>
+            <button id="btn-govcn" class="ok">开始获取</button>
           </div>
         </div>
         <div>
-          <h2>国家规章库清单浏览（BrowserOS 代理浏览；默认离线）</h2>
+          <h2>官方规章目录抓取（需 BrowserOS 辅助浏览）</h2>
           <div class="form">
-            <label>分类 <select id="l-cat"><option value="">混合清单全收</option><option>部门规章</option><option>地方政府规章</option></select></label>
+            <label>类别 <select id="l-cat"><option value="">全部（部门+地方政府）</option><option>部门规章</option><option>地方政府规章</option></select></label>
             <label>页数上限（≤200） <input id="l-pages" type="number" value="10" min="1" max="200"/></label>
-            <label>起始页（续接） <input id="l-start" type="number" value="1" min="1"/></label>
-            <label>跳页间隔 ms（≥2000） <input id="l-delay" type="number" value="2500" min="2000"/></label>
-            <label>连续真空页停止 <input id="l-empty" type="number" value="10" min="1"/></label>
-            <button id="btn-govlist" class="ok">启动浏览任务</button>
+            <label>起始页（续接上次） <input id="l-start" type="number" value="1" min="1"/></label>
+            <label>翻页间隔 ms（≥2000） <input id="l-delay" type="number" value="2500" min="2000"/></label>
+            <label>连续空白页停止 <input id="l-empty" type="number" value="10" min="1"/></label>
+            <button id="btn-govlist" class="ok">开始抓取目录</button>
           </div>
-          <p class="muted">前置：启动 BrowserOS neo，把回环 MCP 端点放入环境变量 OPENLAW_BROWSEROS_ENDPOINT；未配置时任务会被拒并给指引（绝不降级到其他抓取方式）。</p>
+          <p id="browser-hint" class="muted"></p>
         </div>
       </div>
-    </section>
-
-    <!-- 运维 check/pack -->
-    <section id="panel-ops" class="panel hidden">
-      <div class="toolbar">
-        <button id="btn-check">全库体检（openlaw-check 同路径）</button>
-        <span id="check-info" class="muted">manifest 签名校验 + 条文溯源断链检测（只读）。</span>
-      </div>
-      <div id="manifest-box" class="kv"></div>
-      <div id="check-out" class="reports"></div>
-      <h2>离线更新包 pack（openlaw-pack 同路径；私钥只经路径引用，内容不进 UI）</h2>
-      <div class="form">
-        <label>包目录 <input id="p-dir" placeholder="如 packs/govcn_20261028（相对数据目录）"/></label>
-        <label>签名私钥路径 <input id="p-key" placeholder="如 ~/keys/openlaw-ed25519.key（不得进数据目录/仓库）"/></label>
-        <label>许可声明 <input id="p-license" placeholder="空 = 默认（公有领域+署出处）"/></label>
-        <label>来源署名 <input id="p-attrib" placeholder="空 = 默认"/></label>
-        <div class="rowbtns">
-          <button id="btn-pack-build">build（导出+签名）</button>
-          <button id="btn-pack-verify">verify（仅校验）</button>
-          <button id="btn-pack-import" class="warn">import（写入本语料，新条目 pending）</button>
+      <details class="disclose adv">
+        <summary>高级设置（数据自检 · 完整性签名 · 离线数据包 · 版本信息）</summary>
+        <div class="toolbar">
+          <button id="btn-check">数据自检（只读）</button>
+          <span id="check-info" class="muted"></span>
         </div>
-      </div>
-      <p class="muted">build/import 作为任务提交（与采集任务共用单槽互斥队列）；import 失败保留旧数据、成功条目全部 pending 转人工。</p>
-    </section>
-
-    <!-- 设置 -->
-    <section id="panel-settings" class="panel hidden">
-      <h2>语料与版本</h2>
-      <div id="settings-box" class="kv"></div>
-      <h2>采集通道</h2>
-      <div id="settings-browser" class="qstats"></div>
-      <div class="toolbar" style="margin-top:14px">
-        <button id="btn-risk-reload">重载风险缓存</button>
-        <span class="muted">风险缓存 TTL 5 分钟，仅影响读侧展示，不影响写纪律。</span>
-      </div>
-      <p class="muted">纪律：桌面端是生产者路径（store.Open）；消费方（OpenCourt 等）必须用 sdk.OpenReadOnly。serve 与签名私钥管理仍建议经 CLI。</p>
+        <div id="manifest-box" class="kv"></div>
+        <div id="check-out" class="reports"></div>
+        <h3>离线数据包（分享 / 导入更新）</h3>
+        <div class="form">
+          <label>数据包目录 <input id="p-dir" placeholder="如 packs/govcn_20261028"/></label>
+          <label>签名私钥路径 <input id="p-key" placeholder="私钥文件路径（不得放入数据目录）"/></label>
+          <label>许可声明 <input id="p-license" placeholder="空 = 默认"/></label>
+          <label>来源署名 <input id="p-attrib" placeholder="空 = 默认"/></label>
+          <div class="rowbtns">
+            <button id="btn-pack-build">生成数据包</button>
+            <button id="btn-pack-verify">校验数据包</button>
+            <button id="btn-pack-import" class="warn">导入数据包（新条目待复核）</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button id="btn-risk-reload">重载来源提示缓存</button>
+        </div>
+        <div id="settings-box" class="kv"></div>
+      </details>
     </section>
   </main>
 </div>
+<div id="modal" class="hidden"><div class="modal-box"><button id="modal-close">关闭 ✕</button><div id="modal-body"></div></div></div>
 <div id="toast"></div>
 <script src="./assets/api.js"></script>
 <script src="./assets/app.js"></script>
