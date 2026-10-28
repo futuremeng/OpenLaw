@@ -307,11 +307,13 @@ func (g *Govcn) logFetch(rawURL, docID, result, reason string, size int64, ctype
 // ---- 详情页解析（TRS CMS 正文容器 → Markdown）----
 
 // trsContentRe 正文容器起始标签（gov.cn 政策详情页 TRS_UEDITOR 惯例，2026-10
-// 实查；地方政府子域站点 2026-10-27 真机实查扩展：zfxxgk_content 政务公开
-// 模板、wz_content/gzkwz_con 规章库模板——gzkwz_con 用精确 class 匹配防误配
-// 外层 gzkwz_container，RE2 无负向前瞻故拆独立备选）。解析不出仍如实 failed
-// 转人工，绝不硬凑。
-var trsContentRe = regexp.MustCompile(`(?i)<div\b[^>]*class="[^"]*(?:trs_editor_view|TRS_UEDITOR|pages_content|zfxxgk_content|wz_content)[^"]*"[^>]*>|<div\b[^>]*class="gzkwz_con"[^>]*>`)
+// 实查；地方政府子域站点真机留证统计扩展：rlwzbox 规章文件盒、article-content
+// （含 policy-article-content）、content-box/content-wrapper、rule_content、
+// zc_article_con、zfxxgk_content 政务公开模板、wz_content/gzkwz_con 规章库
+// 模板。泛型 content/article/zoom 只收精确 class（防 header__content 等噪声
+// 前缀误配；RE2 无负向前瞻故拆独立备选）。解析不出仍如实 failed 转人工，
+// 绝不硬凑；误配风险由 pending 人工闸口兜底）。
+var trsContentRe = regexp.MustCompile(`(?i)<div\b[^>]*class="[^"]*(?:trs_editor_view|TRS_UEDITOR|pages_content|zfxxgk_content|wz_content|rlwzbox|article-content|content-box|content-wrapper|policy-article|rule_content|zc_article_con)[^"]*"[^>]*>|<div\b[^>]*class="(?:gzkwz_con|content|article|zoom)"[^>]*>`)
 
 // divTagRe 深度扫描用（嵌套 div 计数找容器闭合）。
 var divTagRe = regexp.MustCompile(`(?i)<div\b[^>]*>|</div\s*>`)

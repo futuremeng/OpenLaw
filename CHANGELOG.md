@@ -4,6 +4,23 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **地方政府子域抓取通道（-local）**：`openlaw-govcn -source gzk -local` 放行
+  混合清单 2629 条地方政府规章直链（*.gov.cn 子域）抓取。主机策略后缀族匹配
+  （防伪装域 gov.cn.evil.example）、重定向逐跳复查、**每站 robots 独立强制
+  fail-closed**（真机已有站点 Disallow: / 被正确拒抓）、限速/UA/import_log/
+  留证纪律与主站通道全同；doc_id=`govlocal_<url_hash>`、留证独立
+  `incoming/govlocal/`、source_type 标注地方政府官网；正文容器真机扩展
+  zfxxgk_content（政务公开模板）/wz_content/gzkwz_con（规章库模板；RE2 无
+  负向前瞻——首轮 MustCompile panic 教训，精确 class 备选防误配外层
+  container）；清单层 `LoadGovcnList(path, allowLocal)` 默认关闭（地方直链
+  维持 skip_bad_url 如实交回，显式 -local 才抓——产品决策显式化）；测试：
+  hostAllowed 表驱动（含伪装域拒绝）+ 清单双模式 + httptest govlocal 端到端。
+  真机三轮终态（2629 条地方直链）：**1305 条入库 pending**（留证
+  `incoming/govlocal/`）；解析失败 745（JS 渲染骨架/长尾模板转人工）；
+  robots 拒绝 374（DNS 失效、412/413 反爬、Disallow: /——fail-closed，
+  重试证实确定性拒绝）；单页多规章冲突 87、HTTP 错误 85、其他 70、
+  skip_no_date 46；容器两轮扩展使入库 554→1305（留证复用离线重解析，
+  不重复联网）。
 - **gzk 清单全量真机采集落地 + skip_bad_url 导入语义**：OpenCourt 跳转驱动批量采集（`cmd/govlistcollect` + 缺口补采）覆盖官方清单全部 1000 页（真机探测证实第 1000 页为末页、每页 7 条），http 过滤 bug 修复后 5 分片合并去重共 **6667 条**（部门规章 1594 / 地方政府规章 5073；www.gov.cn 4026 条走本通道，2641 条地方政府直链转人工）；`LoadGovcnList` 不再对不合规 URL 整单拒绝——如实交回并在导入报告记 `skip_bad_url`（保留原 URL 供人工处置，不静默丢弃、不越主机策略抓取）；主站 `http://` 详情页 URL 归一化 `https://`（去重前，两形态并一条；真机证实官方清单 docurl 大量 http 形态，301→https）；新增 `scripts/govmerge.py`（分片合并去重 + 区段覆盖分析）；dry-run 小样本验证：主站条目解析正常、地方政府直链全部正确记 skip_bad_url。
   真实导入完成（2026-10-27）：主站 4026 条 → **3945 条入库**（部门规章 1522 +
   地方政府规章 2423，均 pending 待人工确认）；超时失败经幂等重试全部恢复；

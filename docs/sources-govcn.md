@@ -49,6 +49,37 @@ provenance + 原始 HTML）。
    URL 校验只收 https 曾把整页条目滤光、满页误判空页（首轮只收到 1970 条）；
    修复后本通道 LoadGovcnList 对主站 http:// 归一化 https（去重合并），
    地方政府 http 直链不归一原样交回。
+
+## 地方政府子域通道（-local，2026-10-27 开通）
+
+混合清单中 2629 条地方政府规章直链（指向各市/省政府官网 *.gov.cn 子域）经
+`openlaw-govcn -source gzk -local` 抓取。合规画像与主站通道同构、纪律不降：
+  - 主机策略：www.gov.cn 之外仅放行 `.gov.cn` 域名族后缀匹配（防
+    gov.cn.evil.example 伪装）；重定向逐跳复查同一策略；
+  - **每站 robots.txt 独立强制、fail-closed**（robots 不可达/5xx = 整站拒绝；
+    Disallow 命中 = 拒绝并报告——真机已有站点 Disallow: /，正确拒抓）；
+  - 礼貌限速 ≥2s（全局串行）、UA 如实、import_log 全记；
+  - doc_id=govlocal_<URL sha256 前 12 位>（地方站 URL 形态多样无 content_id）；
+  - 留证独立 incoming/govlocal/；source_type 标注「地方政府官网」；
+  - 正文容器：TRS 惯例之外真机扩展 zfxxgk_content（政务公开模板）、
+    wz_content/gzkwz_con（规章库模板）；解析不出如实 failed 转人工，绝不硬凑；
+  - 清单层 LoadGovcnList(path, allowLocal)：allowLocal=false 时地方直链维持
+    skip_bad_url 交回（默认关闭，显式决策才开）。
+
+   真机全量三轮（2026-10-27/28，幂等续跑 + 留证复用离线重解析 + 失败重试）
+   终态（2629 条地方直链）：
+   - **1305 条入库**（全部 pending；effect_level=地方政府规章），留证
+     incoming/govlocal/（HTML 2170 份、md 1387 份）；
+   - 解析失败 745：正文容器缺失——JS 渲染骨架页（静态 HTML 无正文）与长尾
+     模板，如实转人工（留证俱在，后续可经浏览器通道或再扩容器回收）；
+   - robots 拒绝 374：DNS 不存在（域名失效）、HTTP 412/413 反爬、
+     Disallow: / ——全部 fail-closed 正确拒抓，第三遍重试证实为确定性拒绝；
+   - 单页多规章 UNIQUE 冲突 87、HTTP 错误 85、其他 70、skip_no_date 46、
+     skip_bad_url 12（URL 形态异常）；
+   - 正文容器真机两轮扩展（第一轮 zfxxgk_content/wz_content/gzkwz_con，
+     第二轮 rlwzbox/article-content/content-box/content-wrapper/rule_content/
+     zc_article_con + 精确 content/article/zoom）使 govlocal 入库从 554 →
+     1305——离线重解析不重复联网，留证复用是关键设计。
 ② 获取（程序合规）：openlaw-govcn 按 list.json 抓详情页：
    robots 强制 + 主机锁死 www.gov.cn（重定向逐跳复查）+ 限速（默认 2s/页，不可低于）
    + UA 如实标识 + 每次访问写 import_log + 原始 HTML 留证 data/incoming/govcn/
