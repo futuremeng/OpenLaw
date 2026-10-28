@@ -1,43 +1,65 @@
 {
-  // Go 调试依赖 golang.go 扩展（首次运行会自动提示安装 dlv）。
-  // 所有配置 cwd=工作区根：-data data 等相对路径按此解析。
+  // Go 调试依赖 golang.go 扩展（首次运行自动提示装 dlv）。
+  // 约定：所有配置 cwd=工作区根，-data data 等相对路径按此解析。
+  // 分组：桌面端（OL-10）/ 采集（OL-9）/ 运维（9.2）/ EU / 通用。
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "EU text: probe（配额探测 RL-2，只 2 个请求）",
+      // OL-10 桌面端「OpenLaw 语料台」。必须带 wails 构建标签——无标签会链入
+      // stub（日志打「will not build without the correct build tags」且无窗口）。
+      // devtools 标签开右键 Inspect Element；断点可打在 desktop/ store/ ingest/
+      // validate/ browser/ pack/（同包同进程全部命中）。
+      "name": "桌面端: 语料台（含 webview devtools）",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/openlaw-eu-text",
+      "program": "${workspaceFolder}/desktop",
+      "buildFlags": ["-tags", "desktop,production,devtools"],
       "cwd": "${workspaceFolder}",
-      "args": ["-data", "data", "-celex", "32016R0679", "-lang", "eng", "-probe"]
+      "args": ["-data", "data"]
     },
     {
-      "name": "EU text: dry-run（GDPR pilot，不入库）",
+      // 与发布形态一致（README/CI 同款标签），复现打包行为用它。
+      "name": "桌面端: production 形态（复现发布）",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/openlaw-eu-text",
+      "program": "${workspaceFolder}/desktop",
+      "buildFlags": ["-tags", "desktop,production"],
       "cwd": "${workspaceFolder}",
-      "args": ["-data", "data", "-celex", "32016R0679", "-lang", "eng", "-dry-run"]
+      "args": ["-data", "data"]
     },
     {
-      "name": "EU text: apply（入库 confirm_status=pending）",
+      // 详情导入 dry-run：抓取+留证 incoming/，不入库（报告照常落盘）。
+      // 清单路径经输入提示（浏览器人工导出的 list.json；程序不代为检索）。
+      "name": "govcn: dry-run 试跑（留证不入库）",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/openlaw-eu-text",
+      "program": "${workspaceFolder}/cmd/openlaw-govcn",
       "cwd": "${workspaceFolder}",
-      "args": ["-data", "data", "-celex", "32016R0679", "-lang", "eng"]
+      "args": ["-data", "data", "-list", "${input:govcnList}", "-limit", "20", "-dry-run"]
     },
     {
-      "name": "EU metadata: openlaw-eu（SPARQL 元数据）",
+      // OL-9 清单浏览：需本机 BrowserOS neo 在跑（端点按实际端口改 env）。
+      // 离线护栏：端点未配置/不可达即报错给指引，绝不降级其他抓取。
+      "name": "govlist: 清单浏览试跑（3 页，需 BrowserOS neo）",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/openlaw-eu",
+      "program": "${workspaceFolder}/cmd/openlaw-govlist",
       "cwd": "${workspaceFolder}",
-      "args": ["-data", "data", "-celex", "32016R0679"]
+      "args": ["-max-pages", "3"],
+      "env": { "OPENLAW_BROWSEROS_ENDPOINT": "http://127.0.0.1:9211/mcp" }
+    },
+    {
+      "name": "check: 全库完整性审计（签名+断链）",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/openlaw-check",
+      "cwd": "${workspaceFolder}",
+      "args": ["-data", "data"]
     },
     {
       "name": "confirm: stats（复核进度）",
@@ -49,71 +71,25 @@
       "args": ["stats", "-data", "data"]
     },
     {
-      "name": "level: dry-run（效力等级报告，不写库）",
+      "name": "confirm: sample（复核抽样浏览）",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/openlaw-level",
+      "program": "${workspaceFolder}/cmd/openlaw-confirm",
       "cwd": "${workspaceFolder}",
-      "args": ["-data", "data"]
+      "args": ["sample", "-data", "data"]
     },
     {
-      "name": "batch: 试跑前 20 条",
+      "name": "EU text: dry-run（GDPR pilot，不入库）",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/openlaw-batch",
+      "program": "${workspaceFolder}/cmd/openlaw-eu-text",
       "cwd": "${workspaceFolder}",
-      "args": ["-data", "data", "-report", "scan_report.csv", "-limit", "20"]
+      "args": ["-data", "data", "-celex", "32016R0679", "-lang", "eng", "-dry-run"]
     },
     {
-      "name": "check: 完整性审计",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/cmd/openlaw-check",
-      "cwd": "${workspaceFolder}",
-      "args": ["-data", "data"]
-    },
-    {
-      // OL-9 清单浏览采集：需本机 BrowserOS neo 在跑（端点按实际端口改 env）。
-      // 默认离线护栏：端点未配置/不可达即报错给指引，绝不降级其他抓取。
-      "name": "govlist: 清单浏览试跑（3 页，需 BrowserOS neo）",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/cmd/openlaw-govlist",
-      "cwd": "${workspaceFolder}",
-      "args": ["-max-pages", "3"],
-      "env": { "OPENLAW_BROWSEROS_ENDPOINT": "http://127.0.0.1:9211/mcp" }
-    },
-    {
-      // OL-10 桌面端「OpenLaw 语料台」。必须带 wails 构建标签——无标签会链入
-      // stub（日志打「will not build without the correct build tags」且无窗口）。
-      // devtools 标签开右键 Inspect Element，便于排查前端；断点直接打在
-      // desktop/ 与 store/ ingest/ validate/ 上（同包同进程，全部可命中）。
-      "name": "桌面端: openlaw-desktop（语料台 + webview devtools）",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/desktop",
-      "buildFlags": ["-tags", "desktop,production,devtools"],
-      "cwd": "${workspaceFolder}",
-      "args": ["-data", "data"]
-    },
-    {
-      // 与发布形态完全一致（README/CI 验证的构建命令同款标签），复现打包行为用它。
-      "name": "桌面端: openlaw-desktop（production 形态）",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/desktop",
-      "buildFlags": ["-tags", "desktop,production"],
-      "cwd": "${workspaceFolder}",
-      "args": ["-data", "data"]
-    },
-    {
-      "name": "调试当前文件所在命令",
+      "name": "通用: 调试当前文件所在命令",
       "type": "go",
       "request": "launch",
       "mode": "auto",
@@ -121,7 +97,7 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "调试当前包测试（输入 -run 用例名）",
+      "name": "通用: 调试当前包测试（输入 -run 用例名）",
       "type": "go",
       "request": "launch",
       "mode": "test",
@@ -133,10 +109,16 @@
   ],
   "inputs": [
     {
+      "id": "govcnList",
+      "type": "promptString",
+      "description": "gov.cn 清单 list.json（浏览器人工导出）",
+      "default": "data/incoming/govgz/list.json"
+    },
+    {
       "id": "testName",
       "type": "promptString",
-      "description": "测试用例名（正则，如 TestProbeOpen）",
-      "default": "TestProbeOpen"
+      "description": "测试用例名（正则）",
+      "default": ".*"
     }
   ]
 }

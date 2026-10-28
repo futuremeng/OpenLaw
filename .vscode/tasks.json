@@ -2,6 +2,13 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "gates: fmt+build+vet+test（提交前跑这个）",
+      "type": "shell",
+      "command": "gofmt -l . && go build ./... && go build -tags desktop,production -o /dev/null ./desktop && go vet ./... && go test ./... -count=1",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
       "label": "go test: all",
       "type": "shell",
       "command": "go test ./... -count=1",
@@ -9,24 +16,17 @@
       "problemMatcher": []
     },
     {
-      "label": "gates: fmt+build+vet+test",
+      // 发布形态（wails 必须带 desktop,production 标签；cgo 链接指令已在源码内）。
+      "label": "build: openlaw-desktop（production）",
       "type": "shell",
-      "command": "gofmt -l . && go build ./... && go build -tags desktop,production -o /dev/null ./desktop && go vet ./... && go test ./... -count=1",
+      "command": "go build -tags desktop,production -o dist/openlaw-desktop ./desktop",
       "group": "build",
       "problemMatcher": []
     },
     {
-      // 桌面端发布形态构建（wails 必须带 desktop,production 标签；cgo 链接指令已在源码内）。
-      "label": "build: openlaw-desktop",
+      "label": "build: openlaw-desktop（devtools）",
       "type": "shell",
-      "command": "go build -tags desktop,production -o dist/openlaw-desktop ./desktop",
-      "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": []
-    },
-    {
-      "label": "build: openlaw-eu-text",
-      "type": "shell",
-      "command": "go build -o /tmp/openlaw-eu-text ./cmd/openlaw-eu-text",
+      "command": "go build -tags desktop,production,devtools -o dist/openlaw-desktop-devtools ./desktop",
       "group": "build",
       "problemMatcher": []
     }
