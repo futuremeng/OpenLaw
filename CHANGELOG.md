@@ -4,6 +4,22 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **边界纪律进代码（OL-7/OL-8）**：新增 `sdk.OpenReadOnly`（消费方唯一合法入口：
+  `_pragma=query_only(1)`、不跑迁移、不写 meta；不用 `mode=ro`——WAL 只读仍需
+  -shm/-wal 可写）。版本协商：`Open`/`OpenReadOnly` 先只读 `meta.schema_version`，
+  高于 `SchemaMax` 一律拒开且**绝不回写降级**（隐患 H2 根除）；只读入口另设
+  `SchemaMin` 下限（消费方不代跑迁移，指引升级语料）。导出 `SchemaMin/SchemaMax`；
+  `manifest.json` 新增 `producer_version`/`schema_version`（Ed25519 签名覆盖，旧包
+  缺字段按来源未知处理）。错误文案给出两条出路。测试：v99 拒开且标记不动、
+  只读不迁移（v2 语料只读报错、写入路径正常升级）、query_only 挡 INSERT、空库拒开。
+- **桌面客户端首版（OL-10）：`desktop/`「OpenLaw 语料台」**（Wails v2.17.0 对齐
+  OpenCourt；仅此壳需 CGO，核心库仍纯 Go；内置 `-framework UniformTypeIdentifiers`
+  补齐 wails v2.17 darwin 生产构建链接缺口，构建标签 `desktop,production` 已写入
+  源码注释）。面板：语料状态（计数/效力分布/schema/producer_version/许可）+
+  人工确认闸口 UI（pending 队列/过滤、留证正文与 review_log 对照、确认/驳回/重置
+  必须署名+依据，落判复用 `ingest.Confirmer.Apply` 同一审计路径，不新增写路径）。
+  5250 条 pending 的确认瓶颈从 CSV 流转升级为界面流转。
+
 - **浏览器能力内聚（OL-9）：清单采集通道落位本仓库**。新增 `browser` 包：自实现
   最小 MCP Streamable HTTP 客户端（initialize/tools/list/tools/call，SSE 帧与
   会话头处理；**端点回环硬校验**——非 127.0.0.1/localhost/::1 直接拒绝）+

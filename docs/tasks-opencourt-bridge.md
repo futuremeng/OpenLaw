@@ -13,8 +13,8 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 
 | # | 任务 | 优先级 | 阻塞什么 |
 |---|---|---|---|
-| OL-7 | sdk 只读入口 `OpenReadOnly` | **P0** | 一并安装时的数据完整性（隐患 H1） |
-| OL-8 | schema 版本协商（不匹配即拒） | **P0** | schema 版本被消费方回写降级（隐患 H2） |
+| OL-7 | sdk 只读入口 `OpenReadOnly` | **P0**（✅ 2026-10-28 完成） | 一并安装时的数据完整性（隐患 H1） |
+| OL-8 | schema 版本协商（不匹配即拒） | **P0**（✅ 2026-10-28 完成） | schema 版本被消费方回写降级（隐患 H2） |
 | OL-2 | 构成要件导入 CLI（`openlaw-element`） | **P0** | OpenCourt v0.2 M4 全部（`element` 表当前 **0 行**） |
 | OL-1 | 显式 `effect_status` 字段 | **P0** | OpenCourt 停止自行推导法条效力（违例 V1） |
 | OL-3 | 要件名封闭候选集查询 | P1 | OpenCourt 阅卷抽取的要件归属（违例 V3） |
@@ -22,7 +22,7 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 | OL-5 | 程序期限规则查询（带法条引用） | P2 | OpenCourt 程序守护的规则溯源（违例 V4，v0.3） |
 | OL-6 | sdk 接口稳定性承诺 | 持续 | OpenCourt 进程内 import 是编译期耦合 |
 | OL-9 | 清单采集通道内聚本仓库（browser 包 + `openlaw-govlist`） | **P0**（✅ 2026-10-28 完成） | 独立分发时清单层曾依赖 OpenCourt（违例 V5） |
-| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1 | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
+| OL-10 | 本仓库桌面客户端（Wails v2，对齐 OpenCourt 技术栈；语料状态/确认闸口 UI/采集任务面板） | P1（🚧 2026-10-28 首版：状态面板 + 确认闸口 UI 已可用；采集/pack 视图待建） | 「自带管理界面与客户端」的边界前提（integration-model.md §1）当前只有 CLI |
 
 > 边界前提（OpenCourt `docs/integration-model.md`）：**代码各自分发，语料只有一份；
 > 谁生产语料谁独占写权，消费方一律只读。** OL-7/OL-8 就是把这条纪律写进本仓库的
@@ -31,6 +31,9 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 ---
 
 ## OL-7 sdk 只读入口（P0）
+
+> ✅ 2026-10-28 已实现：`store.OpenReadOnly` + `sdk.OpenReadOnly`（query_only、不
+> 迁移、版本协商见 OL-8）；验收单测见 `store/version_test.go`；契约写入 docs/api.md §1。
 
 **现状**：`store.Open()` 的 DSN 是
 `file:...?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)`
@@ -54,6 +57,10 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 单测覆盖「只读入口不跑迁移」。
 
 ## OL-8 schema 版本协商（P0）
+
+> ✅ 2026-10-28 已实现：`SchemaMin/SchemaMax` 导出、两入口先读后判、超上限拒开且
+> 不回写、manifest +producer_version/schema_version（签名覆盖）；验收见
+> `store/version_test.go`（v99 标记保持不变）。
 
 **现状**：`migrate()` 末尾执行
 
@@ -205,6 +212,21 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   确认闸口 UI（原文留证对照 + 逐条/批量判定 + review_log）、采集/抓取任务面板
   （含 openlaw-govlist / openlaw-govcn 进度与报告）、pack/check 运维视图。
 - 浏览器能力复用 OL-9 的 `browser` 包；确认闸口与采集面板都不得绕过 pending 纪律。
+
+**首版落地（2026-10-28）**：`desktop/`（Wails v2.17.0，与 OpenCourt 同版本）。
+
+- 面板一「语料状态」：计数（法规/版本/条文/文档/三态/govcn/govlocal）、按效力等级
+  分布、schema_version 与支持范围、manifest 的 producer_version/许可/生成时间。
+- 面板二「人工确认」：pending 队列分页 + 过滤；点选看留证正文（file_path 只读）与
+  review_log 审计历史；确认/驳回/重置——署名与依据必填，落判复用
+  `ingest.Confirmer.Apply` 的 CSV 语义与事务审计，UI 不另开写路径（pending 纪律
+  在代码层而非仅文案）。
+- 写入路径 = `store.Open`（桌面端是生产者 UI）；消费方仍必须走 `sdk.OpenReadOnly`。
+- 构建：`go build -tags desktop,production -o dist/openlaw-desktop ./desktop`；
+  桌面壳需 CGO（webview），已内置 `-framework UniformTypeIdentifiers` 链接指令
+  （wails v2.17 darwin 生产构建缺该链接）；核心库保持纯 Go。
+- 待建：采集/抓取任务面板（govlist/govcn 进度与报告）、pack/check 运维视图、
+  可选回环 serve（per-run token）。
 
 ---
 

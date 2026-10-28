@@ -9,6 +9,16 @@ law, err := sdk.New("./data") // data 目录：db/ pdf/ md/ provenance/ manifest
 defer law.Close()
 ```
 
+**上层应用（OpenCourt 等消费方）必须用只读入口**——`sdk.New` 是写入路径（会跑
+schema 迁移链），用它打开他人语料属于越权（边界纪律：谁生产语料谁独占写权）：
+
+```go
+law, err := sdk.OpenReadOnly("./data") // query_only、不迁移、不写 meta
+```
+
+只读入口对 `meta.schema_version` 做版本协商：不在 `[sdk.SchemaMin, sdk.SchemaMax]`
+范围内直接报错（错误文案给出两条出路：升级应用 / 换兼容语料包）。
+
 ## 2. 通用返回结构
 
 ```go

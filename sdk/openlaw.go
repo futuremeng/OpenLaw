@@ -22,6 +22,9 @@ type OpenLaw struct {
 }
 
 // New 打开数据目录（包含 db/、pdf/、md/、provenance/、manifest/）。
+// 这是**写入路径**（本仓库自己的 ingest / confirm / pack import / check 用）：
+// 会执行 schema 迁移链。上层应用（OpenCourt 等消费方）必须用 OpenReadOnly——
+// 用 New 打开他人语料属于越权（docs/tasks-opencourt-bridge.md OL-7）。
 func New(dataDir string) (*OpenLaw, error) {
 	if _, err := os.Stat(dataDir); err != nil {
 		return nil, fmt.Errorf("数据目录不存在: %s", dataDir)
@@ -33,6 +36,27 @@ func New(dataDir string) (*OpenLaw, error) {
 	}
 	return &OpenLaw{dataDir: dataDir, db: db}, nil
 }
+
+// OpenReadOnly 只读打开语料（OL-7，消费方唯一合法入口）：
+// query_only pragma、不跑迁移、不写 meta；schema 不在
+// [SchemaMin, SchemaMax] 内直接报错（fail-closed，错误文案给出两条出路）。
+func OpenReadOnly(dataDir string) (*OpenLaw, error) {
+	if _, err := os.Stat(dataDir); err != nil {
+		return nil, fmt.Errorf("数据目录不存在: %s", dataDir)
+	}
+	dbPath := filepath.Join(dataDir, "db", "openlaw.db")
+	db, err := store.OpenReadOnly(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return &OpenLaw{dataDir: dataDir, db: db}, nil
+}
+
+// SchemaMin / SchemaMax 本 SDK 的 schema 支持范围（消费方版本协商用，OL-8）。
+const (
+	SchemaMin = store.SchemaMin
+	SchemaMax = store.SchemaMax
+)
 
 // Close 关闭数据库。
 func (o *OpenLaw) Close() error { return o.db.Close() }

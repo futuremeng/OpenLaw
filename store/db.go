@@ -18,6 +18,21 @@ import (
 // 新表 review_log（人工确认审计）与新索引经 schemaSQL IF NOT EXISTS 自动补齐，无需结构迁移。
 const SchemaVersion = "3"
 
+// OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
+//   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、
+//     不部分读、绝不把 meta.schema_version 回写降级——那是数据完整性事故）；
+//   - SchemaMin：只读入口可接受的最低 schema（消费方遇到更低版本 → 指引其用
+//     OpenLaw 升级语料，消费方不得代跑迁移）；
+//   - 写入入口（Open）可接受任何 ≤ SchemaMax 的旧版本并执行迁移链（v1→v2→v3）。
+const (
+	SchemaMax = SchemaVersion
+	SchemaMin = "3"
+)
+
+// VersionGuidance schema 不匹配时统一给出的两条出路（升级消费方应用 / 换兼容
+// 语料包；生产者侧则升级 OpenLaw），错误文案必须可行动。
+const VersionGuidance = "两条出路：① 升级本应用至支持该 schema 的版本；② 使用 OpenLaw 生成的兼容语料包（openlaw-pack build）。生产者请用新版 OpenLaw CLI 升级语料。"
+
 // DB OpenLaw 数据库句柄，内嵌 *sql.DB 供上层在事务内复用。
 type DB struct {
 	*sql.DB
@@ -25,6 +40,8 @@ type DB struct {
 
 // Open 打开（或创建）数据目录下的 SQLite 库并完成幂等模式迁移。
 // 建议路径：<dataDir>/db/openlaw.db。
+// OL-8：迁移前先读 meta.schema_version——高于 SchemaMax 直接报错（不迁移、
+// 不回写标记）；范围内旧版本走迁移链升级。
 func Open(path string) (*DB, error) {
 	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", path)
 	sqlDB, err := sql.Open("sqlite", dsn)
@@ -33,11 +50,69 @@ func Open(path string) (*DB, error) {
 	}
 	// SQLite 单写者；限制连接数避免导入事务与查询互锁导致 busy 超时误报。
 	sqlDB.SetMaxOpenConns(1)
+	ver, err := readSchemaVersion(sqlDB)
+	if err != nil {
+		sqlDB.Close()
+		return nil, err
+	}
+	if ver > SchemaMax {
+		sqlDB.Close()
+		return nil, fmt.Errorf("语料 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不迁移、不回写标记）。%s", ver, SchemaMax, VersionGuidance)
+	}
 	if err := migrate(sqlDB); err != nil {
 		sqlDB.Close()
 		return nil, err
 	}
 	return &DB{sqlDB}, nil
+}
+
+// OpenReadOnly 只读打开（OL-7）：供消费方（如 OpenCourt）使用——
+//   - DSN 追加 _pragma=query_only(1)：按连接生效，与 WAL 兼容（不用 mode=ro，
+//     WAL 库只读打开仍需 -shm/-wal 可写，易失败）；
+//   - 不执行 migrate、不写 meta：消费方绝不修改生产者数据；
+//   - schema_version 不在 [SchemaMin, SchemaMax] 内直接报错（fail-closed）。
+func OpenReadOnly(path string) (*DB, error) {
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=query_only(1)", path)
+	sqlDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("只读打开数据库失败: %w", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	ver, err := readSchemaVersion(sqlDB)
+	if err != nil {
+		sqlDB.Close()
+		return nil, err
+	}
+	switch {
+	case ver == "":
+		sqlDB.Close()
+		return nil, fmt.Errorf("语料无 schema_version 标记（空库或未初始化）——只读入口不代跑迁移。%s", VersionGuidance)
+	case ver > SchemaMax:
+		sqlDB.Close()
+		return nil, fmt.Errorf("语料 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不部分读、不猜）。%s", ver, SchemaMax, VersionGuidance)
+	case ver < SchemaMin:
+		sqlDB.Close()
+		return nil, fmt.Errorf("语料 schema_version=%s 低于本版本只读下限 %s——语料过旧，请用 OpenLaw 升级语料后重试（消费方不代跑迁移）", ver, SchemaMin)
+	}
+	return &DB{sqlDB}, nil
+}
+
+// readSchemaVersion 读取 meta.schema_version（只读查询，绝不写）。
+// meta 表不存在或无该键 → 返回 ""（空库/未初始化/极旧库），由调用方按入口语义处置。
+func readSchemaVersion(db *sql.DB) (string, error) {
+	var ver string
+	err := db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&ver)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		// meta 表尚不存在（全新库/空库文件）不是错误：按未标记处理。
+		if strings.Contains(err.Error(), "no such table") {
+			return "", nil
+		}
+		return "", fmt.Errorf("读取 schema_version 失败: %w", err)
+	}
+	return strings.TrimSpace(ver), nil
 }
 
 // migrate 幂等迁移：先升级旧结构（v1→v2→v3），再执行内嵌 schema（IF NOT EXISTS 补齐）。

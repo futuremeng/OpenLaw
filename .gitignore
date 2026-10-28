@@ -10,9 +10,9 @@ data/**
 *.key
 keys/
 
-# 构建产物
+# 构建产物（仅仓库根；desktop/frontend/dist 是随应用嵌入的前端资产，必须入库）
 bin/
-dist/
+/dist/
 
 # 系统与编辑器
 .DS_Store

@@ -15,10 +15,15 @@ import (
 	"time"
 
 	"github.com/futuremeng/OpenLaw/hashutil"
+	"github.com/futuremeng/OpenLaw/store"
 )
 
 // ToolVersion 打包/签名工具版本，写入 manifest（16.2）。
 const ToolVersion = "openlaw-pack/0.1.0"
+
+// ProducerVersion 产出该语料的 OpenLaw 版本（OL-8：manifest 携带来源，受签名
+// 覆盖；消费方可据此显示来源。旧 manifest 缺该字段按「来源未知」处理而非报错）。
+const ProducerVersion = "openlaw/0.1.0-dev"
 
 // 语料许可默认声明（DATA-LICENSE.md 的机器可读形态；欧盟等来源要求重使用
 // 署名，manifest 随语料包分发即携带授权叙事。pack 更新包沿用同一措辞）。
@@ -46,12 +51,16 @@ type FileEntry struct {
 
 // Manifest 每日汇总：所有 PDF 路径与 SHA-256（4.3 防篡改机制）。
 // License/Attribution 为共享合规声明（v2 起，签名覆盖；空 = 用默认值）。
+// SchemaVersion/ProducerVersion（OL-8，签名覆盖）：语料 schema 与产出者版本；
+// 旧包缺字段时为零值，消费方按「来源未知」显示而非报错。
 type Manifest struct {
-	GeneratedAt string      `json:"generated_at"`
-	ToolVersion string      `json:"tool_version"`
-	License     string      `json:"license,omitempty"`
-	Attribution string      `json:"attribution,omitempty"`
-	Files       []FileEntry `json:"files"`
+	GeneratedAt     string      `json:"generated_at"`
+	ToolVersion     string      `json:"tool_version"`
+	ProducerVersion string      `json:"producer_version,omitempty"`
+	SchemaVersion   string      `json:"schema_version,omitempty"`
+	License         string      `json:"license,omitempty"`
+	Attribution     string      `json:"attribution,omitempty"`
+	Files           []FileEntry `json:"files"`
 }
 
 // ManifestPath 返回数据目录下 manifest 相关路径。
@@ -126,6 +135,7 @@ func BuildManifest(dataDir, keyPath, license, attribution string) error {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 
 	m := Manifest{GeneratedAt: time.Now().UTC().Format(time.RFC3339), ToolVersion: ToolVersion,
+		ProducerVersion: ProducerVersion, SchemaVersion: store.SchemaVersion,
 		License: license, Attribution: attribution, Files: entries}
 	body, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {

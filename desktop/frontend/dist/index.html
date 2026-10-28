@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>OpenLaw 语料台</title>
+<link rel="stylesheet" href="./assets/style.css"/>
+</head>
+<body>
+<header>
+  <h1>OpenLaw 语料台</h1>
+  <nav>
+    <button class="tab active" data-tab="status">语料状态</button>
+    <button class="tab" data-tab="confirm">人工确认</button>
+  </nav>
+  <span id="schema-badge" class="badge"></span>
+</header>
+<main>
+  <section id="tab-status" class="panel">
+    <div id="status-err" class="err"></div>
+    <div id="status-cards" class="cards"></div>
+    <h2>按效力等级（pending / confirmed / rejected）</h2>
+    <table id="level-table"><thead><tr><th>效力等级</th><th>pending</th><th>confirmed</th><th>rejected</th></tr></thead><tbody></tbody></table>
+    <h2>来源与许可</h2>
+    <div id="provenance" class="kv"></div>
+  </section>
+
+  <section id="tab-confirm" class="panel hidden">
+    <div class="toolbar">
+      <input id="filter" placeholder="过滤：doc_id / 法规名 / 来源"/>
+      <button id="btn-load">载入队列</button>
+      <span id="queue-info"></span>
+      <span class="spacer"></span>
+      <input id="reviewer" placeholder="署名 reviewer（必填）"/>
+      <input id="reason" placeholder="依据 reason（必填）"/>
+      <button id="btn-confirm" class="ok">确认 ✓</button>
+      <button id="btn-reject" class="warn">驳回 ✗</button>
+      <button id="btn-reset">重置 pending</button>
+    </div>
+    <div class="split">
+      <div id="queue-list" class="list"></div>
+      <div id="preview" class="preview"><p class="muted">点选左侧条目查看留证正文与审计历史。机器不裁决：确认/驳回必须署名并写明依据。</p></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+<script src="./assets/app.js"></script>
+</body>
+</html>
