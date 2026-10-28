@@ -177,7 +177,7 @@ func TestLoadGovcnList(t *testing.T) {
 	if err := os.WriteFile(p, []byte(bad), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entries, skipped, err := LoadGovcnList(p)
+	entries, skipped, err := LoadGovcnList(p, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestLoadGovcnList(t *testing.T) {
 	if err := os.WriteFile(p, []byte(good), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entries, skipped, err = LoadGovcnList(p)
+	entries, skipped, err = LoadGovcnList(p, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestLoadGovcnListHTTPNormalize(t *testing.T) {
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entries, skipped, err := LoadGovcnList(p)
+	entries, skipped, err := LoadGovcnList(p, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,6 +225,126 @@ func TestLoadGovcnListHTTPNormalize(t *testing.T) {
 	}
 	if len(skipped) != 1 || skipped[0].URL != "http://www.beijing.gov.cn/zhengce/x/doc_1.html" {
 		t.Fatalf("地方政府 http 直链不归一、原样交回: %+v", skipped)
+	}
+}
+
+// TestGovcnHostAllowed 主机策略：生产锁主站；LocalGov 扩展 .gov.cn 域名族；
+// TestHost 只认注入主机。
+func TestGovcnHostAllowed(t *testing.T) {
+	cases := []struct {
+		g    Govcn
+		host string
+		want bool
+	}{
+		{Govcn{}, "www.gov.cn", true},
+		{Govcn{}, "beijing.gov.cn", false},
+		{Govcn{LocalGov: true}, "beijing.gov.cn", true},
+		{Govcn{LocalGov: true}, "sfj.zibo.gov.cn", true},
+		{Govcn{LocalGov: true}, "www.gov.cn", true},
+		{Govcn{LocalGov: true}, "evil.example", false},
+		{Govcn{LocalGov: true}, "gov.cn.evil.example", false},
+		{Govcn{TestHost: "127.0.0.1"}, "127.0.0.1", true},
+		{Govcn{TestHost: "127.0.0.1", LocalGov: true}, "127.0.0.1", true},
+		{Govcn{TestHost: "127.0.0.1", LocalGov: true}, "evil.example", false},
+	}
+	for i, c := range cases {
+		if got := c.g.hostAllowed(c.host); got != c.want {
+			t.Errorf("case %d: hostAllowed(%q)=%v want %v", i, c.host, got, c.want)
+		}
+	}
+	if a, b := govlocalDocID("http://x.gov.cn/a.html"), govlocalDocID("http://x.gov.cn/b.html"); a == b || !strings.HasPrefix(a, "govlocal_") {
+		t.Errorf("govlocalDocID 应稳定且按 URL 区分: %s %s", a, b)
+	}
+}
+
+// TestLoadGovcnListLocal allowLocal=true：地方政府直链计入可抓取（doc_id 形态
+// 由抓取层派生）；非 gov.cn 噪声照样 skipped。allowLocal=false 维持交回。
+func TestLoadGovcnListLocal(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "list.json")
+	body := `[
+{"title":"甲办法","url":"https://www.gov.cn/zhengce/zhengceku/202610/content_1.htm","cat":"部门规章"},
+{"title":"乙规定","url":"http://www.beijing.gov.cn/zhengce/x/doc_1.html","cat":"地方政府规章","puborg":"北京市人民政府"},
+{"title":"丙噪声","url":"https://evil.example/zhengce/a/content_2.htm"}
+]`
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries, skipped, err := LoadGovcnList(p, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || len(skipped) != 1 {
+		t.Fatalf("allowLocal 应放行地方政府直链、拒噪声: entries=%d skipped=%d", len(entries), len(skipped))
+	}
+	if skipped[0].URL != "https://evil.example/zhengce/a/content_2.htm" {
+		t.Errorf("噪声应如实交回: %+v", skipped)
+	}
+	entries, skipped, err = LoadGovcnList(p, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || len(skipped) != 2 {
+		t.Fatalf("未开 local 时维持原语义: entries=%d skipped=%d", len(entries), len(skipped))
+	}
+}
+
+// TestGovlocalImport 地方政府子域通道端到端（httptest 回环 + TestHost 注入）：
+// 非 content_ 形态路径 → doc_id=govlocal_<hash>，留证独立 incoming/govlocal/，
+// effect_level/issuer 按清单分类与发布机关。
+func TestGovlocalImport(t *testing.T) {
+	srv := newGovcnServer(t, "User-agent: *\nAllow: /\n")
+	defer srv.Close()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	g := &Govcn{DataDir: dir, DB: db, MinInterval: time.Millisecond, TestHost: "127.0.0.1", Kind: "gzk", LocalGov: true}
+	im := &Importer{DataDir: dir, DB: db}
+
+	it := g.FetchAndImport(context.Background(), im, GovcnEntry{
+		Title:  "上海市噪声污染防治办法",
+		Cat:    "地方政府规章",
+		PubOrg: "上海市人民政府",
+		URL:    srv.URL + "/zhengce/zhengceku/202610/content_7084280.htm", // TestHost 下走 content_ 主形态
+	})
+	if it.Status != "ok_inferred" {
+		t.Fatalf("主形态经 TestHost 应正常: %s (%s)", it.Status, it.Reason)
+	}
+
+	// 非 content_ 形态（地方政府站常见 doc_ 形态）→ govlocal_ doc_id
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			_, _ = w.Write([]byte("User-agent: *\nAllow: /\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(govcnDetailFixture))
+	}))
+	defer srv2.Close()
+	it2 := g.FetchAndImport(context.Background(), im, GovcnEntry{
+		Title:  "上海市建筑垃圾管理规定", // 与上一条不同法——避免版本链真冲突（同一 fixture 正文）
+		Cat:    "地方政府规章",
+		PubOrg: "上海市人民政府",
+		URL:    srv2.URL + "/zwgk/doc_61adfdc3.html",
+	})
+	if it2.Status != "ok_inferred" || !strings.HasPrefix(it2.DocID, "govlocal_") {
+		t.Fatalf("govlocal 通道失败: %+v", it2)
+	}
+	var level, issuer, srcType string
+	if err := db.QueryRow(`SELECT l.effect_level, l.issuer, d.source_type FROM law l JOIN law_version v ON v.law_id=l.law_id JOIN document d ON d.doc_id=v.doc_id WHERE d.doc_id=?`, it2.DocID).Scan(&level, &issuer, &srcType); err != nil {
+		t.Fatal(err)
+	}
+	if level != "地方政府规章" || issuer != "上海市人民政府" {
+		t.Errorf("effect_level/issuer 错误: %s %s", level, issuer)
+	}
+	if !strings.Contains(srcType, "地方政府官网") {
+		t.Errorf("source_type 应标注地方政府官网: %s", srcType)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "incoming", "govlocal", it2.DocID+".html")); err != nil {
+		t.Errorf("留证应在 incoming/govlocal/: %v", err)
 	}
 }
 

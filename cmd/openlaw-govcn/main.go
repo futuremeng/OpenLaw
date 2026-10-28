@@ -33,6 +33,7 @@ func main() {
 		delay   = flag.Duration("delay", 2*time.Second, "详情页抓取间隔（礼貌限速，勿低于 2s）")
 		limit   = flag.Int("limit", 0, "最多处理条数（0=全部；分批跑防压力）")
 		dryRun  = flag.Bool("dry-run", false, "只抓取与解析（留证 HTML/md），不入库")
+		local   = flag.Bool("local", false, "地方政府子域通道：放行清单中 *.gov.cn 地方政府直链抓取（每站 robots 强制、留证 incoming/govlocal/）")
 	)
 	flag.Parse()
 
@@ -49,7 +50,7 @@ func main() {
 	if *delay < 2*time.Second {
 		fatal(fmt.Errorf("-delay 不得低于 2s（礼貌限速纪律）"))
 	}
-	entries, badURLs, err := ingest.LoadGovcnList(*listP)
+	entries, badURLs, err := ingest.LoadGovcnList(*listP, *local)
 	if err != nil {
 		fatal(err)
 	}
@@ -66,7 +67,7 @@ func main() {
 	}
 	defer db.Close()
 
-	g := &ingest.Govcn{DataDir: *dataDir, DB: db, MinInterval: *delay, DryRun: *dryRun, Kind: *source}
+	g := &ingest.Govcn{DataDir: *dataDir, DB: db, MinInterval: *delay, DryRun: *dryRun, Kind: *source, LocalGov: *local}
 	im := &ingest.Importer{DataDir: *dataDir, DB: db}
 
 	rp := *report

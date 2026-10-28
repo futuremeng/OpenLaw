@@ -47,6 +47,7 @@ type Govcn struct {
 	DryRun      bool          // 只抓取与解析（含留证），不入库——人工预览用
 	Kind        string        // "" = xzfgk 行政法规库；"gzk" = 国家规章库
 	TestHost    string        // 仅测试注入（httptest 回环）；生产留空 = GovcnHost
+	LocalGov    bool          // 地方政府子域通道：清单直链指向 *.gov.cn 地方政府网站时放行（每站 robots 强制、留证 incoming/govlocal/、doc_id=govlocal_<url_hash>）
 	robots      *RobotsCache
 	lastGet     time.Time
 }
@@ -98,10 +99,11 @@ func GovcnDocID(rawURL string) (string, error) {
 
 // LoadGovcnList 读取人工导出的 list.json（数组），校验 URL 形态并按 URL 去重。
 // 返回 (可抓取条目, 不符合本通道详情页形态的条目, error)——不合规条目不整单
-// 拒绝而是如实交回（导入报告记 skip_bad_url 转人工；如 gzk 混合清单中的
-// 地方政府直链，是否抓取由通道主机策略决定，清单层不擅自丢弃）。
+// 拒绝而是如实交回（导入报告记 skip_bad_url 转人工；清单层不擅自丢弃）。
+// allowLocal=true 时地方政府规章直链（*.gov.cn 子域 + .htm/.html/.shtml）计入
+// 可抓取（LocalGov 子域通道，每站 robots 强制）；false 时如实交回。
 // 清单是人工浏览的产物——本函数绝不联网「补全」清单（sousuo 域 robots 禁止自动化）。
-func LoadGovcnList(path string) ([]GovcnEntry, []GovcnEntry, error) {
+func LoadGovcnList(path string, allowLocal bool) ([]GovcnEntry, []GovcnEntry, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("读取清单失败: %w", err)
@@ -128,11 +130,15 @@ func LoadGovcnList(path string) ([]GovcnEntry, []GovcnEntry, error) {
 			continue
 		}
 		seen[e.URL] = true
-		if _, err := GovcnDocID(e.URL); err != nil {
-			skipped = append(skipped, e)
+		if _, err := GovcnDocID(e.URL); err == nil {
+			out = append(out, e)
 			continue
 		}
-		out = append(out, e)
+		if allowLocal && govlocalListURLOK(e.URL) {
+			out = append(out, e) // 地方政府子域通道（LocalGov）可抓取
+			continue
+		}
+		skipped = append(skipped, e)
 	}
 	if len(out) == 0 && len(skipped) == 0 {
 		return nil, nil, fmt.Errorf("清单为空或无有效条目")
@@ -146,6 +152,50 @@ func (g *Govcn) host() string {
 		return g.TestHost
 	}
 	return GovcnHost
+}
+
+// hostAllowed 主机策略：生产锁 www.gov.cn；LocalGov 开启后扩展至 .gov.cn
+// 域名族（国家规章库混合清单的地方政府规章直链指向地方政府官网——同为
+// 官方发布渠道，每站 robots.txt 独立强制、fail-closed，限速与留证纪律不变）。
+func (g *Govcn) hostAllowed(hostname string) bool {
+	if g.TestHost != "" {
+		return hostname == g.TestHost
+	}
+	if hostname == GovcnHost {
+		return true
+	}
+	return g.LocalGov && strings.HasSuffix(strings.ToLower(hostname), ".gov.cn")
+}
+
+// govlocalPathRe 地方政府详情页路径形态：.htm/.html/.shtml（站点 CMS 多样，
+// 清单层已硬校验 .gov.cn 族 + 该后缀；抓取层复查）。
+var govlocalPathRe = regexp.MustCompile(`\.s?html?$`)
+
+// govlocalDocID 地方政府详情页 URL 形态多样（无 content_id 可用）→ doc_id 由
+// 完整 URL sha256 派生（幂等续跑；http/https 两形态在清单层各自如实保留）。
+func govlocalDocID(rawURL string) string {
+	sum := sha256.Sum256([]byte(rawURL))
+	return fmt.Sprintf("govlocal_%x", sum[:6])
+}
+
+// govlocalListURLOK 清单层地方政府直链形态：http/https + 主机为 .gov.cn 子域
+// （非主站）+ 路径 .htm/.html/.shtml。
+func govlocalListURLOK(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	return strings.HasSuffix(h, ".gov.cn") && h != GovcnHost && govlocalPathRe.MatchString(u.Path)
+}
+
+// subdirFor 留证子目录：主站两库按 Kind（govcn/govgz）；地方政府子域独立
+// govlocal（互不污染，审计边界清晰）。
+func (g *Govcn) subdirFor(docID string) string {
+	if strings.HasPrefix(docID, "govlocal_") {
+		return "govlocal"
+	}
+	return g.subdir()
 }
 
 func (g *Govcn) robotsCache() *RobotsCache {
@@ -170,7 +220,7 @@ func (g *Govcn) fetchPage(ctx context.Context, rawURL, docID string) (path strin
 	if g.MinInterval == 0 {
 		g.MinInterval = 2 * time.Second
 	}
-	dir := filepath.Join(g.DataDir, "incoming", g.subdir())
+	dir := filepath.Join(g.DataDir, "incoming", g.subdirFor(docID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", false, err
 	}
@@ -197,8 +247,8 @@ func (g *Govcn) fetchPage(ctx context.Context, rawURL, docID string) (path strin
 		if len(via) >= 4 {
 			return fmt.Errorf("重定向次数过多")
 		}
-		if req.URL.Hostname() != g.host() {
-			return fmt.Errorf("重定向离开 %s，拒绝: %s", g.host(), req.URL.Host)
+		if !g.hostAllowed(req.URL.Hostname()) {
+			return fmt.Errorf("重定向离开允许主机（%s），拒绝: %s", g.host(), req.URL.Host)
 		}
 		return nil
 	}}
@@ -239,7 +289,7 @@ func (g *Govcn) fetchPage(ctx context.Context, rawURL, docID string) (path strin
 		os.Remove(tmp)
 		return "", false, err
 	}
-	g.logFetch(rawURL, docID, "success", "原始 HTML 已留证 incoming/"+g.subdir()+"/", int64(len(body)), resp.Header.Get("Content-Type"))
+	g.logFetch(rawURL, docID, "success", "原始 HTML 已留证 incoming/"+g.subdirFor(docID)+"/", int64(len(body)), resp.Header.Get("Content-Type"))
 	return dst, false, nil
 }
 
@@ -256,8 +306,12 @@ func (g *Govcn) logFetch(rawURL, docID, result, reason string, size int64, ctype
 
 // ---- 详情页解析（TRS CMS 正文容器 → Markdown）----
 
-// trsContentRe 正文容器起始标签（gov.cn 政策详情页 TRS_UEDITOR 惯例，2026-10 实查）。
-var trsContentRe = regexp.MustCompile(`(?i)<div\b[^>]*class="[^"]*(?:trs_editor_view|TRS_UEDITOR|pages_content)[^"]*"[^>]*>`)
+// trsContentRe 正文容器起始标签（gov.cn 政策详情页 TRS_UEDITOR 惯例，2026-10
+// 实查；地方政府子域站点 2026-10-27 真机实查扩展：zfxxgk_content 政务公开
+// 模板、wz_content/gzkwz_con 规章库模板——gzkwz_con 用精确 class 匹配防误配
+// 外层 gzkwz_container，RE2 无负向前瞻故拆独立备选）。解析不出仍如实 failed
+// 转人工，绝不硬凑。
+var trsContentRe = regexp.MustCompile(`(?i)<div\b[^>]*class="[^"]*(?:trs_editor_view|TRS_UEDITOR|pages_content|zfxxgk_content|wz_content)[^"]*"[^>]*>|<div\b[^>]*class="gzkwz_con"[^>]*>`)
 
 // divTagRe 深度扫描用（嵌套 div 计数找容器闭合）。
 var divTagRe = regexp.MustCompile(`(?i)<div\b[^>]*>|</div\s*>`)
@@ -422,19 +476,24 @@ func mustAtoi(s string) int {
 // 已入库（doc_id 在库）跳过联网与导入（幂等续跑）。
 func (g *Govcn) FetchAndImport(ctx context.Context, im *Importer, e GovcnEntry) GovcnItem {
 	it := GovcnItem{URL: e.URL}
-	// 抓取层校验：主机锁（TestHost 仅测试注入）+ 详情页路径形态。
-	// 清单层 LoadGovcnList 另强制生产形态 https://www.gov.cn/…。
+	// 抓取层校验：主机策略（TestHost 仅测试注入）+ 详情页路径形态。
+	// 主站：content_<id>.htm 形态 → doc_id=govcn_<content_id>（站点全局唯一）。
+	// 地方政府直链（LocalGov）：主机 .gov.cn 族 + 路径 .htm(l)/.shtml →
+	// doc_id=govlocal_<url_hash>（形态多样无 content_id 可用）。
 	u, err := url.Parse(e.URL)
 	if err != nil {
 		it.Status, it.Reason = "failed", fmt.Sprintf("URL 非法: %v", err)
 		return it
 	}
-	m := govcnContentIDRe.FindStringSubmatch(u.Path)
-	if u.Hostname() != g.host() || m == nil {
-		it.Status, it.Reason = "failed", fmt.Sprintf("URL 主机须为 %s 且路径为 /…/content_<id>.htm: %s", g.host(), e.URL)
+	var docID string
+	if m := govcnContentIDRe.FindStringSubmatch(u.Path); m != nil && u.Hostname() == g.host() {
+		docID = "govcn_" + m[1]
+	} else if u.Hostname() != GovcnHost && g.hostAllowed(u.Hostname()) && govlocalPathRe.MatchString(u.Path) {
+		docID = govlocalDocID(e.URL)
+	} else {
+		it.Status, it.Reason = "failed", fmt.Sprintf("URL 主机须为 %s（或 LocalGov 的 .gov.cn 子域）且路径为详情页形态: %s", g.host(), e.URL)
 		return it
 	}
-	docID := "govcn_" + m[1]
 	it.DocID = docID
 
 	var n int
@@ -510,6 +569,9 @@ func (g *Govcn) FetchAndImport(ctx context.Context, im *Importer, e GovcnEntry) 
 			return it
 		}
 		effectLevel, issuer, sourceType = lv, iss, "gov.cn 国家规章库（官方详情页抓取）"
+		if strings.HasPrefix(docID, "govlocal_") {
+			sourceType = "gov.cn 地方政府官网（规章库清单直链详情页抓取）"
+		}
 	}
 
 	res, err := im.Import(Request{
