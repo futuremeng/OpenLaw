@@ -21,7 +21,10 @@ func newTestApp(t *testing.T) *App {
 		 VALUES('govcn_x1','x1.md','md/govcn_x1.md',10,'aa','2026-10-01T00:00:00Z','gov.cn 国家规章库','2003-04-27','pending')`,
 		`INSERT INTO document(doc_id,file_name,file_path,file_size,sha256,hash_computed_at,source_type,confirm_status)
 		 VALUES('flk_y1','y1.pdf','pdf/flk_y1.pdf',10,'bb','2026-10-01T00:00:00Z','flk','confirmed')`,
+		`INSERT INTO document(doc_id,file_name,file_path,file_size,sha256,hash_computed_at,source_type,publish_date,confirm_status)
+		 VALUES('govcn_x0','x0.md','md/govcn_x0.md',10,'cc','2026-10-01T00:00:00Z','gov.cn 国家行政法规库','1996-04-12','confirmed')`,
 		`INSERT INTO law_version(version_id,law_id,version_no,effective_date,doc_id) VALUES('V1','L1','现行','2004-01-01','govcn_x1')`,
+		`INSERT INTO law_version(version_id,law_id,version_no,effective_date,expire_date,doc_id) VALUES('V0','L1','1996 原文','1996-01-01','2004-01-01','govcn_x0')`,
 		`INSERT INTO article(article_id,version_id,article_no,content,md_path,doc_id,parser_version)
 		 VALUES('A1','V1','第一条','工伤保险条例第一条 为了保障工伤职工,制定本条例','md/govcn_x1.md','govcn_x1','t1')`,
 		`INSERT INTO review_log(doc_id,action,from_status,to_status,reviewer,reason,created_at)
@@ -78,7 +81,7 @@ func TestQueueStatsAndBulkPreview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Pending != 1 || st.Confirmed != 1 || st.Risk.InferredDate != 1 {
+	if st.Pending != 1 || st.Confirmed != 2 || st.Risk.InferredDate != 1 {
 		t.Errorf("统计错: %+v", st)
 	}
 	n, err := a.BulkPreview("gov.cn%", "", "confirm")

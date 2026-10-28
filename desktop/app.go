@@ -84,24 +84,25 @@ type LevelCount struct {
 }
 
 type StatusView struct {
-	DataDir         string       `json:"data_dir"`
-	OpenErr         string       `json:"open_err,omitempty"`
-	SchemaVersion   string       `json:"schema_version"`
-	SchemaMin       string       `json:"schema_min"`
-	SchemaMax       string       `json:"schema_max"`
-	ProducerVersion string       `json:"producer_version"`
-	License         string       `json:"license,omitempty"`
-	ManifestAt      string       `json:"manifest_at,omitempty"`
-	Laws            int          `json:"laws"`
-	Versions        int          `json:"versions"`
-	Articles        int          `json:"articles"`
-	Documents       int          `json:"documents"`
-	Pending         int          `json:"pending"`
-	Confirmed       int          `json:"confirmed"`
-	Rejected        int          `json:"rejected"`
-	Govcn           int          `json:"govcn"`
-	Govlocal        int          `json:"govlocal"`
-	ByLevel         []LevelCount `json:"by_level"`
+	DataDir         string            `json:"data_dir"`
+	OpenErr         string            `json:"open_err,omitempty"`
+	SchemaVersion   string            `json:"schema_version"`
+	SchemaMin       string            `json:"schema_min"`
+	SchemaMax       string            `json:"schema_max"`
+	ProducerVersion string            `json:"producer_version"`
+	License         string            `json:"license,omitempty"`
+	ManifestAt      string            `json:"manifest_at,omitempty"`
+	Laws            int               `json:"laws"`
+	Versions        int               `json:"versions"`
+	Articles        int               `json:"articles"`
+	Documents       int               `json:"documents"`
+	Pending         int               `json:"pending"`
+	Confirmed       int               `json:"confirmed"`
+	Rejected        int               `json:"rejected"`
+	Govcn           int               `json:"govcn"`
+	Govlocal        int               `json:"govlocal"`
+	ByLevel         []LevelCount      `json:"by_level"`
+	LastFetch       map[string]string `json:"last_fetch,omitempty"` // 各渠道最近抓取报告时间（数据源状态卡）
 }
 
 func (a *App) count(q string, args ...any) int {
@@ -154,6 +155,13 @@ func (a *App) Status() (StatusView, error) {
 		v.ManifestAt = m.GeneratedAt
 	} else {
 		v.ProducerVersion = "无 manifest（尚未 openlaw-pack build / check）"
+	}
+	// 各官方渠道最近抓取时间（数据源状态卡；来自 incoming/ 报告文件 mtime）。
+	v.LastFetch = map[string]string{}
+	for _, r := range ScanReports(a.dataDir, 1) {
+		if cur, ok := v.LastFetch[r.Source]; !ok || r.ModifiedAt > cur {
+			v.LastFetch[r.Source] = r.ModifiedAt
+		}
 	}
 	return v, nil
 }
@@ -221,6 +229,14 @@ type PreviewView struct {
 	Truncated  bool     `json:"truncated"`
 	Missing    string   `json:"missing,omitempty"`
 	ReviewLog  []string `json:"review_log"`
+	// 面向律师的法规要素（文档所挂法规与版本；未挂接则为空）。
+	LawID     string `json:"law_id,omitempty"`
+	LawName   string `json:"law_name,omitempty"`
+	Issuer    string `json:"issuer,omitempty"`
+	Level     string `json:"level,omitempty"`
+	VersionNo string `json:"version_no,omitempty"`
+	Effective string `json:"effective_date,omitempty"`
+	Expire    string `json:"expire_date,omitempty"`
 }
 
 // Preview 文档留证正文（file_path 指向的 md/txt，只读展示）+ 审计历史。
@@ -237,6 +253,10 @@ func (a *App) Preview(docID string) (PreviewView, error) {
 	} else if err != nil {
 		return p, err
 	}
+	_ = a.db.QueryRow(`SELECT l.law_id, l.name, COALESCE(l.issuer,''), COALESCE(l.effect_level,''),
+		COALESCE(v.version_no,''), v.effective_date, COALESCE(v.expire_date,'')
+		FROM law_version v LEFT JOIN law l ON l.law_id=v.law_id WHERE v.doc_id=? LIMIT 1`, docID).
+		Scan(&p.LawID, &p.LawName, &p.Issuer, &p.Level, &p.VersionNo, &p.Effective, &p.Expire)
 	if b, err := os.ReadFile(filepath.Join(a.dataDir, filepath.FromSlash(p.FilePath))); err == nil {
 		s := string(b)
 		if len(s) > 60000 {
@@ -275,7 +295,7 @@ func (a *App) Judge(docIDs []string, verdict, reviewer, reason string) (*ingest.
 		return nil, errors.New(a.openErr)
 	}
 	if len(docIDs) == 0 {
-		return nil, errors.New("未选择文档")
+		return nil, errors.New("请先选择要复核的条目")
 	}
 	switch verdict {
 	case "confirm", "reject", "reset":
@@ -283,7 +303,7 @@ func (a *App) Judge(docIDs []string, verdict, reviewer, reason string) (*ingest.
 		return nil, fmt.Errorf("verdict 只能为 confirm/reject/reset: %q", verdict)
 	}
 	if strings.TrimSpace(reviewer) == "" || strings.TrimSpace(reason) == "" {
-		return nil, errors.New("机器不裁决：落判必须署名（reviewer）并写明依据（reason）")
+		return nil, errors.New("复核须由人工完成：请填写复核人与结论依据")
 	}
 	tmp, err := os.CreateTemp("", "openlaw-judge-*.csv")
 	if err != nil {
@@ -384,6 +404,11 @@ type SearchRow struct {
 	LawName   string `json:"law_name"`
 	Level     string `json:"level"`
 	VersionNo string `json:"version_no"`
+	// 信任层要素：复核状态与时效（公众/律师都需要）。
+	Status    string `json:"confirm_status"`
+	Publish   string `json:"publish_date"`
+	Effective string `json:"effective_date"`
+	Expire    string `json:"expire_date"`
 }
 
 // SearchArticles FTS5 条文检索 + 法规名/效力等级补全（原样透出，无重排——
@@ -399,9 +424,11 @@ func (a *App) SearchArticles(query string, topK int) ([]SearchRow, error) {
 	var out []SearchRow
 	for _, h := range hits {
 		r := SearchRow{ArticleID: h.ArticleID, ArticleNo: h.ArticleNo, Snippet: h.Snippet, DocID: h.DocID}
-		err := a.db.QueryRow(`SELECT COALESCE(l.name,''), COALESCE(l.effect_level,'（未标注）'), COALESCE(v.version_no,'')
-			FROM law_version v LEFT JOIN law l ON l.law_id=v.law_id WHERE v.doc_id=? LIMIT 1`, h.DocID).
-			Scan(&r.LawName, &r.Level, &r.VersionNo)
+		err := a.db.QueryRow(`SELECT COALESCE(l.name,''), COALESCE(l.effect_level,'（未标注）'), COALESCE(v.version_no,''),
+			d.confirm_status, COALESCE(d.publish_date,''), v.effective_date, COALESCE(v.expire_date,'')
+			FROM document d JOIN law_version v ON v.doc_id=d.doc_id LEFT JOIN law l ON l.law_id=v.law_id
+			WHERE d.doc_id=? LIMIT 1`, h.DocID).
+			Scan(&r.LawName, &r.Level, &r.VersionNo, &r.Status, &r.Publish, &r.Effective, &r.Expire)
 		if errors.Is(err, sql.ErrNoRows) {
 			r.LawName, r.Level = "（未挂法规）", ""
 		}
@@ -446,7 +473,7 @@ func (a *App) BulkApply(sourceLike, level, verdict, reviewer, reason string) (*i
 		return nil, errors.New(a.openErr)
 	}
 	if strings.TrimSpace(reviewer) == "" || strings.TrimSpace(reason) == "" {
-		return nil, errors.New("批量流转必须署名（reviewer）并写明依据（reason）")
+		return nil, errors.New("批量复核须填写复核人与结论依据")
 	}
 	c := &ingest.Confirmer{DataDir: a.dataDir, DB: a.db}
 	return c.Bulk(ingest.BulkFilter{SourceLike: sourceLike, Level: level}, verdict, reviewer, reason)
@@ -509,10 +536,10 @@ type GovcnTaskOptions struct {
 // StartGovcnTask 提交 gov.cn 清单抓取导入任务（ingest.RunGovcnBatch——与 CLI 同路径）。
 func (a *App) StartGovcnTask(o GovcnTaskOptions) (TaskInfo, error) {
 	if o.Source != "xzfgk" && o.Source != "gzk" {
-		return TaskInfo{}, errors.New("source 只能为 xzfgk（行政法规库）或 gzk（国家规章库）")
+		return TaskInfo{}, errors.New("抓取通道只能选：国家行政法规库 / 国家规章库")
 	}
 	if o.ListPath == "" {
-		return TaskInfo{}, errors.New("清单必填（浏览器人工导出的 list.json；程序不代为检索）")
+		return TaskInfo{}, errors.New("请先提供官方目录清单文件（由浏览器脚本人工导出；程序不代为检索）")
 	}
 	if !filepath.IsAbs(o.ListPath) {
 		o.ListPath = filepath.Join(a.dataDir, o.ListPath)
