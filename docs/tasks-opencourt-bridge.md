@@ -342,6 +342,18 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   检查过程中查实一处缺口：`release-process.md` 承诺「数据模型变更先自动备份 db」，但代码中
   无实现（全仓 grep `backup` 仅命中私钥提示）——故实施第 1 步先补自动备份（`VACUUM INTO`，
   失败即中止迁移），这一步独立有价值。待拍板项见该文档 §9。
+- **F3 第 1 步 · 已实施（2026-10-29）**：`SchemaVersion` 3→4——`law` 加法式 5 列
+  （`region_code`/`region_source`/`region_rule`/`region_reviewer`/`region_reviewed_at`）+
+  law 级审计表 `region_log` + 3 索引；新增 `store/backup.go`：结构迁移前 `VACUUM INTO`
+  自动快照到 `data/backups/`，**备份失败即中止迁移**（该缺口此前只有文档承诺、无实现）。
+  `SchemaMin` 保持 3（只读方不被迫升级）。真实语料 v3→v4 已实跑核对：快照
+  `openlaw-v3-20261029T121439Z.db`（2.0 GB，`schema_version=3`、无地域列）与升级后库逐表计数
+  完全一致（law 28,952 / document 36,109 / article 1,367,161 / import_log 55,930 /
+  validate_log 36,115，FTS 1,367,161）；`region_code` 已标注 0 条——本步只让列就位，不写值。
+  备份 + 迁移 1 分钟内完成，备份落盘后结构变更 1 秒内完成（加法式 `ALTER` 只改元数据）。
+  测试：`store/backup_test.go` + `TestMigrateV3ToV4`。**下一步**：`parse/regioninfer.go`
+  （R1–R5）与 `openlaw-region` 试采报告（默认 dry-run，人工看过报告再谈 `-apply`）。
+
 
 ---
 

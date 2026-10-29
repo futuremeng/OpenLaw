@@ -11,12 +11,17 @@ law 1─n law_version 1─n article 1─n element；law 1─n relation；documen
 ### law 法规主表
 law_id（PK）、name、short_name、issuer、effect_level（CHECK 枚举：宪法/法律/行政法规/监察法规/地方性法规/部门规章/地方政府规章/司法解释/其他/欧盟条例/欧盟指令/欧盟决定）、is_local、remark。
 
-**地域（地点定位，OL-12）**：`law` 表**没有地域列**，地域目前是**查询期推导**，不落库：
-`parse.InferRegion` 按名称前缀匹配内置 `geo` 区划表（省级/地级两条规则 + 「××经济特区」
-别名），判不出一律留空——UI 必须显示「地域未标注」，不得假装覆盖。真实语料实测：
-law 24,033/28,952（83.0%）可判，其中地方类 24,030/25,009（96.1%）；剩余部分（如
-「城市民族工作条例」「××自治县…单行条例」）如实留空。写库标引（`law.region_code`
-+ 机器建议 + 人工复核落判）为后续阶段，届时加法式迁移并在迁移前自动备份。
+**地域（地点定位，OL-12 / F3）**：schema v4 起 `law` 具备地域标引列——`region_code`
+（GB/T 2260 区划码，与 `geo` 包一致；**空 = 地域未标注**）、`region_source`（auto=真实坐标判定 /
+manual=人工 / trial=试判定）、`region_rule`（依据与规则号，如 `name-prefix(R1)`）、
+`region_reviewer`（人工落判署名；**空 = 仅机器建议**）、`region_reviewed_at`。
+列刻意不加 CHECK、不重建表（v2/v3 改 CHECK 需 12 步重建，风险高），取值合法性由应用层与门禁测试保证。
+**当前状态（如实）**：真实语料 28,952 条法规的 `region_code` 全部为空（已标注 0 条）——
+v4 只完成「列就位」，写入属后续阶段（`openlaw-region` 试采报告 → 人工落判）。
+在此之前界面仍按**查询期推导**显示地域：`parse.InferRegion` 按名称前缀匹配内置 `geo` 区划表
+（省级/地级两条规则 + 「××经济特区」别名），判不出一律留空——UI 必须显示「地域未标注」，
+不得假装覆盖。真实语料实测：law 24,033/28,952（83.0%）可判，其中地方类 24,030/25,009（96.1%）；
+剩余部分（如「城市民族工作条例」「××自治县…单行条例」）如实留空。
 地区偏好存 `meta` 表（经 Go 读写，前端不私存）：`user_region`（区划码，空=不限）、
 `user_region_source`（auto=就近判定 / manual=手动选择）、`user_region_at`（RFC3339 UTC）、
 `user_region_note`（就近判定误差等如实说明）。
@@ -54,6 +59,15 @@ relation_type：修改/废止/解释/配套；confirm_status 默认 pending—�
 
 ### review_log 人工确认审计
 confirm 流程（openlaw-confirm）的状态流转留痕：doc_id、action（confirm/reject/reset）、from_status→to_status、reviewer（必须署名）、reason（确认依据；批量流转必含过滤条件与依据）、created_at。**绝不允许无审计痕迹的状态变更**；provenance JSON 的 confirm_status 随流转同步。
+
+### region_log 地域标引审计（v4）
+law 级地域判定留痕：law_id、action（suggest/confirm/reject/clear/undo）、from_code→to_code、
+source（auto/manual/trial）、rule（机器规则号或人工依据）、actor（机器固定 `openlaw-region`，
+人工必须署名）、reason、batch_id（同一次批量写入/撤销的关联号，`openlaw-region -undo` 依此回滚）、
+created_at。**与 review_log 并列而非复用**：review_log 外键是 doc_id（文档级正文复核），
+region_log 是 law 级（地域复核）——正文已复核 ≠ 地域已复核，两者不得混同。
+机器写入必须 `law.region_reviewer` 留空，界面据此显示「机器建议 · 待复核」；
+人工落判（confirm/reject/clear）一律署名 + 结论依据。
 
 ## 3. 溯源文件（provenance/<doc_id>.json）
 
