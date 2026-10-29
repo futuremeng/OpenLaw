@@ -17,6 +17,12 @@ int OpenLawLocationStatus(void);
 int OpenLawRequestLocationAuthorization(void);
 int OpenLawHasLocationUsageKey(void);
 int OpenLawIsBundledApp(void);
+int OpenLawStartLocationFix(void);
+int OpenLawLocationFixState(void);
+double OpenLawLocationLatitude(void);
+double OpenLawLocationLongitude(void);
+double OpenLawLocationAccuracy(void);
+int OpenLawLocationFixError(void);
 */
 import "C"
 
@@ -32,4 +38,16 @@ func locationRequest() (status int, hasUsageKey, bundled bool) {
 	return int(C.OpenLawRequestLocationAuthorization()),
 		C.OpenLawHasLocationUsageKey() == 1,
 		C.OpenLawIsBundledApp() == 1
+}
+
+// locationFixStart 发起一次定位（异步），返回发起当下的状态。
+func locationFixStart() int { return int(C.OpenLawStartLocationFix()) }
+
+// locationFix 只读最近一次定位的状态与缓存坐标。
+func locationFix() (state int, lat, lon, acc float64, cerr int) {
+	return int(C.OpenLawLocationFixState()),
+		float64(C.OpenLawLocationLatitude()),
+		float64(C.OpenLawLocationLongitude()),
+		float64(C.OpenLawLocationAccuracy()),
+		int(C.OpenLawLocationFixError())
 }

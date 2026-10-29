@@ -57,14 +57,25 @@
   并入变量名，`set -u` 下脚本直接退出）。另如实记录：CoreLocation/Foundation 带入重复
   `-lobjc`，链接期有无害提示，压制需 `CGO_LDFLAGS_ALLOW`（与「构建不依赖外部环境变量」
   冲突），故保留。
-- **修复（定位弹窗不出现：LaunchServices 未注册 + 主队列）**：实测点击后仍显示「未取得
-  定位授权」，由 `locationd` 日志查实第三处根因——`.app` 未注册进 LaunchServices，
-  locationd 报「The given bundleId or bundlePath is not a plugin or an app」
-  +「identity unverified」，身份解析不了就不会弹授权窗。`build-app.sh` 现执行
-  `lsregister -f` 注册产物（注册后 `lsregister -dump` 可查到 bundle id 与应用路径）。
-  同时修同类隐患：`CLLocationManager` 改在**主队列**创建与申请（cgo 线程无 run loop，
-  事件源不被调度，授权变更回传不到），delegate 缓存状态 + Go 侧轮询放宽到 30 秒
-  （够人读完并应答弹窗）。诚实边界不变：未获授权一律如实说明，绝不谎报。
+- **修复（定位链路：三处根因逐条由系统日志查实，非推测）**：
+  ① `.app` 未注册进 LaunchServices——locationd 报「The given bundleId or bundlePath
+  is not a plugin or an app」+「identity unverified」，身份解析不了就不弹授权窗；
+  `build-app.sh` 现执行 `lsregister -f` 注册产物。
+  ② 绑定调用里不得阻塞——绑定路径占住主线程，而 `CLLocationManager` 只能在主队列
+  工作，在 Go 侧 sleep 轮询等弹窗会把主队列饿死（弹窗与回调都不出现）。改为
+  「发起即返回 + 前端轮询」，新增只读绑定 `LocationPermissionStatus`。
+  ③ **WKWebView 不转交坐标**——Wails v2.17 未实现
+  `webView:requestGeolocationPermissionForFrame:decisionHandler:`：日志显示系统侧已
+  `AuthorizedAlways`，前端 `navigator.geolocation` 仍收到 `PERMISSION_DENIED`。
+  因此坐标改由原生 CoreLocation 取得（`location_darwin.m` 单次定位 + 状态缓存，
+  新增绑定 `StartLocationFix` / `LocationFixStatus`），webview 位置接口降级为
+  非 macOS 平台的后备路径。
+  另：实测包与正式包不得共用 bundle id（实测 `lsregister -dump` 同一 id 命中两个
+  `.app`，TCC 身份随之含糊），`build-app.sh` 现支持 `BUNDLE_ID` 覆盖并写回 plist，
+  已门禁化。
+- **诚实措辞修正（定位）**：坐标来自系统定位服务（macOS 可能经由其 Wi-Fi 定位数据库），
+  因此 plist 用途声明、界面提示与 README 一律不再声称「不联网」，改为如实说明坐标来源、
+  不上传、不做 IP 定位、判定在本机离线完成；`TestMacOSBundleContract` 现禁止「不联网」措辞。
 
 - **修复（库总览面板空白）+ 前端绑定契约门禁**：前端 `app().RecentReports(5)` 与
   Go 侧 `RecentReports()` 实参个数不符，Wails 运行期拒绝该调用

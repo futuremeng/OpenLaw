@@ -35,16 +35,22 @@ func TestMacOSBundleContract(t *testing.T) {
 		}
 	}
 
-	// 用途声明必须如实：写明不联网、不上传（诚实展示纪律，不得写成空话）。
+	// 用途声明必须如实：点明坐标来自系统定位服务，并声明不上传、不做 IP 定位
+	// （诚实展示纪律；「不联网」这种绝对说法对 macOS 定位服务并不准确，不得采用）。
 	i := strings.Index(s, "NSLocationWhenInUseUsageDescription")
 	if i >= 0 {
-		end := i + 400
+		end := i + 600
 		if end > len(s) {
 			end = len(s)
 		}
 		seg := s[i:end]
-		if !strings.Contains(seg, "不联网") || !strings.Contains(seg, "不上传") {
-			t.Error("定位用途声明必须如实说明不联网、不上传")
+		for _, need := range []string{"系统定位服务", "不上传", "IP 定位"} {
+			if !strings.Contains(seg, need) {
+				t.Errorf("定位用途声明必须包含 %q（如实说明坐标来源与边界）", need)
+			}
+		}
+		if strings.Contains(seg, "不联网") {
+			t.Error("定位用途声明不得声称「不联网」：macOS 定位服务可能经由 Wi-Fi 定位数据库")
 		}
 	}
 
@@ -59,6 +65,12 @@ func TestMacOSBundleContract(t *testing.T) {
 	// bundle id 必须稳定且非占位（TCC 授权按 bundle id 记忆）。
 	if id := plistValue(s, "CFBundleIdentifier"); id == "" || strings.Contains(id, "CHANGE") {
 		t.Errorf("CFBundleIdentifier 无效: %q", id)
+	}
+	// 变体必须能换 bundle id：同一 id 注册在两个路径时，LaunchServices 的身份解析
+	// 会二义，TCC 随之含糊（实测踩过），所以脚本必须支持 BUNDLE_ID 覆盖并写回 plist。
+	sc := string(script)
+	if !strings.Contains(sc, "BUNDLE_ID=") || !strings.Contains(sc, "-replace CFBundleIdentifier") {
+		t.Error("build-app.sh 必须支持 BUNDLE_ID 覆盖并写回 Info.plist（正式包与实测包不得共用 bundle id）")
 	}
 	// 签名：TCC 需要签名身份，脚本必须签名并自检。
 	for _, need := range []string{"codesign --force --sign", "plutil -lint", "codesign --verify"} {

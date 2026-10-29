@@ -314,16 +314,24 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   署名）；自治县、直辖县级、区级等层级另行对齐。全文检索按地域过滤同样未做
   （FTS5 结果不重排序，只能做过滤，需单独对齐口径）。
 
-- **地点定位 · 第 3 段（2026-10-29，macOS 真实定位链路）**：定位被拒的根因查实为两条
-  ——裸二进制无 bundle 身份（TCC 不认）+ Wails v2.17 darwin 前端无定位授权回调。
-  已补 `packaging/macos/`（.app + 定位用途声明 + ad-hoc 签名 + 自检）与
-  `desktop/location_darwin.m`/`RequestLocationPermission`（点击时申请，状态逐项如实回传）；
-  语料目录改为 `-data` > `OPENLAW_DATA` > 随程序位置 > 当前目录（`dataresolve.go`），
-  来源在日志与「库总览」显示——防 `.app` 从访达启动时静默打开空语料库。
-  实测已过：CWD=`/` 启动 .app → 目录来源「随程序位置」、`lsof` 打开真实库、bundle id
-  与 ad-hoc 签名有效。门禁：`bundle_test.go`（plist 键 / 声明文案 / 可执行名一致性 /
-  签名自检 / shell 中文插值陷阱）。**待人工点一次授权**才能确认 webview 回传坐标；
-  在此之前手动选择与「试判定」仍是可用主路径。
+- **地点定位 · 第 3 段（2026-10-29，macOS 真实定位链路）**：定位被拒的根因逐条由系统
+  日志查实共四处——①裸二进制无 bundle 身份（TCC 不认）；②`.app` 未注册进
+  LaunchServices（locationd「not a plugin or an app」+「identity unverified」→ 不弹窗）；
+  ③绑定调用占住主线程时 `CLLocationManager` 排不到主队列（Go 侧阻塞轮询会饿死弹窗与
+  回调）；④Wails v2.17 的 WKWebView 无定位授权回调，系统侧已 `AuthorizedAlways` 而
+  `navigator.geolocation` 仍 `PERMISSION_DENIED`。
+  已补：`packaging/macos/`（.app + 定位用途声明 + ad-hoc 签名 + `lsregister -f` 注册 +
+  自检，`BUNDLE_ID` 可覆盖以免实测包与正式包共用身份）；`desktop/location_darwin.m`
+  的申请授权与单次定位均在主队列发起、结果缓存由前端轮询（`RequestLocationPermission`
+  / `LocationPermissionStatus` / `StartLocationFix` / `LocationFixStatus`）；坐标改走原生
+  CoreLocation，webview 位置接口只作非 macOS 平台后备。语料目录改为
+  `-data` > `OPENLAW_DATA` > 随程序位置 > 当前目录（`dataresolve.go`），来源在日志与
+  「库总览」显示——防 `.app` 从访达启动时静默打开空语料库。
+  实测已过：CWD=`/` 启动 .app → 目录来源「随程序位置」、`lsof` 打开真实库、bundle id 与
+  ad-hoc 签名有效；用户点「允许」后系统侧状态到 `AuthorizedAlways`（日志证实）。
+  门禁：`bundle_test.go`（plist 键 / 声明文案如实性 / 可执行名一致性 / 签名自检 /
+  shell 中文插值 / bundle id 可覆盖）+ 定位状态映射与非阻塞契约测试。
+  **仍待实测**：原生单次定位是否回传坐标并显示「已判定 …（坐标精度约 N 米）」。
 
 ---
 

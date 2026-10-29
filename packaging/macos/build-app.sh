@@ -5,14 +5,17 @@
 # 没有身份，webview 的 navigator.geolocation 一律被拒（2026-10-29 实测确认）。
 #
 # 用法：packaging/macos/build-app.sh [输出路径]      默认 dist/OpenLaw.app（dist/ 已 gitignore）
-#       TAGS=desktop,production,devtools packaging/macos/build-app.sh dist/OpenLaw-Dev.app
-#       （devtools 变体带控制台，便于实测；两个包共用同一 bundle id，授权互通）
+#       TAGS=desktop,production,devtools BUNDLE_ID=com.github.futuremeng.openlaw.dev \
+#         packaging/macos/build-app.sh dist/OpenLaw-Dev.app
+#       （devtools 变体带控制台，便于实测。bundle id 必须与正式包区分：实测两个包共用
+#        同一 bundle id 时，LaunchServices 会把同一 id 解析到两个路径，TCC 身份随之含糊）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="${1:-$ROOT/dist/OpenLaw.app}"
 BIN="$ROOT/dist/openlaw-desktop"
 TAGS="${TAGS:-desktop,production}"
+BUNDLE_ID="${BUNDLE_ID:-com.github.futuremeng.openlaw}"
 
 echo "==> 构建二进制（标签：${TAGS}，必须含 desktop,production，否则链接的是 stub 绑定）"
 go build -tags "$TAGS" -o "$BIN" ./desktop
@@ -21,6 +24,7 @@ echo "==> 组装 bundle：${OUT}"
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$ROOT/packaging/macos/Info.plist" "$OUT/Contents/Info.plist"
+plutil -replace CFBundleIdentifier -string "${BUNDLE_ID}" "$OUT/Contents/Info.plist"
 printf 'APPL????' > "$OUT/Contents/PkgInfo"
 # 此处的文件名必须与 Info.plist 的 CFBundleExecutable 一致（desktop/bundle_test.go 门禁核对）
 cp "$BIN" "$OUT/Contents/MacOS/OpenLaw"

@@ -7,7 +7,8 @@
   身份，navigator.geolocation 一律被拒。缺少 NSLocation* 用途声明时，系统不会
   弹出授权窗，CoreLocation 也不会进入「已决定」状态。
 
-  用途声明必须如实：仅用于本机离线判定当前地区，不联网、不上传、不做 IP 定位。
+  用途声明必须如实：仅用于本机离线判定当前地区。坐标由系统定位服务给出（macOS
+  可能经由其 Wi-Fi 定位数据库），本应用不上传数据、不做 IP 定位、不调用在线地理编码。
 -->
 <plist version="1.0">
 <dict>
@@ -34,8 +35,8 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>OpenLaw 需要读取一次本机位置，用于在本机离线判定「当前地区」。不联网、不上传、不做 IP 定位；判定结果可随时手动更正。</string>
+	<string>OpenLaw 需要读取一次本机坐标，用于在本机离线判定「当前地区」。坐标由系统定位服务给出（macOS 可能经由其 Wi-Fi 定位数据库）；本应用不上传任何数据、不做 IP 定位、不调用在线地理编码服务，判定结果可随时手动更正。</string>
 	<key>NSLocationUsageDescription</key>
-	<string>同上：仅用于本机离线地区判定，位置数据不出本机。</string>
+	<string>同上：坐标仅用于本机地区判定，本应用不上传数据。</string>
 </dict>
 </plist>

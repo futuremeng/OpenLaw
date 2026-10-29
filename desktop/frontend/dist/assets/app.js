@@ -103,7 +103,7 @@ $("#modal-close").addEventListener("click", () => $("#modal").classList.add("hid
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("#modal").classList.add("hidden"); });
 
 
-/* ---------- 地区（地点定位 · 全部离线判定，不联网） ---------- */
+/* ---------- 地区（坐标取自系统定位服务 · 判定全部在本机离线完成） ---------- */
 let regionOpts = [];   // app().RegionOptions()
 let regionCode = "";   // 当前生效地区码（"" = 不限地区）
 
@@ -154,28 +154,74 @@ async function applyRegion(code) {
 $("#region-prov").addEventListener("change", () => fillRegionCities(""));
 $("#btn-region-apply").addEventListener("click", () => applyRegion($("#region-city").value || $("#region-prov").value));
 $("#btn-region-clear").addEventListener("click", () => applyRegion(""));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 取坐标：优先走系统定位（macOS 原生 CoreLocation）。Wails 的 WKWebView 未实现定位
+// 授权回调，JS 的 navigator.geolocation 即使系统已授权也会被 webview 拒绝，因此只作后备。
+async function fetchFix() {
+  let start = null;
+  try { start = await app().StartLocationFix(); } catch (e) { return { state: "unsupported", msg: "本机未提供系统定位接口。" }; }
+  // 只有确定的终态才提前返回；working/not_started 一律继续轮询（发起与状态落地之间
+  // 存在异步间隙，快照可能仍是「未开始」）。
+  if (start.state === "ok" || start.state === "failed"
+      || start.state === "unsupported" || start.state === "unauthorized") return start;
+  for (let i = 0; i < 40; i++) {
+    await sleep(500);
+    let f = null;
+    try { f = await app().LocationFixStatus(); } catch (e) { f = null; }
+    if (f && (f.state === "ok" || f.state === "failed")) return f;
+  }
+  return { state: "timeout", acc: -1, msg: "系统定位服务 20 秒内未给出坐标（可能定位服务已关闭或信号不佳）。可用左侧下拉选择地区，或点「按选定地点试判定」。" };
+}
+
+// 拿到坐标后交 Go 侧离线判定地区（不调用任何在线地理编码服务）。
+async function locateFrom(f) {
+  const r = await app().LocateFromCoords(f.lat, f.lon);
+  if (!r.ok) { toast("未能判定地区：" + r.msg); return; }
+  await loadRegion();
+  const extra = f.acc >= 0 ? "，坐标精度约 " + Math.round(f.acc) + " 米" : "";
+  toast("已判定：" + r.region.path + "（" + r.msg + extra + "）");
+  reloadViewing();
+}
+
+// 后备路径：webview 自己的位置接口（macOS 上通常被 WKWebView 拒绝，其他平台可能可用）。
+function webviewLocate() {
+  if (!navigator.geolocation) { toast("本机未提供位置服务。请用左侧下拉选择地区，或点「按选定地点试判定」。"); return; }
+  toast("正在尝试由界面取位置（后备路径）…");
+  navigator.geolocation.getCurrentPosition(locateFrom, (err) => {
+    const why = { 1: "界面层未放行定位请求", 2: "设备位置不可用", 3: "等待超时" }[err.code] || (err.message || "未知原因");
+    toast("未获取到坐标：" + why + "。可用左侧下拉选择地区，或点「按选定地点试判定」。");
+  }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
+}
+
 $("#btn-locate").addEventListener("click", async () => {
-  if (!navigator.geolocation) { toast("本机未提供位置服务，请用左侧下拉手动选择地区或「按选定地点试判定」"); return; }
-  // 先向系统申请授权（macOS 需要 bundle + plist 用途声明；Wails 自身不做这件事）。
-  // 前提不满足时 Go 会给出具体原因，不能让它落到 webview 的无信息量 PERMISSION_DENIED。
-  toast("正在请求定位授权（仅本机使用，不联网）…");
+  // 先向系统申请授权（macOS 需要 bundle 身份 + plist 用途声明；Wails 自身不做这件事）。
+  // 申请与定位都必须立即返回：绑定调用会占住主线程，而 CLLocationManager 只能在主队列
+  // 工作，在 Go 侧阻塞等待会让弹窗和定位回调都排不到（实测踩过）。故一律「发起 → 前端轮询」。
   let perm = null;
   try { perm = await app().RequestLocationPermission(); } catch (e) { perm = null; }
   if (!perm) { toast("无法确认定位授权。请用左侧下拉选择地区，或点「按选定地点试判定」。"); return; }
-  if (perm.status !== "authorized") { toast(perm.msg); return; }
-  toast("正在获取位置（仅本机离线判定，不联网）…");
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    try {
-      const r = await app().LocateFromCoords(pos.coords.latitude, pos.coords.longitude);
-      if (!r.ok) { toast("未能判定地区：" + r.msg); return; }
-      await loadRegion();
-      toast("已判定：" + r.region.path + "（" + r.msg + "）");
-      reloadViewing();
-    } catch (e) { toast("定位失败：" + (e.message || e)); }
-  }, (err) => {
-    const why = { 1: "已拒绝授权", 2: "设备位置不可用", 3: "等待超时" }[err.code] || (err.message || "未知原因");
-    toast("未获取到位置：" + why + "。可用左侧下拉手动选择地区。");
-  }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
+  if (perm.status !== "authorized" && perm.status !== "not_determined") { toast(perm.msg); return; }
+  if (perm.status === "not_determined") {
+    toast("请在系统弹窗中选「允许」（最多等待 60 秒）…");
+    for (let i = 0; i < 60; i++) {
+      await sleep(1000);
+      let st = null;
+      try { st = await app().LocationPermissionStatus(); } catch (e) { st = null; }
+      if (!st) continue;
+      if (st.status === "authorized") { perm = st; break; }
+      if (st.status !== "not_determined") { toast(st.msg); return; }
+    }
+    if (perm.status !== "authorized") {
+      toast("未在弹窗中应答，仍未取得定位授权。可再点一次；或用左侧下拉选择地区、「按选定地点试判定」。");
+      return;
+    }
+  }
+  toast("正在读取坐标…");
+  const f = await fetchFix();
+  if (f.state === "ok") { await locateFrom(f); return; }
+  if (f.state === "unsupported") { webviewLocate(); return; }
+  toast(f.msg);
 });
 // 试判定：把选定地点的中心点当作位置，跑同一条离线判定链路（明确非真实定位）。
 $("#btn-region-trial").addEventListener("click", async () => {

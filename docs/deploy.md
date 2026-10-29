@@ -102,27 +102,28 @@ openlaw-pack import  # 完整性 + 来源信任都通过才入库；失败保留
 
 ## 9. 安全与合规基线
 
-- **地点定位（OL-12，默认离线）**：浏览器只交经纬度，判定用内置区划表在本机完成
-  （`geo` 包：34 省级 + 346 地级 + 近似中心点）；不联网、不做 IP 定位、不调用任何
+- **地点定位（OL-12，判定离线）**：坐标由系统定位服务给出（macOS 走 CoreLocation，
+  可能经由其 Wi-Fi 定位数据库）；把坐标落到地区这一步用内置区划表在本机完成
+  （`geo` 包：34 省级 + 346 地级 + 近似中心点），本应用不做 IP 定位、不调用任何在线
   地理编码服务。就近判定必然带误差（中心点为人工整理的近似值，10~30 km），UI 必须
-  显示距离并允许一键更正。**实测（2026-10-29，macOS）**：裸二进制（无 bundle 身份、
-  无 `Info.plist` 定位用途声明）下 webview 一律返回「已拒绝授权」；且 Wails v2.17 的
-  darwin 前端不含任何定位授权回调（源码 grep `CLLocation` 无命中），因此光有 plist
-  也不够。现已两条都补上：`packaging/macos/`（.app + `NSLocationWhenInUseUsageDescription`
-  + ad-hoc 签名）与 `desktop/location_darwin.m`（用户点击时申请 WhenInUse 授权，
-  并把「已授权/已拒绝/受限/未应答/缺 bundle 声明」逐项如实回传）。
-  未打包或权限未给时走两条可用通道：①下拉手动选省/市；②「按选定地点试判定」
-  （`LocateFromRegion`，以所选地点中心点跑同一条判定链路，来源记 `trial` 并明示
-  「非真实定位」，不冒充真实位置）。**仍未实测确认**：用户在系统弹窗点「允许」后
-  webview 是否确实回传坐标（需人工点一次授权，机器无法代答）。
-  第三处根因由系统日志查实（`log show --predicate "process == 'locationd'"`）：
-  `.app` 未注册进 LaunchServices 时，locationd 报
-  「The given bundleId or bundlePath is not a plugin or an app」+「identity unverified」，
-  身份无法解析 → 系统不弹授权窗，界面只能显示「未应答」。故 `build-app.sh` 现在
-  会 `lsregister -f` 注册产物（注册后 `lsregister -dump` 可见该 bundle id 与应用路径）。
-  另一处同类隐患：`CLLocationManager` 必须在**主队列**创建与申请——cgo 调用发生在
-  Go 线程，那里没有 run loop，连接事件源不被调度，授权变更回传不到；现改为
-  `dispatch_async(main)` 申请 + delegate 缓存状态 + Go 侧轮询（放宽到 30 秒，够人应答弹窗）。
+  显示距离并允许一键更正。未打包或权限未给时走两条可用通道：①下拉手动选省/市；
+  ②「按选定地点试判定」（`LocateFromRegion`，以所选地点中心点跑同一条判定链路，
+  来源记 `trial` 并明示「非真实定位」，不冒充真实位置）。
+  **macOS 根因链（2026-10-29 实测，逐条由日志证实，非推测）**：
+  1. 裸二进制没有 bundle 身份 → TCC 不弹窗（`Info.plist` + ad-hoc 签名解决）；
+  2. `.app` 未注册进 LaunchServices → locationd 报「The given bundleId or bundlePath
+     is not a plugin or an app」+「identity unverified」→ 仍不弹窗（`build-app.sh` 现
+     执行 `lsregister -f` 注册产物，注册后 `lsregister -dump` 可查到该 id 与路径）；
+  3. **绑定调用里不得阻塞**：绑定路径占住主线程，而 `CLLocationManager` 只能在主队列
+     工作；在 Go 侧 sleep 轮询等弹窗，主队列排不到，弹窗与回调都不会出现
+     （改为「发起即返回 + 前端轮询」）；
+  4. **WKWebView 不转交坐标**：Wails v2.17 未实现
+     `webView:requestGeolocationPermissionForFrame:decisionHandler:`，日志显示系统侧已
+     `AuthorizedAlways`，前端 `navigator.geolocation` 仍收到 `PERMISSION_DENIED`。
+     因此坐标改由原生 CoreLocation 取得（`StartLocationFix` / `LocationFixStatus`），
+     webview 的 `navigator.geolocation` 只作非 macOS 平台的后备路径。
+  另：同一 bundle id 不得在两个路径重复注册（实测 `lsregister -dump` 同一 id 命中两个
+  `.app`，TCC 身份随之含糊）；实测包用 `BUNDLE_ID=com.github.futuremeng.openlaw.dev` 区分。
 
 - 数据不出域：无遥测、无后台请求；一切联网为显式 CLI 触发
 - 私钥（`*.key`）与数据备份均严禁入库，独立加密存储
