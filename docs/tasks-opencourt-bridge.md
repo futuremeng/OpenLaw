@@ -286,6 +286,14 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   Preview/检索补全法规要素与时效、`StatusView.last_fetch`；desktop 层用户
   可见文案全面法言法语化。白话摘要、场景导航、引证追踪、术语提示等依赖内容
   层数据，归 OL-11（当前库无此数据，UI 不渲染假内容）。
+- **更新包来源信任门禁（2026-10-29）**：`Verify` 用包内 pubkey.hex 验签属自签自验，
+  只能证明内容完整、不能证明签署者。新增 `pack/trust.go`：内置受信发布者名单
+  （key ID → 公钥 hex）、`RegisterTrustedPubkey`（发版内置/下游装配/测试）、
+  `TrustOf`、`VerifyTrusted`。`Import` 默认走 `VerifyTrusted`——完整性通过但来源
+  未受信 = 拒绝且零写入；`ImportAllowUntrusted` 与 CLI `-allow-untrusted` 仅供本地
+  自验；`openlaw-pack keygen` 生成密钥对并打印待内置公钥（私钥 0600，仓库外）。
+  verify 与桌面校验输出来源信任结论。测试：未受信拒绝且零写入、登记后成功、
+  本地通道、名单守门（非法 hex/重复 key ID）。
 
 ---
 

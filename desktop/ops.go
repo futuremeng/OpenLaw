@@ -105,15 +105,19 @@ func (a *App) resolvePackDir(p string) string {
 	return p
 }
 
-// PackVerify 更新包校验（只读；返回空串 = 通过）。
+// PackVerify 更新包校验（只读；返回空串 = 通过；附带来源信任结论）。
 func (a *App) PackVerify(packDir string) string {
 	if packDir == "" {
-		return "必须指定包目录"
+		return "请先指定数据包目录"
 	}
-	if err := pack.Verify(a.resolvePackDir(packDir)); err != nil {
+	pd := a.resolvePackDir(packDir)
+	if err := pack.Verify(pd); err != nil {
 		return err.Error()
 	}
-	return ""
+	if keyID, err := pack.TrustOf(pd); err == nil {
+		return "校验通过（来源可信：受信发布者 " + keyID + "）"
+	}
+	return "校验通过，但签名公钥不在受信发布者名单——导入将被拒绝（本地自验可用 CLI -allow-untrusted）"
 }
 
 // StartPackBuildTask 生成并签名离线更新包（pack.Build——与 openlaw-pack 同路径）。

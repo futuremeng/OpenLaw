@@ -339,13 +339,27 @@ func Verify(packDir string) error {
 }
 
 // Import 校验通过后逐条导入目标数据目录（6.4）。
-// 先 Verify：任何哈希/签名/多余文件问题直接拒绝，不触碰现有数据。
+// 先 VerifyTrusted：签名有效 + 哈希一致 + 无多余文件 + 公钥命中受信发布者名单，
+// 任一失败直接拒绝，不触碰现有数据（来源不可信的包等同损坏包）。
 // 逐条走与 openlaw-ingest 完全相同的导入闭环（重复 doc_id / 区间重叠会被拦截）。
 // 中途失败：已导入条目为纯新增可追溯（import_log），旧数据不受影响；返回错误由人工处置。
 func Import(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error) {
+	if err := VerifyTrusted(packDir); err != nil {
+		return nil, fmt.Errorf("更新包校验失败，拒绝导入（保留旧数据）: %w", err)
+	}
+	return importPack(db, targetDataDir, packDir)
+}
+
+// ImportAllowUntrusted 仅做完整性校验（Verify），不查受信名单。
+// 供本地自验与下游已自行装配信任的场景；用于分发即放弃来源验证，慎用。
+func ImportAllowUntrusted(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error) {
 	if err := Verify(packDir); err != nil {
 		return nil, fmt.Errorf("更新包校验失败，拒绝导入（保留旧数据）: %w", err)
 	}
+	return importPack(db, targetDataDir, packDir)
+}
+
+func importPack(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, error) {
 	changes, err := ReadChanges(packDir)
 	if err != nil {
 		return nil, err

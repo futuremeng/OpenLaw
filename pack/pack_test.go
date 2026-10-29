@@ -3,15 +3,31 @@ package pack
 import (
 	"archive/zip"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/futuremeng/OpenLaw/ingest"
 	"github.com/futuremeng/OpenLaw/parse"
 	"github.com/futuremeng/OpenLaw/store"
 	"github.com/futuremeng/OpenLaw/validate"
 )
+
+// trustPack 把包公钥登记进受信名单（测试辅助，模拟发版内置名单的效果）。
+func trustPack(t *testing.T, packDir string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(packDir, "pubkey.hex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := fmt.Sprintf("test-%s-%d", t.Name(), time.Now().UnixNano())
+	if err := RegisterTrustedPubkey(id, strings.TrimSpace(string(b))); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // setupSource 构造一个已导入一份法规的数据目录（复用 ingest 闭环）。
 func setupSource(t *testing.T) (string, *store.DB, string) {
@@ -157,6 +173,7 @@ func TestImportPackFailNoOverwrite(t *testing.T) {
 	}
 	defer tdb.Close()
 
+	trustPack(t, packDir) // 来源可信，失败应来自篡改本身而非信任门禁
 	if _, err := Import(tdb, target, packDir); err == nil {
 		t.Fatal("篡改包应拒绝导入")
 	}
@@ -206,6 +223,7 @@ func TestBuildVerifyImportDocxLayer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tdb.Close()
+	trustPack(t, packDir)
 	if _, err := Import(tdb, target, packDir); err != nil {
 		t.Fatalf("docx 包导入失败: %v", err)
 	}
@@ -290,6 +308,7 @@ func TestImportPackWholeText(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tdb.Close()
+	trustPack(t, packDir)
 	if _, err := Import(tdb, target, packDir); err != nil {
 		t.Fatalf("whole 包导入应成功: %v", err)
 	}
@@ -350,6 +369,7 @@ func TestImportPackLang(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tdb.Close()
+	trustPack(t, packDir)
 	if _, err := Import(tdb, target, packDir); err != nil {
 		t.Fatalf("lang 包导入应成功: %v", err)
 	}
@@ -380,6 +400,7 @@ func TestImportPackSuccess(t *testing.T) {
 	}
 	defer tdb.Close()
 
+	trustPack(t, packDir)
 	results, err := Import(tdb, target, packDir)
 	if err != nil {
 		t.Fatal(err)

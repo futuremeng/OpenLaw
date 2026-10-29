@@ -65,10 +65,15 @@ openlaw-check -data <数据目录> -build-manifest -key <独立存储路径>/ope
 ## 7. 更新分发（签名更新包）
 
 ```bash
+openlaw-pack keygen  # 首次发版：生成签名密钥对，公钥内置为受信发布者（16.2）
 openlaw-pack build   # 产出 pack 包（manifest + 签名 + 变更文件）
-openlaw-pack verify  # 接收方独立验哈希与签名
-openlaw-pack import  # 校验通过才入库；失败保留旧数据，不覆盖（6.4）
+openlaw-pack verify  # 接收方独立验哈希与签名，并给出来源信任结论
+openlaw-pack import  # 完整性 + 来源信任都通过才入库；失败保留旧数据，不覆盖（6.4）
 ```
+
+导入默认要求包签名公钥命中内置受信发布者名单（`pack/trust.go`）：签名自洽但来源未受信
+的包等同损坏包，一律拒绝且零写入。密钥轮换用新 key ID 登记，吊销即删除旧 key ID。
+`-allow-untrusted` 只跳过来源信任、仍强制完整性校验，仅限本地自验，不用于分发。
 
 不做静默自动抓取更新；抓取类 CLI（`openlaw-fetch` / `openlaw-eu` / `openlaw-eu-text`）均为显式触发 + robots fail-closed + 礼貌限速。
 
