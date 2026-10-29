@@ -294,6 +294,8 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   自验；`openlaw-pack keygen` 生成密钥对并打印待内置公钥（私钥 0600，仓库外）。
   verify 与桌面校验输出来源信任结论。测试：未受信拒绝且零写入、登记后成功、
   本地通道、名单守门（非法 hex/重复 key ID）。
+- **AGENTS.md（2026-10-29）**：根目录新增 AI 代理与协作者约束条文（诚实展示、
+  共享 runner、写路径从严、复核署名、离线限速、签名信任、验证门禁、法言法语术语）。
 
 ---
 
