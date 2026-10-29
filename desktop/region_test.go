@@ -112,6 +112,49 @@ func TestLocateFromCoords(t *testing.T) {
 	}
 }
 
+// TestLocateFromRegion 试判定：以选定地点的中心点跑同一条判定链路。
+// 关键纪律：来源必须是 trial，说明文字必须写明「非真实位置」——不得冒充真实定位。
+func TestLocateFromRegion(t *testing.T) {
+	a := newRegionApp(t)
+
+	res := a.LocateFromRegion("130100") // 石家庄市
+	if !res.OK || res.Region.Code != "130100" {
+		t.Fatalf("试判定失败: %+v", res)
+	}
+	if res.Region.Source != regionSourceTrial {
+		t.Errorf("来源必须标记为试判定，实际 %q", res.Region.Source)
+	}
+	if !strings.Contains(res.Msg, "试判定") || !strings.Contains(res.Msg, "非真实位置") {
+		t.Errorf("必须如实说明非真实定位: %q", res.Msg)
+	}
+	if got := a.CurrentRegion(); got.Source != regionSourceTrial || got.Code != "130100" {
+		t.Errorf("试判定后偏好应可回读且来源可区分: %+v", got)
+	}
+
+	// 选省级：中心点是省会，判定链路应落到地级条目（证明走的是同一套 Nearest）。
+	pr := a.LocateFromRegion("130000")
+	if !pr.OK || pr.Region.Code != "130100" {
+		t.Errorf("省级试判定应落到下辖地级: %+v", pr)
+	}
+
+	// 未选地点：如实拒绝且不得改动已有地区。
+	bad := a.LocateFromRegion("")
+	if bad.OK || bad.Msg == "" {
+		t.Errorf("未选地点应如实拒绝: %+v", bad)
+	}
+	if got := a.CurrentRegion(); got.Code != "130100" {
+		t.Errorf("失败的试判定不得改动地区: %+v", got)
+	}
+	if bad2 := a.LocateFromRegion("999999"); bad2.OK {
+		t.Errorf("未知区划码应被拒绝: %+v", bad2)
+	}
+
+	// 试判定与真实定位必须可区分：auto 与 trial 不得混同。
+	if a.LocateFromCoords(38.04, 114.51).Region.Source != "auto" {
+		t.Error("真实坐标判定应记为 auto")
+	}
+}
+
 func TestRegionPatternsAndBrowseFilter(t *testing.T) {
 	a := newRegionApp(t)
 

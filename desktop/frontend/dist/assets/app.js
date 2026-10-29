@@ -29,6 +29,11 @@ function showPanel(p) {
   if (p === "confirm") { loadStats(); loadQueue(); }
   if (p === "collect") { loadSources(); loadTasks(); loadTasksTick(); }
 }
+// 重新加载当前可见面板（地区等全局偏好变更后需要刷新列表）。
+function reloadViewing() {
+  const cur = document.querySelector(".nav.active");
+  if (cur) showPanel(cur.dataset.panel);
+}
 function applyMode() {
   document.querySelectorAll(".nav").forEach((b) => (b.hidden = b.dataset.mode !== mode));
   $("#mode-public").classList.toggle("active", mode === "public");
@@ -134,7 +139,7 @@ function fillRegionCities(pick) {
 }
 function renderRegion(st) {
   $("#region-text").textContent = st.path ? "当前地区：" + st.path : "未设置地区";
-  const src = st.source === "auto" ? "按位置就近判定" : st.source === "manual" ? "手动选择" : "";
+  const src = { auto: "按位置就近判定", manual: "手动选择", trial: "试判定 · 非真实定位" }[st.source] || "";
   $("#region-note").textContent = [st.at ? String(st.at).slice(0, 10) : "", src, st.note || ""].filter(Boolean).join(" · ");
 }
 async function applyRegion(code) {
@@ -164,6 +169,18 @@ $("#btn-locate").addEventListener("click", () => {
     const why = { 1: "已拒绝授权", 2: "设备位置不可用", 3: "等待超时" }[err.code] || (err.message || "未知原因");
     toast("未获取到位置：" + why + "。可用左侧下拉手动选择地区。");
   }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
+});
+// 试判定：把选定地点的中心点当作位置，跑同一条离线判定链路（明确非真实定位）。
+$("#btn-region-trial").addEventListener("click", async () => {
+  const code = $("#region-city").value || $("#region-prov").value;
+  if (!code) { toast("请先在上方选择省份（或市），再点「按选定地点试判定」"); return; }
+  try {
+    const r = await app().LocateFromRegion(code);
+    if (!r.ok) { toast(r.msg); return; }
+    await loadRegion();
+    toast(r.msg);
+    reloadViewing();
+  } catch (e) { toast("试判定失败：" + (e.message || e)); }
 });
 // 浏览面板是否按当前地区过滤（默认不勾选，避免改变既有浏览行为）。
 function browseRegionArg() { return $("#b-local").checked ? regionCode : ""; }

@@ -22,10 +22,14 @@ import (
 // meta 表中的地区偏好键（加法式使用，不动 schema）。
 const (
 	metaRegion       = "user_region"
-	metaRegionSource = "user_region_source" // auto = 就近判定 / manual = 用户选择
+	metaRegionSource = "user_region_source" // auto=就近判定 / manual=手动选择 / trial=试判定
 	metaRegionAt     = "user_region_at"
 	metaRegionNote   = "user_region_note" // 误差等如实说明
 )
+
+// regionSourceTrial 试判定来源标记：以选定地点的中心点代替真实定位，
+// 与 auto（真实坐标）必须可区分，UI 上要显示成「试判定 · 非真实定位」。
+const regionSourceTrial = "trial"
 
 // RegionOption 地区下拉一项。
 type RegionOption struct {
@@ -159,6 +163,41 @@ func (a *App) LocateFromCoords(lat, lng float64) LocateResult {
 		Region: RegionState{
 			Code: r.Code, Name: r.Name, Path: geo.PathName(r.Code),
 			Source: "auto", Note: note, DistanceKm: d,
+		},
+	}
+}
+
+// LocateFromRegion 试判定：把选定行政区的中心点当作位置，跑与真实定位完全相同的
+// 离线就近判定链路（用于定位授权被拒时验证判定与显示链路，或演示效果）。
+//
+// 诚实展示纪律：这不是真实定位。来源记为 trial，note 与 UI 必须写明「试判定 ·
+// 非真实位置」，不得与 auto（真实坐标判定）混同。
+func (a *App) LocateFromRegion(code string) LocateResult {
+	c := strings.TrimSpace(code)
+	r, ok := geo.ByCode(c)
+	if !ok {
+		return LocateResult{OK: false, Msg: "请先在上方下拉选一个地点（省或市），再点试判定"}
+	}
+	match, d := geo.Nearest(r.Lat, r.Lng)
+	if match.Code == "" { // 内置中心点必然合法；真到这一步就是数据坏了，如实报
+		return LocateResult{OK: false, Msg: fmt.Sprintf("「%s」的内置中心点无效（lat=%v lng=%v），数据有误", r.Name, r.Lat, r.Lng)}
+	}
+	note := fmt.Sprintf("试判定：以「%s」的中心点代替真实定位（非真实位置），判定距中心约 %.0f km", r.Name, d)
+	if d > 60 {
+		note = fmt.Sprintf("试判定：以「%s」的中心点代替真实定位（非真实位置）；距最近行政中心约 %.0f km，判定可靠性低", r.Name, d)
+	}
+	if err := a.metaSet(metaRegion, match.Code); err != nil {
+		return LocateResult{OK: false, Msg: err.Error()}
+	}
+	_ = a.metaSet(metaRegionSource, regionSourceTrial)
+	_ = a.metaSet(metaRegionAt, time.Now().UTC().Format(time.RFC3339))
+	_ = a.metaSet(metaRegionNote, note)
+	return LocateResult{
+		OK:  true,
+		Msg: note,
+		Region: RegionState{
+			Code: match.Code, Name: match.Name, Path: geo.PathName(match.Code),
+			Source: regionSourceTrial, Note: note, DistanceKm: d,
 		},
 	}
 }
