@@ -364,7 +364,16 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   仍 0 行。如实记录：`law.issuer` 仅 5,214/28,952（18%）有值，R3 能补的量有限；名称省略「市」字
   （如「兰州经济技术开发区条例」）仍判不出，留空不猜。测试：`parse.TestSuggestRegion`、
   `geo.TestMatchContained`、`ingest/region_test.go`。
-  **`-apply` 未执行**——等人工核对 `region_report.csv` 后再决定。
+  **`-apply` 已执行**（人工核对报告后）：写入前先取快照
+  `data/backups/openlaw-v4-preapply-20261029T151600Z.db`；首次写入 24,033 条后一致性自检抓出
+  误标——「台湾渔船停泊点边防治安管理办法」（公安部，部门规章）按名称前缀被判 710000 台湾省；
+  据此加库层护栏 `nationalEffectLevels`（国家级效力不按名称标地域），**整批撤销
+  `region-20261029T151705Z`（24,033 条）后重跑为 `region-20261029T155448Z`（24,032 条）**，
+  `region_log` 保留 suggest+undo 完整痕迹。最终：已标注 24,032（83.0%）| 中置信 90 | 冲突 0 |
+  国家级不按名称标 2,820 | 无法判定 2,010；逐表计数与快照一致，`region_reviewer` 全空（待复核）。
+  另记录语料缺陷：`is_local=0` 却有地域 3,612 条，`is_local` 不可靠，只报告不当护栏。
+  **界面尚未切换**：浏览过滤仍走标题前缀，切区划码属第 5 步。
+  测试另加 `TestRegionNationalEffectGuard`。
   **下一步**：桌面「地域标引」复核面板（逐条 + 小批，先干跑计数）。
 
 

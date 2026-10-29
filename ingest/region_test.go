@@ -154,7 +154,65 @@ func TestRegionUndo(t *testing.T) {
 	}
 }
 
-// TestRegionUndoKeepsHumanReview 人工落判过的行，批次撤销不得回滚。
+// TestRegionNationalEffectGuard 国家级效力（部门规章等）不得按名称前缀标地域。
+// 实测反例：「台湾渔船停泊点边防治安管理办法」（issuer=公安部，部门规章）
+// 按名称前缀会误标 710000 台湾省——名称里的地名不等于法规的地域归属。
+func TestRegionNationalEffectGuard(t *testing.T) {
+	m := setupRegion(t)
+	if _, err := m.DB.Exec(`INSERT INTO law(law_id,name,issuer,effect_level)
+		VALUES('r_national','台湾渔船停泊点边防治安管理办法','公安部','部门规章')`); err != nil {
+		t.Fatal(err)
+	}
+	cands, cnt, err := m.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cnt.National != 1 {
+		t.Errorf("国家级护栏应命中 1 条，实际 %d", cnt.National)
+	}
+	if cnt.High != 1 {
+		t.Errorf("高置信仍应只有 1 条（国家级那条不得进高置信），实际 %d", cnt.High)
+	}
+	var hit bool
+	for _, c := range cands {
+		if c.LawID != "r_national" {
+			continue
+		}
+		hit = true
+		if c.Confidence != RegionConfNational || c.Code != "" {
+			t.Errorf("国家级那条应标为 national 且无建议码，实际 %q/%q", c.Confidence, c.Code)
+		}
+	}
+	if !hit {
+		t.Fatal("报告里找不到该条")
+	}
+	batchID, n, err := m.Apply(cands)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("Apply 不应写入国家级那条，实际写入 %d 条", n)
+	}
+	if code, _, _ := regionCodeOf(t, m, "r_national"); code != "" {
+		t.Errorf("国家级法规被误标地域 %q（批次 %s）", code, batchID)
+	}
+	// 「其他」不在护栏内：它既可能国家级也可能地方级，不得据此否决
+	if _, err := m.DB.Exec(`INSERT INTO law(law_id,name,issuer,effect_level)
+		VALUES('r_other','河北省地质灾害防治条例','','其他')`); err != nil {
+		t.Fatal(err)
+	}
+	cands2, cnt2, err := m.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cnt2.High != 1 {
+		// r_bj 此时已是「已标注」，高置信只剩 effect_level=其他 的那条
+		t.Errorf("effect_level=其他 仍应可高置信标引，实际 high=%d", cnt2.High)
+	}
+	if _, n2, err := m.Apply(cands2); err != nil || n2 != 1 {
+		t.Errorf("「其他」那条应可写入，实际 n=%d (%v)", n2, err)
+	}
+}
 func TestRegionUndoKeepsHumanReview(t *testing.T) {
 	m := setupRegion(t)
 	cands, _, err := m.Scan()

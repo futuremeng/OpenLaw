@@ -42,6 +42,7 @@ data/
   provenance/       # 溯源 JSON（每文档）
   manifest/         # 防篡改清单 + Ed25519 签名（见 §5）
   incoming/ logs/   # 抓取暂存区 / 导入日志
+  reports/          # CLI 产出的核对报告（如 region-report-*.csv，gitignore 内）
 ```
 
 - **迁移前自动备份（已实现，`store/backup.go`）**：`store.Open` 读 `meta.schema_version`，
@@ -53,6 +54,11 @@ data/
   逐表计数与 FTS 条目数与备份完全一致。
 - **回滚**：停应用 → 用 `backups/` 内对应快照替换 `db/openlaw.db` 即回到迁移前状态
   （快照已验证可读、版本标记与列结构均停留在迁移前）。
+- **批量写入的回滚（不靠快照）**：机器标引（`openlaw-region -apply`）逐笔写 `region_log` 并带
+  `batch_id`，可整批回滚：先 `openlaw-region -undo <batch_id>`（只计数，不改库），确认后加 `-apply`
+  执行；只清「仍是该批写入值且无人工署名」的行，人工落判过的绝不被回滚。
+  大批量写入前另建议手工留一份快照（命名 `openlaw-v<版本>-preapply-<UTC>.db`），
+  代价约 1:1 磁盘（当前语料 2.0 GB/份），保留与清理策略由运维决定。
 
 - **整体可迁移**：所有 CLI 用 `-data <路径>` 指目录，内部全相对路径——拷贝整个 `data/` 到新机器即完成数据部署（当前约 3.3G：2.5 万文档 / 104 万条文）
 - 数据目录严禁提交仓库（已 gitignore）；对外共享推荐签名更新包（§7）

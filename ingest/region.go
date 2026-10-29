@@ -24,8 +24,19 @@ const (
 	RegionConfHigh     = "high"     // 高置信：名称前缀命中且不冲突 → 可写
 	RegionConfMedium   = "medium"   // 中置信：仅发布机关命中 → 只进报告
 	RegionConfConflict = "conflict" // 名称与发布机关互不隶属 → 转人工
+	RegionConfNational = "national" // 国家级效力：名称里的行政区名不是本法规的地域 → 不写
 	RegionConfNone     = "none"     // 无法判定 → 留空（绝不猜）
 )
+
+// nationalEffectLevels 国家级效力等级：这类法规的地域不是「名称开头的行政区」。
+// 实测抓出的反例：「台湾渔船停泊点边防治安管理办法」（issuer=公安部，部门规章）
+// 按名称前缀会误标 710000 台湾省——名称里的地名不等于法规的地域归属。
+// 「其他」不在列内：语料里它既可能国家级也可能地方级，不据此否决。
+var nationalEffectLevels = map[string]bool{
+	"宪法": true, "法律": true, "行政法规": true, "监察法规": true,
+	"部门规章": true, "司法解释": true,
+	"欧盟条例": true, "欧盟指令": true, "欧盟决定": true,
+}
 
 // RegionMarker 地域标引执行器（库层）。
 type RegionMarker struct {
@@ -34,14 +45,15 @@ type RegionMarker struct {
 
 // RegionCandidate 一条法规的地域建议（报告一行）。
 type RegionCandidate struct {
-	LawID      string
-	Name       string
-	Issuer     string
-	Code       string // 建议区划码；空 = 无建议
-	RegionPath string // 行政区路径名（空 = 未标注/未知码）
-	Rule       int    // 规则号（0 = 无）
-	Confidence string // RegionConf* 之一
-	Note       string // 依据（写入 region_rule，供复核追溯）
+	LawID       string
+	Name        string
+	Issuer      string
+	EffectLevel string
+	Code        string // 建议区划码；空 = 无建议
+	RegionPath  string // 行政区路径名（空 = 未标注/未知码）
+	Rule        int    // 规则号（0 = 无）
+	Confidence  string // RegionConf* 之一
+	Note        string // 依据（写入 region_rule，供复核追溯）
 }
 
 // RegionCounts 试采统计。分类计数，不给单一「覆盖率」了事。
@@ -51,13 +63,14 @@ type RegionCounts struct {
 	High          int
 	Medium        int
 	Conflict      int
+	National      int
 	Undecided     int
 }
 
 // Scan 只读扫描全库，给出每条法规的地域建议与分类计数。
 func (m *RegionMarker) Scan() ([]RegionCandidate, RegionCounts, error) {
-	rows, err := m.DB.Query(`SELECT law_id, name, COALESCE(issuer,''), COALESCE(region_code,'')
-		FROM law ORDER BY law_id`)
+	rows, err := m.DB.Query(`SELECT law_id, name, COALESCE(issuer,''), COALESCE(region_code,''),
+		COALESCE(effect_level,'') FROM law ORDER BY law_id`)
 	if err != nil {
 		return nil, RegionCounts{}, fmt.Errorf("读取法规清单失败: %w", err)
 	}
@@ -65,13 +78,14 @@ func (m *RegionMarker) Scan() ([]RegionCandidate, RegionCounts, error) {
 	var out []RegionCandidate
 	var cnt RegionCounts
 	for rows.Next() {
-		var lawID, name, issuer, existing string
-		if err := rows.Scan(&lawID, &name, &issuer, &existing); err != nil {
+		var lawID, name, issuer, existing, effectLevel string
+		if err := rows.Scan(&lawID, &name, &issuer, &existing, &effectLevel); err != nil {
 			return nil, RegionCounts{}, err
 		}
-		c := RegionCandidate{LawID: lawID, Name: name, Issuer: issuer}
+		c := RegionCandidate{LawID: lawID, Name: name, Issuer: issuer, EffectLevel: effectLevel}
 		cnt.Total++
-		if existing != "" {
+		switch {
+		case existing != "":
 			c.Confidence, c.Code = RegionConfMarked, existing
 			c.RegionPath = geo.PathName(existing)
 			c.Note = "已标注"
@@ -79,7 +93,12 @@ func (m *RegionMarker) Scan() ([]RegionCandidate, RegionCounts, error) {
 				c.Note = "已标注（区划码不在内置区划表内）" // 如实呈现，不假装可解释
 			}
 			cnt.AlreadyMarked++
-		} else {
+		case nationalEffectLevels[effectLevel]:
+			// 护栏：国家级效力的法规，名称开头的地名不是它的地域归属（见 nationalEffectLevels 注释）
+			c.Confidence = RegionConfNational
+			c.Note = "国家级效力（" + effectLevel + "），不按名称标地域"
+			cnt.National++
+		default:
 			s := parse.SuggestRegion(name, issuer)
 			c.Code, c.RegionPath, c.Rule, c.Note = s.Code, s.Name, s.Rule, s.Note
 			switch {

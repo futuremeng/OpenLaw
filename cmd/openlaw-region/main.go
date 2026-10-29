@@ -64,12 +64,13 @@ func main() {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"total": cnt.Total, "already_marked": cnt.AlreadyMarked,
 			"high": cnt.High, "medium": cnt.Medium,
-			"conflict": cnt.Conflict, "undecided": cnt.Undecided,
-			"report": *report, "applied": *apply,
+			"conflict": cnt.Conflict, "national": cnt.National,
+			"undecided": cnt.Undecided,
+			"report":    *report, "applied": *apply,
 		})
 	} else {
-		fmt.Printf("法规 %d：已标注 %d | 高置信建议 %d | 中置信（仅报告，不写库）%d | 冲突转人工 %d | 无法判定 %d\n",
-			cnt.Total, cnt.AlreadyMarked, cnt.High, cnt.Medium, cnt.Conflict, cnt.Undecided)
+		fmt.Printf("法规 %d：已标注 %d | 高置信建议 %d | 中置信（仅报告，不写库）%d | 冲突转人工 %d | 国家级不按名称标 %d | 无法判定 %d\n",
+			cnt.Total, cnt.AlreadyMarked, cnt.High, cnt.Medium, cnt.Conflict, cnt.National, cnt.Undecided)
 		fmt.Printf("报告: %s\n", *report)
 	}
 	if !*apply {
@@ -94,14 +95,14 @@ func writeReport(path string, cands []ingest.RegionCandidate) error {
 	defer f.Close()
 	w := csv.NewWriter(f)
 	if err := w.Write([]string{
-		"law_id", "name", "issuer", "confidence",
+		"law_id", "name", "issuer", "effect_level", "confidence",
 		"region_code", "region_path", "rule", "note",
 	}); err != nil {
 		return err
 	}
 	for _, c := range cands {
 		if err := w.Write([]string{
-			c.LawID, c.Name, c.Issuer, c.Confidence,
+			c.LawID, c.Name, c.Issuer, c.EffectLevel, c.Confidence,
 			c.Code, c.RegionPath, strconv.Itoa(c.Rule), c.Note,
 		}); err != nil {
 			return err
