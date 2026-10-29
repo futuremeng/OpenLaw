@@ -29,6 +29,7 @@ import (
 type App struct {
 	ctx     context.Context
 	dataDir string
+	dataSrc string // 语料目录来源（命令行/环境变量/随程序位置/当前目录），必须可展示
 	db      *store.DB
 	openErr string
 
@@ -85,6 +86,7 @@ type LevelCount struct {
 
 type StatusView struct {
 	DataDir         string            `json:"data_dir"`
+	DataSrc         string            `json:"data_src,omitempty"` // 目录来源（如实展示）
 	OpenErr         string            `json:"open_err,omitempty"`
 	SchemaVersion   string            `json:"schema_version"`
 	SchemaMin       string            `json:"schema_min"`
@@ -118,7 +120,7 @@ func (a *App) count(q string, args ...any) int {
 
 // Status 语料状态汇总（计数/来源版本/schema/许可）。
 func (a *App) Status() (StatusView, error) {
-	v := StatusView{DataDir: a.dataDir, OpenErr: a.openErr, SchemaMin: store.SchemaMin, SchemaMax: store.SchemaMax}
+	v := StatusView{DataDir: a.dataDir, DataSrc: a.dataSrc, OpenErr: a.openErr, SchemaMin: store.SchemaMin, SchemaMax: store.SchemaMax}
 	if a.db == nil {
 		return v, errors.New(a.openErr)
 	}

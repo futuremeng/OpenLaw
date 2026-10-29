@@ -154,8 +154,15 @@ async function applyRegion(code) {
 $("#region-prov").addEventListener("change", () => fillRegionCities(""));
 $("#btn-region-apply").addEventListener("click", () => applyRegion($("#region-city").value || $("#region-prov").value));
 $("#btn-region-clear").addEventListener("click", () => applyRegion(""));
-$("#btn-locate").addEventListener("click", () => {
-  if (!navigator.geolocation) { toast("本机未提供位置服务，请用左侧下拉手动选择地区"); return; }
+$("#btn-locate").addEventListener("click", async () => {
+  if (!navigator.geolocation) { toast("本机未提供位置服务，请用左侧下拉手动选择地区或「按选定地点试判定」"); return; }
+  // 先向系统申请授权（macOS 需要 bundle + plist 用途声明；Wails 自身不做这件事）。
+  // 前提不满足时 Go 会给出具体原因，不能让它落到 webview 的无信息量 PERMISSION_DENIED。
+  toast("正在请求定位授权（仅本机使用，不联网）…");
+  let perm = null;
+  try { perm = await app().RequestLocationPermission(); } catch (e) { perm = null; }
+  if (!perm) { toast("无法确认定位授权。请用左侧下拉选择地区，或点「按选定地点试判定」。"); return; }
+  if (perm.status !== "authorized") { toast(perm.msg); return; }
   toast("正在获取位置（仅本机离线判定，不联网）…");
   navigator.geolocation.getCurrentPosition(async (pos) => {
     try {
@@ -267,6 +274,7 @@ async function loadOverview() {
   try {
     const v = await app().Status();
     $("#status-err").textContent = v.open_err || "";
+    $("#ov-datadir").textContent = "语料目录：" + (v.data_dir || "未知") + (v.data_src ? "（来源：" + v.data_src + "）" : "");
     $("#schema-badge").textContent = "数据库版本 " + (v.schema_version || "?");
     const lf = Object.values(v.last_fetch || {}).sort().reverse()[0];
     $("#ov-hero").innerHTML = `

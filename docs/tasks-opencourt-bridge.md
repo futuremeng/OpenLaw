@@ -314,6 +314,17 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   署名）；自治县、直辖县级、区级等层级另行对齐。全文检索按地域过滤同样未做
   （FTS5 结果不重排序，只能做过滤，需单独对齐口径）。
 
+- **地点定位 · 第 3 段（2026-10-29，macOS 真实定位链路）**：定位被拒的根因查实为两条
+  ——裸二进制无 bundle 身份（TCC 不认）+ Wails v2.17 darwin 前端无定位授权回调。
+  已补 `packaging/macos/`（.app + 定位用途声明 + ad-hoc 签名 + 自检）与
+  `desktop/location_darwin.m`/`RequestLocationPermission`（点击时申请，状态逐项如实回传）；
+  语料目录改为 `-data` > `OPENLAW_DATA` > 随程序位置 > 当前目录（`dataresolve.go`），
+  来源在日志与「库总览」显示——防 `.app` 从访达启动时静默打开空语料库。
+  实测已过：CWD=`/` 启动 .app → 目录来源「随程序位置」、`lsof` 打开真实库、bundle id
+  与 ad-hoc 签名有效。门禁：`bundle_test.go`（plist 键 / 声明文案 / 可执行名一致性 /
+  签名自检 / shell 中文插值陷阱）。**待人工点一次授权**才能确认 webview 回传坐标；
+  在此之前手动选择与「试判定」仍是可用主路径。
+
 ---
 
 ## 明确不在本清单内（不扩散）

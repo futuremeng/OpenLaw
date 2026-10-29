@@ -36,6 +36,28 @@
   可能拒绝定位授权，此时提示走手动选择（见 docs/deploy.md §9）。
   **尚未做**：全文检索按地域过滤；地点标引写路径（`law.region_code` + 人工落判）。
 
+- **地点定位 · 第 3 段（macOS 真实定位：.app 打包 + 授权 shim + 语料目录解析）**：
+  实测确认裸二进制下 webview 一律回「已拒绝授权」，且 Wails v2.17 的 darwin 前端
+  不含任何定位授权回调（模块内 grep `CLLocation` 无命中）——光加 plist 不够。补齐两块：
+  ①`packaging/macos/`：`Info.plist`（`NSLocationWhenInUseUsageDescription` 等定位用途
+  声明，文案如实写明不联网/不上传）+ `build-app.sh`（组装 bundle、ad-hoc 签名、
+  `plutil -lint` 与 `codesign --verify` 自检；`TAGS=` 可产出带控制台的实测变体）；
+  ②`desktop/location_darwin.m` + `main.App.RequestLocationPermission`：仅在用户点
+  「获取我的位置」时申请 WhenInUse 授权（弹窗异步，最多轮询 10 秒），把「已授权/
+  已拒绝/受限/未应答/缺 bundle 声明/平台不支持」逐项回传原因与出路，绝不谎报授权。
+  新增 `desktop/dataresolve.go`：语料目录按 `-data` > 环境变量 `OPENLAW_DATA` > 随程序
+  位置 > 当前目录解析，来源写入启动日志与「库总览」——`.app` 从访达启动时工作目录是
+  `/`，不解析就会静默新建空语料库（违反诚实展示纪律）。实测：CWD=`/` 下启动 .app，
+  日志显示「语料目录：…（来源：随程序位置）」，`lsof` 确认打开的是真实语料库；
+  LaunchServices 身份 `com.github.futuremeng.openlaw`，ad-hoc 签名满足 Designated
+  Requirement。**待人工确认**：系统弹窗点「允许」后 webview 是否回传坐标（机器无法代答）。
+  新增门禁 `desktop/bundle_test.go`：plist 必备键、用途声明须含「不联网/不上传」、
+  `CFBundleExecutable` 与脚本复制的可执行名一致、脚本必须签名自检；
+  `TestShellVarFollowedByCJK` 抓「`$VAR` 后紧跟中文」——实测踩过（`$TAGS；` 被 bash
+  并入变量名，`set -u` 下脚本直接退出）。另如实记录：CoreLocation/Foundation 带入重复
+  `-lobjc`，链接期有无害提示，压制需 `CGO_LDFLAGS_ALLOW`（与「构建不依赖外部环境变量」
+  冲突），故保留。
+
 - **修复（库总览面板空白）+ 前端绑定契约门禁**：前端 `app().RecentReports(5)` 与
   Go 侧 `RecentReports()` 实参个数不符，Wails 运行期拒绝该调用
   （`received 1 arguments to method 'main.App.RecentReports', expected 0`），

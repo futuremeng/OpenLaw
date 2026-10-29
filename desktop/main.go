@@ -8,6 +8,10 @@
 //
 //	go build -tags desktop,production -o dist/openlaw-desktop ./desktop
 //	./dist/openlaw-desktop -data data
+//
+//	需要真实定位（macOS 系统授权）时必须打包为 .app：
+//
+//	packaging/macos/build-app.sh        # 产出 dist/OpenLaw.app（含定位用途声明）
 package main
 
 // wails v2.17 darwin 生产构建引用 UTType（拖拽支持）但未链接 UniformTypeIdentifiers
@@ -23,6 +27,7 @@ import (
 	"embed"
 	"flag"
 	"log"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -35,8 +40,21 @@ var assets embed.FS
 func main() {
 	dataDir := flag.String("data", "data", "数据目录（db/、md/、incoming/、manifest/）")
 	flag.Parse()
+	flagSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "data" {
+			flagSet = true
+		}
+	})
 
-	app := NewApp(*dataDir)
+	// .app 经 Finder 启动时工作目录是 "/"：按程序位置回退找语料目录，并把来源如实
+	// 打印（界面「库总览」同步展示）。绝不静默 MkdirAll 出一个空语料库。
+	exe, _ := os.Executable()
+	dir, src := resolveDataDir(*dataDir, flagSet, exe, fileIsDir, os.Getenv)
+	log.Printf("语料目录：%s（来源：%s）", dir, src)
+
+	app := NewApp(dir)
+	app.dataSrc = src
 	if err := app.Open(); err != nil {
 		// 启动失败也开窗：错误在界面内如实显示（fail-visible，不静默）
 		log.Printf("打开语料失败: %v", err)

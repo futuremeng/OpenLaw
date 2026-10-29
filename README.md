@@ -66,10 +66,13 @@ OpenLaw/
     openlaw-check/    # 每日哈希重算 + 签名校验 + 断链清单
   desktop/      # 桌面客户端「开源法律法规数据库」（Wails v2；公众模式：查法规/
                 #   按目录浏览；专业模式：库总览/法规检索+修订沿革+引用核验/
-                #   人工复核/数据采集与更新；地点定位为离线就近判定 + 手动选择，
-                #   法规按名称判定地域、判不出如实显示「地域未标注」；与 CLI 同一
-                #   代码路径；仅此壳需 CGO，核心库仍纯 Go。
+                #   人工复核/数据采集与更新；地点定位为离线就近判定 + 手动选择 +
+                #   试判定，真实定位需打包 .app（见 packaging/），法规按名称判定地域、
+                #   判不出如实显示「地域未标注」；与 CLI 同一代码路径；仅此壳需 CGO，
+                #   核心库仍纯 Go。
                 #   go build -tags desktop,production -o dist/openlaw-desktop ./desktop）
+  packaging/    # macOS .app 打包：Info.plist（定位用途声明等）+ build-app.sh
+                #   （组装 bundle、ad-hoc 签名、plutil/codesign 自检）
   data/         # pdf/ md/ db/ provenance/ logs/ manifest/ incoming/（gitignore）
   testdata/     # 样例法规与测试数据
   tests/acceptance/  # 端到端验收：导入 → 校验 → 篡改 → 断链

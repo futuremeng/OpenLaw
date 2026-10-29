@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS 应用包描述文件（由 packaging/macos/build-app.sh 复制进 .app/Contents/）。
+
+  为什么必须有：TCC（系统权限）只认带 bundle 身份且已签名的应用；裸二进制没有
+  身份，navigator.geolocation 一律被拒。缺少 NSLocation* 用途声明时，系统不会
+  弹出授权窗，CoreLocation 也不会进入「已决定」状态。
+
+  用途声明必须如实：仅用于本机离线判定当前地区，不联网、不上传、不做 IP 定位。
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>OpenLaw</string>
+	<key>CFBundleDisplayName</key>
+	<string>OpenLaw 语料台</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.github.futuremeng.openlaw</string>
+	<key>CFBundleExecutable</key>
+	<string>OpenLaw</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>0.1.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>OpenLaw 需要读取一次本机位置，用于在本机离线判定「当前地区」。不联网、不上传、不做 IP 定位；判定结果可随时手动更正。</string>
+	<key>NSLocationUsageDescription</key>
+	<string>同上：仅用于本机离线地区判定，位置数据不出本机。</string>
+</dict>
+</plist>

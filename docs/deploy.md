@@ -19,6 +19,18 @@ make build-all   # darwin/arm64 darwin/amd64 linux/{amd64,arm64} windows/amd64
 
 前置 Go 版本以 `go.mod` 为准；国内网络建议 `export GOPROXY=https://goproxy.cn,direct`。
 
+桌面端 macOS 需要**应用包**形态（系统权限只认带 bundle 身份的应用）：
+
+```bash
+packaging/macos/build-app.sh                       # → dist/OpenLaw.app
+TAGS=desktop,production,devtools \
+  packaging/macos/build-app.sh dist/OpenLaw-Dev.app  # 带控制台的实测变体
+open dist/OpenLaw.app
+```
+
+脚本会自检 `plutil -lint` 与 `codesign --verify`。ad-hoc 签名（无开发者证书）可用，
+但每次重建后 cdhash 变化，系统可能要求重新授权。
+
 ## 3. 数据目录（真正的部署物）
 
 ```text
@@ -33,6 +45,11 @@ data/
 
 - **整体可迁移**：所有 CLI 用 `-data <路径>` 指目录，内部全相对路径——拷贝整个 `data/` 到新机器即完成数据部署（当前约 3.3G：2.5 万文档 / 104 万条文）
 - 数据目录严禁提交仓库（已 gitignore）；对外共享推荐签名更新包（§7）
+- **桌面端目录解析**（`desktop/dataresolve.go`）：`-data` > 环境变量 `OPENLAW_DATA` >
+  随程序位置（`.app` 位于仓库 `dist/` 下时自动取仓库 `data/`）> 当前目录默认值。
+  实际选用的目录与来源在启动日志与「库总览」如实显示。**为什么必须这样**：`.app` 从
+  访达启动时工作目录是 `/`，相对路径 `data` 指向不存在处，而打开语料时会建目录——
+  不解析就会静默打开一个空语料库，用户却以为在看真实数据
 
 ## 4. 装后验证（新机器必做）
 
@@ -88,11 +105,16 @@ openlaw-pack import  # 完整性 + 来源信任都通过才入库；失败保留
 - **地点定位（OL-12，默认离线）**：浏览器只交经纬度，判定用内置区划表在本机完成
   （`geo` 包：34 省级 + 346 地级 + 近似中心点）；不联网、不做 IP 定位、不调用任何
   地理编码服务。就近判定必然带误差（中心点为人工整理的近似值，10~30 km），UI 必须
-  显示距离并允许一键更正。**实测（2026-10-29，macOS）**：裸二进制（无 `Info.plist`
-  定位声明）下 webview 一律返回「已拒绝授权」——要真正启用需产出带
-  `NSLocationWhenInUseUsageDescription` 的 `.app` 包（尚未做）。此期间走两条可用通道：
-  ①下拉手动选省/市；②「按选定地点试判定」（`LocateFromRegion`，以所选地点中心点跑同一条
-  判定链路，来源记 `trial` 并明示「非真实定位」，不冒充真实位置）。
+  显示距离并允许一键更正。**实测（2026-10-29，macOS）**：裸二进制（无 bundle 身份、
+  无 `Info.plist` 定位用途声明）下 webview 一律返回「已拒绝授权」；且 Wails v2.17 的
+  darwin 前端不含任何定位授权回调（源码 grep `CLLocation` 无命中），因此光有 plist
+  也不够。现已两条都补上：`packaging/macos/`（.app + `NSLocationWhenInUseUsageDescription`
+  + ad-hoc 签名）与 `desktop/location_darwin.m`（用户点击时申请 WhenInUse 授权，
+  并把「已授权/已拒绝/受限/未应答/缺 bundle 声明」逐项如实回传）。
+  未打包或权限未给时走两条可用通道：①下拉手动选省/市；②「按选定地点试判定」
+  （`LocateFromRegion`，以所选地点中心点跑同一条判定链路，来源记 `trial` 并明示
+  「非真实定位」，不冒充真实位置）。**仍未实测确认**：用户在系统弹窗点「允许」后
+  webview 是否确实回传坐标（需人工点一次授权，机器无法代答）。
 
 - 数据不出域：无遥测、无后台请求；一切联网为显式 CLI 触发
 - 私钥（`*.key`）与数据备份均严禁入库，独立加密存储
