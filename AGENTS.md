@@ -65,6 +65,9 @@ go build -tags desktop,production,devtools -o dist/openlaw-desktop-devtools ./de
 
 缺 `-tags desktop,production` 会链接 stub 绑定，属构建错误而非可跳过项。
 新行为必须带同包测试；测试离线可跑（临时目录语料），不得依赖真实网络或真实语料。
+前端 ↔ Go 绑定契约由 `desktop/binding_test.go` 门禁：改动前端 `app().Method(...)`
+调用或 `main.App` 导出方法签名后，`go test ./desktop/` 必须仍绿——Wails 在实参个数
+不符时只在运行期拒绝调用，而面板加载是一整段 try/catch，一处不符即整块空白。
 
 ## 提交与文档
 

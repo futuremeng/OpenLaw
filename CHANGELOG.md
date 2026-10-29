@@ -4,6 +4,17 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **修复（库总览面板空白）+ 前端绑定契约门禁**：前端 `app().RecentReports(5)` 与
+  Go 侧 `RecentReports()` 实参个数不符，Wails 运行期拒绝该调用
+  （`received 1 arguments to method 'main.App.RecentReports', expected 0`），
+  而面板加载是一整段 try/catch——结果整块「库总览」落入 catch，只剩「读取失败」
+  一行，覆盖表/采集记录/复核记录全部空白。`RecentReports(limit)` 现按面板展示条数
+  取跨来源最近 limit 份（limit ≤0 取默认 5，>50 钳制）；新增 `desktop/binding_test.go`
+  契约门禁：扫描 app.js 中全部 `app().Method(...)` 调用，逐一核对实参个数与
+  `main.App` 导出方法一致（调用不存在的方法同样报错），把这类编译期无感的前端
+  漂移变成测试期失败。测试：limit 语义（跨来源按修改时间取最近）、默认值与钳制、
+  无 incoming 目录如实返回空、门禁当前覆盖 26 个方法 / 34 处调用。
+
 - **AGENTS.md（仓库内 AI 代理与协作者约束）**：根目录新增条文，把既有纪律提炼为
   可执行约束——诚实展示（缺失/中断如实标注，禁假数据）、CLI 与桌面端共用同一库层
   runner、写路径从严并验证旧数据真实链路、复核强制署名 + 批量先干跑、默认离线与

@@ -351,8 +351,22 @@ func (a *App) riskSet() ingest.RiskSet {
 // ---- 总览增强 ----
 
 // RecentReports 最近导入/采集报告分诊（读 incoming/ 报告文件，不碰 DB）。
-func (a *App) RecentReports() []ReportSummary {
-	return ScanReports(a.dataDir, 2)
+// limit = 面板展示条数上限：跨来源合并后按修改时间倒序取前 limit 份
+// （ScanReports 已按修改时间倒序返回）。limit ≤0 取默认 5，>50 钳制到 50。
+// 参数个数必须与前端 app().RecentReports(n) 调用一致——不符时 Wails 运行期
+// 直接报 "received N arguments ... expected M"，见 binding_test.go 契约门禁。
+func (a *App) RecentReports(limit int) []ReportSummary {
+	if limit <= 0 {
+		limit = 5
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	reps := ScanReports(a.dataDir, limit) // 每来源最多取 limit 份，足够填满全局前 limit
+	if len(reps) > limit {
+		reps = reps[:limit]
+	}
+	return reps
 }
 
 type ReviewRow struct {

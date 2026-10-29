@@ -296,6 +296,10 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   本地通道、名单守门（非法 hex/重复 key ID）。
 - **AGENTS.md（2026-10-29）**：根目录新增 AI 代理与协作者约束条文（诚实展示、
   共享 runner、写路径从严、复核署名、离线限速、签名信任、验证门禁、法言法语术语）。
+- **绑定契约门禁（2026-10-29）**：修复 RecentReports 参数个数漂移导致库总览整段
+  空白（Wails 运行期拒绝调用 + 前端单段 try/catch = 一处失败全屏空白）；新增
+  `desktop/binding_test.go` 扫描 app.js 全部 `app().Method(...)` 调用核对实参个数
+  与 main.App 导出方法一致——前端↔Go 绑定漂移自此在 `go test` 阶段暴露。
 
 ---
 
