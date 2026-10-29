@@ -4,7 +4,7 @@ import "testing"
 
 func TestBrowseLawsAndArticles(t *testing.T) {
 	a := newTestApp(t)
-	rows, err := a.BrowseLaws("", "", 50, 0)
+	rows, err := a.BrowseLaws("", "", "", 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,10 +18,10 @@ func TestBrowseLawsAndArticles(t *testing.T) {
 	if r.VersionNo != "现行" || r.Effective != "2004-01-01" || r.Expire != "" {
 		t.Errorf("代表版本应取最新施行版: %+v", r)
 	}
-	if got, _ := a.BrowseLaws("部门规章", "", 50, 0); len(got) != 0 {
+	if got, _ := a.BrowseLaws("部门规章", "", "", 50, 0); len(got) != 0 {
 		t.Errorf("等级过滤失效: %+v", got)
 	}
-	if got, _ := a.BrowseLaws("", "工伤", 50, 0); len(got) != 1 {
+	if got, _ := a.BrowseLaws("", "工伤", "", 50, 0); len(got) != 1 {
 		t.Errorf("名称过滤失效: %+v", got)
 	}
 	arts, err := a.BrowseArticles("L1")

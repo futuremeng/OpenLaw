@@ -19,6 +19,16 @@ nav { display: flex; flex-direction: column; }
 .nav:hover { background: #1b2c3f; }
 .nav.active { background: #1b2c3f; color: #fff; border-left-color: var(--acc); }
 #side-foot { margin-top: auto; padding: 12px 18px; font-size: 12px; color: #7f93aa; }
+/* 地区栏（地点定位）：暗色侧栏内自成一块，误差与来源必须可见 */
+#region-bar { margin: 16px 18px 0; padding: 10px; border: 1px solid #24384d; border-radius: 10px; background: #182838; display: flex; flex-direction: column; gap: 6px; }
+#region-bar #region-text { font-size: 13px; color: #dfe7f0; }
+#region-bar .small { font-size: 11px; line-height: 1.5; color: #8fa4ba; }
+#region-bar select { padding: 6px 8px; border: 1px solid #2f4761; border-radius: 6px; background: #101b26; color: #dfe7f0; }
+#region-bar button { padding: 6px 8px; border: 1px solid #2f4761; border-radius: 6px; background: #22364c; color: #dfe7f0; cursor: pointer; }
+#region-bar .rowbtns { display: flex; gap: 6px; }
+#region-bar .rowbtns button { flex: 1; }
+.unlabeled { color: #8a97a6; }
+
 
 /* ---------- 面板 ---------- */
 main { flex: 1; min-width: 0; padding: 22px 26px 60px; }

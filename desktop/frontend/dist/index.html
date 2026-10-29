@@ -22,6 +22,18 @@
       <button class="nav" data-panel="confirm" data-mode="pro" hidden>人工复核</button>
       <button class="nav" data-panel="collect" data-mode="pro" hidden>数据采集与更新</button>
     </nav>
+    <div id="region-bar">
+      <div id="region-text" class="muted">正在读取地区…</div>
+      <div id="region-note" class="muted small"></div>
+      <select id="region-prov"></select>
+      <select id="region-city"></select>
+      <div class="rowbtns">
+        <button id="btn-region-apply">应用地区</button>
+        <button id="btn-region-clear">不限地区</button>
+      </div>
+      <button id="btn-locate">获取我的位置</button>
+      <div id="region-help" class="muted small">定位只在本机离线判定，不联网；判定结果请核对。</div>
+    </div>
     <div id="side-foot"><span id="schema-badge"></span></div>
   </aside>
 
@@ -55,8 +67,10 @@
           <option>地方政府规章</option><option>法律</option><option>司法解释</option>
         </select>
         <input id="b-kw" placeholder="按法规名称过滤，如「工伤保险」"/>
+        <label class="chk"><input id="b-local" type="checkbox"/> 仅本机地区</label>
         <button id="btn-browse">浏览</button>
       </div>
+      <p id="b-stats" class="muted"></p>
       <div class="split">
         <div id="law-list" class="list"><p class="muted">先选类别或直接浏览，共收录法规将列于此处。</p></div>
         <div id="law-detail" class="preview"><p class="muted">点选左侧法规，查看其条款与修订沿革。</p></div>

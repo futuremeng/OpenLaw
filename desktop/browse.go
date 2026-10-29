@@ -18,6 +18,7 @@ type LawRow struct {
 	Name      string `json:"name"`
 	Issuer    string `json:"issuer"`
 	Level     string `json:"level"`
+	Region    string `json:"region"` // 按名称推导的地域；空 = 地域未标注（UI 如实显示）
 	VersionNo string `json:"version_no"`
 	Effective string `json:"effective_date"`
 	Expire    string `json:"expire_date"` // 空 = 仍现行有效
@@ -25,9 +26,11 @@ type LawRow struct {
 	Status    string `json:"confirm_status"`
 }
 
-// BrowseLaws 法规列表：level 空 = 全部等级；keyword 空 = 不过滤名称。
+// BrowseLaws 法规列表：level 空 = 全部等级；keyword 空 = 不过滤名称；
+// region 空 = 不限地区，否则按地区（选省级时含其下辖地级）名称前缀过滤。
 // 代表版本取施行日最晚的一条（未失效优先由前端按 Expire 呈现）。
-func (a *App) BrowseLaws(level, keyword string, limit, offset int) ([]LawRow, error) {
+// 注意：地域过滤是**可复现的名称前缀过滤**，不是相关性重排（FTS5 纪律同源）。
+func (a *App) BrowseLaws(level, keyword, region string, limit, offset int) ([]LawRow, error) {
 	if a.db == nil {
 		return nil, errors.New(a.openErr)
 	}
@@ -35,6 +38,13 @@ func (a *App) BrowseLaws(level, keyword string, limit, offset int) ([]LawRow, er
 		limit = 200
 	}
 	kw := strings.TrimSpace(keyword)
+	where := `WHERE (?='' OR l.effect_level=?) AND (?='' OR l.name LIKE '%'||?||'%')`
+	args := []any{level, level, kw, kw}
+	if clause, rargs := regionClause(regionPatterns(region)); clause != "" {
+		where += clause
+		args = append(args, rargs...)
+	}
+	args = append(args, limit, offset)
 	rows, err := a.db.Query(`SELECT l.law_id, l.name, COALESCE(l.issuer,''),
 		COALESCE(l.effect_level,'（未标注）'), COALESCE(v.version_no,''),
 		COALESCE(v.effective_date,''), COALESCE(v.expire_date,''),
@@ -43,8 +53,8 @@ func (a *App) BrowseLaws(level, keyword string, limit, offset int) ([]LawRow, er
 		LEFT JOIN law_version v ON v.law_id=l.law_id
 			AND NOT EXISTS (SELECT 1 FROM law_version v2 WHERE v2.law_id=l.law_id AND v2.effective_date > v.effective_date)
 		LEFT JOIN document d ON d.doc_id=v.doc_id
-		WHERE (?='' OR l.effect_level=?) AND (?='' OR l.name LIKE '%'||?||'%')
-		ORDER BY l.effect_level, l.name LIMIT ? OFFSET ?`, level, level, kw, kw, limit, offset)
+		`+where+`
+		ORDER BY l.effect_level, l.name LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +66,42 @@ func (a *App) BrowseLaws(level, keyword string, limit, offset int) ([]LawRow, er
 			&r.Effective, &r.Expire, &r.Publish, &r.Status); err != nil {
 			return out, err
 		}
+		r.Region = lawRegion(r.Name)
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// BrowseStats 同一筛选条件下的法规总数与其中「地域未标注」的数量。
+// 未标注数如实给出——它决定「按地区显示」能覆盖多少，不得隐藏。
+func (a *App) BrowseStats(level, keyword, region string) (int, int, error) {
+	if a.db == nil {
+		return 0, 0, errors.New(a.openErr)
+	}
+	kw := strings.TrimSpace(keyword)
+	where := `WHERE (?='' OR l.effect_level=?) AND (?='' OR l.name LIKE '%'||?||'%')`
+	args := []any{level, level, kw, kw}
+	if clause, rargs := regionClause(regionPatterns(region)); clause != "" {
+		where += clause
+		args = append(args, rargs...)
+	}
+	rows, err := a.db.Query(`SELECT l.name FROM law l `+where, args...)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	var total, unlabeled int
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return total, unlabeled, err
+		}
+		total++
+		if lawRegion(name) == "" {
+			unlabeled++
+		}
+	}
+	return total, unlabeled, rows.Err()
 }
 
 // ArticleRow 条款列表一行（摘要为正文前 120 字）。

@@ -98,6 +98,76 @@ $("#modal-close").addEventListener("click", () => $("#modal").classList.add("hid
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("#modal").classList.add("hidden"); });
 
 
+/* ---------- 地区（地点定位 · 全部离线判定，不联网） ---------- */
+let regionOpts = [];   // app().RegionOptions()
+let regionCode = "";   // 当前生效地区码（"" = 不限地区）
+
+async function loadRegion() {
+  try {
+    regionOpts = (await app().RegionOptions()) || [];
+    const st = await app().CurrentRegion();
+    regionCode = st.code || "";
+    fillRegionSelects();
+    renderRegion(st);
+  } catch (e) {
+    regionOpts = [];
+    $("#region-text").textContent = "地区信息读取失败";
+    $("#region-note").textContent = String(e.message || e);
+  }
+}
+function fillRegionSelects() {
+  const prov = $("#region-prov");
+  prov.innerHTML = '<option value="">选择省份…</option>' + regionOpts.filter((o) => o.level === 1)
+    .map((o) => `<option value="${escapeHTML(o.code)}">${escapeHTML(o.name)}</option>`).join("");
+  // 回显当前地区：地区码是地级时，先定位到其所属省。
+  const cur = regionOpts.find((o) => o.code === regionCode);
+  if (cur) prov.value = cur.level === 1 ? cur.code : cur.parent;
+  fillRegionCities(cur && cur.level === 2 ? cur.code : "");
+}
+function fillRegionCities(pick) {
+  const prov = $("#region-prov"), city = $("#region-city");
+  const kids = regionOpts.filter((o) => o.parent === prov.value);
+  city.innerHTML = '<option value="">全省</option>' + kids
+    .map((o) => `<option value="${escapeHTML(o.code)}">${escapeHTML(o.name)}</option>`).join("");
+  city.disabled = !prov.value;
+  if (pick) city.value = pick;
+}
+function renderRegion(st) {
+  $("#region-text").textContent = st.path ? "当前地区：" + st.path : "未设置地区";
+  const src = st.source === "auto" ? "按位置就近判定" : st.source === "manual" ? "手动选择" : "";
+  $("#region-note").textContent = [st.at ? String(st.at).slice(0, 10) : "", src, st.note || ""].filter(Boolean).join(" · ");
+}
+async function applyRegion(code) {
+  const msg = await app().SetRegion(code || "");
+  if (msg) { toast("设置地区失败：" + msg); return; }
+  const label = ($("#region-city").value && $("#region-city").selectedOptions[0].text) ||
+    ($("#region-prov").value && $("#region-prov").selectedOptions[0].text) || "";
+  await loadRegion();
+  toast(code ? "当前地区：" + label + "（按名称判定地域，未标注的条目不在此列）" : "已取消地区限制");
+  reloadViewing();
+}
+$("#region-prov").addEventListener("change", () => fillRegionCities(""));
+$("#btn-region-apply").addEventListener("click", () => applyRegion($("#region-city").value || $("#region-prov").value));
+$("#btn-region-clear").addEventListener("click", () => applyRegion(""));
+$("#btn-locate").addEventListener("click", () => {
+  if (!navigator.geolocation) { toast("本机未提供位置服务，请用左侧下拉手动选择地区"); return; }
+  toast("正在获取位置（仅本机离线判定，不联网）…");
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    try {
+      const r = await app().LocateFromCoords(pos.coords.latitude, pos.coords.longitude);
+      if (!r.ok) { toast("未能判定地区：" + r.msg); return; }
+      await loadRegion();
+      toast("已判定：" + r.region.path + "（" + r.msg + "）");
+      reloadViewing();
+    } catch (e) { toast("定位失败：" + (e.message || e)); }
+  }, (err) => {
+    const why = { 1: "已拒绝授权", 2: "设备位置不可用", 3: "等待超时" }[err.code] || (err.message || "未知原因");
+    toast("未获取到位置：" + why + "。可用左侧下拉手动选择地区。");
+  }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
+});
+// 浏览面板是否按当前地区过滤（默认不勾选，避免改变既有浏览行为）。
+function browseRegionArg() { return $("#b-local").checked ? regionCode : ""; }
+
 /* ---------- 公众 · 查法规（搜索为中心） ---------- */
 async function loadHome() {
   try {
@@ -135,17 +205,27 @@ $("#hq").addEventListener("keydown", (e) => { if (e.key === "Enter") homeSearch(
 
 /* ---------- 公众 · 按目录浏览 ---------- */
 async function loadLaws() {
+  const level = $("#b-level").value, kw = $("#b-kw").value.trim(), region = browseRegionArg();
   try {
-    const rows = (await app().BrowseLaws($("#b-level").value, $("#b-kw").value.trim(), 300, 0)) || [];
+    const rows = (await app().BrowseLaws(level, kw, region, 300, 0)) || [];
     $("#law-list").innerHTML = rows.length ? rows.map((r) => `
       <div class="item" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
         <div class="t">${escapeHTML(r.name)} ${statusBadge(r.status)} ${validBadge(r.effective_date, r.expire_date)}</div>
-        <div class="m">${escapeHTML(r.level)} · ${escapeHTML(r.issuer || "发布机关未标注")}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
-      </div>`).join("") : '<p class="muted">该类别下暂无收录法规。</p>';
+        <div class="m">${escapeHTML(r.level)} · <span class="${r.region ? "" : "unlabeled"}">${escapeHTML(r.region || "地域未标注")}</span> · ${escapeHTML(r.issuer || "发布机关未标注")}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
+      </div>`).join("") :
+      '<p class="muted">' + (region ? "当前地区下没有符合条件的法规（地域按名称判定，判定不出的条目不会出现在此列表中）。" : "该类别下暂无收录法规。") + "</p>";
     document.querySelectorAll("#law-list .item").forEach((el) =>
       el.addEventListener("click", () => openLaw(el.dataset.law, el.dataset.name)));
   } catch (e) {
     $("#law-list").innerHTML = '<p class="bad">读取失败：' + escapeHTML(e.message || e) + "</p>";
+  }
+  try {
+    const st = await app().BrowseStats(level, kw, region);
+    const total = Array.isArray(st) ? st[0] : 0, unlabeled = Array.isArray(st) ? st[1] : 0;
+    $("#b-stats").textContent = `共 ${num(total)} 部` + (region ? "（已按当前地区过滤）" : "") +
+      `；其中 ${num(unlabeled)} 部地域未标注（按名称判定不出，不参与地区过滤）`;
+  } catch (e) {
+    $("#b-stats").textContent = "统计读取失败：" + (e.message || e);
   }
 }
 async function openLaw(lawID, name) {
@@ -162,6 +242,7 @@ async function openLaw(lawID, name) {
 }
 $("#btn-browse").addEventListener("click", loadLaws);
 $("#b-level").addEventListener("change", loadLaws);
+$("#b-local").addEventListener("change", loadLaws);
 $("#b-kw").addEventListener("keydown", (e) => { if (e.key === "Enter") loadLaws(); });
 
 /* ---------- 专业 · 库总览 ---------- */
@@ -415,6 +496,6 @@ async function loadSettings() {
 /* ---------- 启动 ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   loadManifest(); loadSettings();
-  waitBindings(() => applyMode());
+  waitBindings(() => { applyMode(); loadRegion(); });
 });
 

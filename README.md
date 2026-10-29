@@ -46,7 +46,8 @@ OpenLaw/
   sdk/          # 进程内 SDK（OpenCourt 对接面：Result/Trace/错误码）
   store/        # schema.sql（全量 DDL + FTS5）、db、migrate
   ingest/       # 哈希、溯源 JSON、导入器（事务 + 回滚）
-  parse/        # 条文拆分、日期标准化（左闭右开区间）
+  parse/        # 条文拆分、日期标准化（左闭右开区间）、效力等级与地域保守名称推导
+  geo/          # 内置行政区划词表（34 省级 + 346 地级 + 近似中心点）与离线就近判定
   validate/     # 六环节断链检测、manifest 签名、引用校验
   search/       # FTS5 检索（向量混合检索为后续）
   element/      # 构成要件加载/比对、脱敏
@@ -65,8 +66,9 @@ OpenLaw/
     openlaw-check/    # 每日哈希重算 + 签名校验 + 断链清单
   desktop/      # 桌面客户端「开源法律法规数据库」（Wails v2；公众模式：查法规/
                 #   按目录浏览；专业模式：库总览/法规检索+修订沿革+引用核验/
-                #   人工复核/数据采集与更新；与 CLI 同一代码路径；仅此壳需 CGO，
-                #   核心库仍纯 Go。
+                #   人工复核/数据采集与更新；地点定位为离线就近判定 + 手动选择，
+                #   法规按名称判定地域、判不出如实显示「地域未标注」；与 CLI 同一
+                #   代码路径；仅此壳需 CGO，核心库仍纯 Go。
                 #   go build -tags desktop,production -o dist/openlaw-desktop ./desktop）
   data/         # pdf/ md/ db/ provenance/ logs/ manifest/ incoming/（gitignore）
   testdata/     # 样例法规与测试数据

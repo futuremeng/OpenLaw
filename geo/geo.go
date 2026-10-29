@@ -167,8 +167,38 @@ func Nearest(lat, lng float64) (Region, float64) {
 	return best, bestD
 }
 
+// regionAliases 命名别名前缀 → 区划码。部分法规以「××经济特区」而非市名开头
+// （深圳/厦门/珠海/汕头/海南经济特区），只认市名会漏；别名一律保守列举，
+// 不确定的一律不列（判不出就留空）。
+var regionAliases = []struct {
+	prefix string
+	code   string
+}{
+	{"深圳经济特区", "440300"},
+	{"厦门经济特区", "350200"},
+	{"珠海经济特区", "440400"},
+	{"汕头经济特区", "440500"},
+	{"海南经济特区", "460000"},
+}
+
+// AliasesOf 该区划码在名称里可能出现的别名前缀（过滤与推导共用，保证口径一致）。
+func AliasesOf(code string) []string {
+	c := strings.TrimSpace(code)
+	if c == "" {
+		return nil
+	}
+	var out []string
+	for _, a := range regionAliases {
+		if a.code == c {
+			out = append(out, a.prefix)
+		}
+	}
+	return out
+}
+
 // MatchPrefix 按名称前缀匹配已知行政区，返回最长匹配；同级并列时取上级
 // （「吉林省吉林市…」判省级，与 parse/levelinfer.go 先强后弱的顺序一致）。
+// 别名前缀（「深圳经济特区…」）同样参与匹配，命中后归到其所属行政区。
 // 无匹配返回 (zero, false)。
 func MatchPrefix(name string) (Region, bool) {
 	n := strings.TrimSpace(name)
@@ -176,13 +206,29 @@ func MatchPrefix(name string) (Region, bool) {
 		return Region{}, false
 	}
 	var best *Region
-	for _, r := range regions {
+	bestLen := 0
+	better := func(name string, level int) bool {
+		return len(name) > bestLen || (len(name) == bestLen && best != nil && level < best.Level)
+	}
+	for i := range regions {
+		r := &regions[i]
 		if !strings.HasPrefix(n, r.Name) {
 			continue
 		}
-		if best == nil || len(r.Name) > len(best.Name) ||
-			(len(r.Name) == len(best.Name) && r.Level < best.Level) {
-			best = &r
+		if best == nil || better(r.Name, r.Level) {
+			best, bestLen = r, len(r.Name)
+		}
+	}
+	for _, a := range regionAliases {
+		if !strings.HasPrefix(n, a.prefix) {
+			continue
+		}
+		r, ok := byCode[a.code]
+		if !ok {
+			continue
+		}
+		if best == nil || better(a.prefix, r.Level) {
+			best, bestLen = r, len(a.prefix)
 		}
 	}
 	if best == nil {

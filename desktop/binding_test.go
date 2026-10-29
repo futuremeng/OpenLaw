@@ -6,14 +6,16 @@ package main
 // 一整段 try/catch——一处漂移就让整个面板落入 catch，只剩「读取失败」一行，
 // 其余数据全部空白。此类错误编译期无感（前端是 JS），必须在测试期暴露。
 //
-// 门禁内容：app.js 中每一处 app().Method(...) 的实参个数，必须与 main.App
-// 同名导出方法的参数个数一致；调用不存在的方法、或扫描器无法判定的调用，同样报错。
+// 门禁内容：① app.js 中每一处 app().Method(...) 的实参个数，必须与 main.App
+// 同名导出方法的参数个数一致（调用不存在的方法、或扫描器无法判定的调用同样报错）；
+// ② app.js 引用的每个 `$("#id")` 元素必须在 index.html 中声明。
 
 import (
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -116,4 +118,50 @@ func TestFrontendBindingArity(t *testing.T) {
 		}
 	}
 	t.Logf("绑定契约核对通过：%d 个方法 / %d 处调用", len(calls), checked)
+}
+
+// ---- DOM 元素契约 ----
+// 与实参漂移同一类故障：app.js 里 $("#x") 指向 index.html 中不存在的元素时，
+// $() 返回 null，后续 .addEventListener/.innerHTML 抛错，整段面板加载落入 catch。
+// 编译期与绑定层都无感，只能在测试期暴露。
+
+var jsDomSelRe = regexp.MustCompile(`\$\("#([A-Za-z0-9_\-]+)"\)`)
+var htmlIDRe = regexp.MustCompile(`id="([A-Za-z0-9_\-]+)"`)
+
+func TestFrontendDOMElementIDs(t *testing.T) {
+	js, err := os.ReadFile(filepath.Join("frontend", "dist", "assets", "app.js"))
+	if err != nil {
+		t.Fatalf("前端脚本不可读: %v", err)
+	}
+	html, err := os.ReadFile(filepath.Join("frontend", "dist", "index.html"))
+	if err != nil {
+		t.Fatalf("前端页面不可读: %v", err)
+	}
+	used := map[string]bool{}
+	for _, m := range jsDomSelRe.FindAllStringSubmatch(string(js), -1) {
+		used[m[1]] = true
+	}
+	if len(used) < 20 {
+		t.Fatalf("仅扫到 %d 个元素 id，扫描器可能已失效", len(used))
+	}
+	declared := map[string]bool{}
+	for _, m := range htmlIDRe.FindAllStringSubmatch(string(html), -1) {
+		declared[m[1]] = true
+	}
+	// app.js 自己插入的元素（insertAdjacentHTML 等）也算已声明。
+	for _, m := range htmlIDRe.FindAllStringSubmatch(string(js), -1) {
+		declared[m[1]] = true
+	}
+	var missing []string
+	for id := range used {
+		if !declared[id] {
+			missing = append(missing, id)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("app.js 引用了 index.html 中不存在的元素 id: %v——$() 返回 null，整段面板会空白", missing)
+		return
+	}
+	t.Logf("DOM 元素契约核对通过：%d 个 id 全部存在", len(used))
 }

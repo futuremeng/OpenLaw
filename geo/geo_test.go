@@ -147,6 +147,35 @@ func TestMatchPrefix(t *testing.T) {
 	}
 }
 
+// TestMatchPrefixAlias 「××经济特区」这类命名必须归到其所属行政区，
+// 且别名不得把青海「海南藏族自治州」误判成海南省。
+func TestMatchPrefixAlias(t *testing.T) {
+	cases := []struct{ name, wantCode, wantName string }{
+		{"深圳经济特区红树林湿地保护若干规定", "440300", "深圳市"},
+		{"厦门经济特区反不正当竞争…, 归厦门市", "350200", "厦门市"},
+		{"海南经济特区企业国有资产条例", "460000", "海南省"},
+		{"深圳市物业管理条例, 走市名", "440300", "深圳市"},
+		{"海南藏族自治州…, 青海不是海南", "632500", "海南藏族自治州"},
+	}
+	for _, c := range cases {
+		got, ok := MatchPrefix(c.name)
+		if !ok || got.Code != c.wantCode {
+			t.Errorf("%q 应判 %s(%s)，实际 %+v ok=%v", c.name, c.wantName, c.wantCode, got, ok)
+		}
+	}
+	if got := AliasesOf("440300"); len(got) != 1 || got[0] != "深圳经济特区" {
+		t.Errorf("AliasesOf(440300)=%v", got)
+	}
+	if got := AliasesOf("130100"); got != nil {
+		t.Errorf("无别名的区划应返回空: %v", got)
+	}
+	for _, a := range regionAliases { // 别名必须指向已知区划，否则是死规则
+		if _, ok := ByCode(a.code); !ok {
+			t.Errorf("别名 %q 指向未知区划 %s", a.prefix, a.code)
+		}
+	}
+}
+
 // TestNearestSymmetry 距离计算自洽：任一点到自身中心距离为 0。
 func TestNearestSymmetry(t *testing.T) {
 	for _, code := range []string{"130100", "440100", "650100", "232700"} {

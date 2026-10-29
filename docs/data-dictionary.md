@@ -11,6 +11,16 @@ law 1─n law_version 1─n article 1─n element；law 1─n relation；documen
 ### law 法规主表
 law_id（PK）、name、short_name、issuer、effect_level（CHECK 枚举：宪法/法律/行政法规/监察法规/地方性法规/部门规章/地方政府规章/司法解释/其他/欧盟条例/欧盟指令/欧盟决定）、is_local、remark。
 
+**地域（地点定位，OL-12）**：`law` 表**没有地域列**，地域目前是**查询期推导**，不落库：
+`parse.InferRegion` 按名称前缀匹配内置 `geo` 区划表（省级/地级两条规则 + 「××经济特区」
+别名），判不出一律留空——UI 必须显示「地域未标注」，不得假装覆盖。真实语料实测：
+law 24,033/28,952（83.0%）可判，其中地方类 24,030/25,009（96.1%）；剩余部分（如
+「城市民族工作条例」「××自治县…单行条例」）如实留空。写库标引（`law.region_code`
++ 机器建议 + 人工复核落判）为后续阶段，届时加法式迁移并在迁移前自动备份。
+地区偏好存 `meta` 表（经 Go 读写，前端不私存）：`user_region`（区划码，空=不限）、
+`user_region_source`（auto=就近判定 / manual=手动选择）、`user_region_at`（RFC3339 UTC）、
+`user_region_note`（就近判定误差等如实说明）。
+
 ### document 原始文档（溯源锚点）
 doc_id（PK）、file_path（**相对数据目录**，如 `pdf/<doc_id>.pdf`）、file_size、sha256（防篡改依据）、hash_algo（必须注明算法类型）、hash_computed_at、source_url/source_type、is_gongbao、publish_date、ocr_used/ocr_confidence、confirm_status（confirmed/pending/rejected）、lang（ISO 639-3，默认 zho；EU 通道 eng 等——24 官方语言同等作准，多语言=多 document）。
 

@@ -301,6 +301,19 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   `desktop/binding_test.go` 扫描 app.js 全部 `app().Method(...)` 调用核对实参个数
   与 main.App 导出方法一致——前端↔Go 绑定漂移自此在 `go test` 阶段暴露。
 
+- **地点定位 · 第 1+2 段（2026-10-29）**：`geo` 包（内置 34 省级 + 346 地级行政区与
+  近似中心点，离线就近判定，精度边界在注释与测试中如实声明）+ `parse.InferRegion`
+  （名称前缀保守推导：省级/地级 + 「××经济特区」别名，判不出留空）；桌面端
+  `RegionOptions/CurrentRegion/SetRegion/LocateFromCoords/BrowseStats` 与
+  `BrowseLaws(+region)`，侧栏地区栏（定位 / 省·市下拉 / 不限）、浏览页「仅本机地区」
+  与未标注计数，法规行显示推导地域；地区偏好存 `meta`。真实语料实测：law 可判
+  24,033/28,952（83.0%），地方类 24,030/25,009（96.1%），其余如实显示「地域未标注」。
+  **下一段（未做，写路径按高风险变更处理）**：地点标引——`law.region_code`
+  （schema v4 加法式 + 迁移前自动备份）、`openlaw-region` CLI（默认试采报告 →
+  `-apply` 写库留痕规则号）、桌面「地域标引」面板（BulkPreview 干跑计数 → 人工落判
+  署名）；自治县、直辖县级、区级等层级另行对齐。全文检索按地域过滤同样未做
+  （FTS5 结果不重排序，只能做过滤，需单独对齐口径）。
+
 ---
 
 ## 明确不在本清单内（不扩散）
