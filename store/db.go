@@ -16,7 +16,10 @@ import (
 // document +lang；relation_type +依据。v1 库自动原地升级，数据保留。
 // v3（2026-10）：law.effect_level 枚举 +「宪法」（flk 收录宪法与宪法修正案，此前无处归类）；
 // 新表 review_log（人工确认审计）与新索引经 schemaSQL IF NOT EXISTS 自动补齐，无需结构迁移。
-const SchemaVersion = "3"
+// v4（2026-10）：law +地域标引 5 列（region_code/source/rule/reviewer/reviewed_at）与新表
+// region_log（law 级地域审计）。加法式：不加 CHECK、不重建表（见 docs/design-region-write.md §3）。
+// 自 v4 起，结构迁移前一律先自动备份（store/backup.go），备份失败即中止迁移。
+const SchemaVersion = "4"
 
 // OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
 //   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、
@@ -26,6 +29,9 @@ const SchemaVersion = "3"
 //   - 写入入口（Open）可接受任何 ≤ SchemaMax 的旧版本并执行迁移链（v1→v2→v3）。
 const (
 	SchemaMax = SchemaVersion
+	// SchemaMin 保持 "3"（2026-10 拍板，docs/design-region-write.md §9.1）：
+	// 只读消费方读 v3 语料时没有地域标引列，界面显示「地域未标注」即可，
+	// 不被迫升级；代价仅是看不到地域列。需要写地域则必须升到 v4。
 	SchemaMin = "3"
 )
 
@@ -58,6 +64,15 @@ func Open(path string) (*DB, error) {
 	if ver > SchemaMax {
 		sqlDB.Close()
 		return nil, fmt.Errorf("语料 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不迁移、不回写标记）。%s", ver, SchemaMax, VersionGuidance)
+	}
+	// 结构迁移前自动备份（release-process.md §4 承诺的机制；store/backup.go 实现）。
+	// ver=="" 是空库/未初始化，无数据可失，不备份；版本一致不备份（避免每次启动产文件）。
+	// 备份失败一律 fail-closed：不迁移、不改结构，原库保持原样。
+	if ver != "" && ver != SchemaVersion {
+		if _, err := backupBeforeMigration(sqlDB, path, ver); err != nil {
+			sqlDB.Close()
+			return nil, fmt.Errorf("迁移前自动备份失败，迁移已中止（库未改动）: %w", err)
+		}
 	}
 	if err := migrate(sqlDB); err != nil {
 		sqlDB.Close()
@@ -115,13 +130,16 @@ func readSchemaVersion(db *sql.DB) (string, error) {
 	return strings.TrimSpace(ver), nil
 }
 
-// migrate 幂等迁移：先升级旧结构（v1→v2→v3），再执行内嵌 schema（IF NOT EXISTS 补齐）。
+// migrate 幂等迁移：先升级旧结构（v1→v2→v3→v4），再执行内嵌 schema（IF NOT EXISTS 补齐）。
 func migrate(db *sql.DB) error {
 	if err := upgradeToV2(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v1→v2）: %w", err)
 	}
 	if err := upgradeToV3(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v2→v3）: %w", err)
+	}
+	if err := upgradeToV4(db); err != nil {
+		return fmt.Errorf("数据库迁移失败（v3→v4）: %w", err)
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
@@ -250,6 +268,31 @@ func upgradeToV3(db *sql.DB) error {
 	}
 	_, err = db.Exec(`PRAGMA foreign_keys=ON`)
 	return err
+}
+
+// upgradeToV4 地域标引列（docs/design-region-write.md §3）：纯加法式 ALTER ADD COLUMN。
+// 刻意不加 CHECK、不重建表——v2/v3 改 CHECK 要走 12 步重建，风险高；地域取值合法性
+// 放应用层与门禁测试。判定依据：law 是否已有 region_code 列（全新库由 schemaSQL 直接建 v4）。
+// region_log 表与索引由随后的 schemaSQL（IF NOT EXISTS）补齐。
+func upgradeToV4(db *sql.DB) error {
+	if ok, _ := hasColumn(db, "law", "law_id"); !ok {
+		return nil // 全新库（或空库），schemaSQL 直接建 v4 结构
+	}
+	if ok, _ := hasColumn(db, "law", "region_code"); ok {
+		return nil // 已是 v4
+	}
+	for _, col := range []string{
+		"region_code TEXT",
+		"region_source TEXT",
+		"region_rule TEXT",
+		"region_reviewer TEXT",
+		"region_reviewed_at TEXT",
+	} {
+		if _, err := db.Exec(`ALTER TABLE law ADD COLUMN ` + col); err != nil {
+			return fmt.Errorf("加列 %s 失败: %w", col, err)
+		}
+	}
+	return nil
 }
 
 // CheckVersionOverlap 版本时效区间重叠检查（开发文档 13.3）。

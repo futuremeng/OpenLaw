@@ -108,6 +108,30 @@ func TestOpenReadOnlyQueryOnly(t *testing.T) {
 	}
 }
 
+// TestOpenReadOnlyAcceptsV3Corpus SchemaMin 保持 "3" 的拍板结论（design-region-write.md §9.1）：
+// v3 语料在只读入口必须仍可用、不被迫升级；代价是看不到地域列——消费方必须显示「地域未标注」，
+// 而不是猜一个。只读入口也不得把语料升到 v4。
+func TestOpenReadOnlyAcceptsV3Corpus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db", "openlaw.db")
+	setupV3Raw(t, path)
+
+	db, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatalf("v3 语料只读应可用（SchemaMin=%s）: %v", SchemaMin, err)
+	}
+	defer db.Close()
+	var name string
+	if err := db.QueryRow(`SELECT name FROM law WHERE law_id='law_beijing'`).Scan(&name); err != nil {
+		t.Errorf("v3 语料应可正常读: %v", err)
+	}
+	if _, err := db.Query(`SELECT region_code FROM law`); err == nil {
+		t.Error("v3 语料本就没有地域列；读出来才算诚实")
+	}
+	if got := getVersion(t, path); got != "3" {
+		t.Errorf("只读入口不得把语料升到 v4，实际 %q", got)
+	}
+}
+
 // TestOpenReadOnlyEmptyDB 空库/未初始化：只读入口 fail-closed（不代跑迁移）。
 func TestOpenReadOnlyEmptyDB(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "openlaw.db")

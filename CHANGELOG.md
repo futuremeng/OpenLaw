@@ -73,6 +73,24 @@
   另：实测包与正式包不得共用 bundle id（实测 `lsregister -dump` 同一 id 命中两个
   `.app`，TCC 身份随之含糊），`build-app.sh` 现支持 `BUNDLE_ID` 覆盖并写回 plist，
   已门禁化。
+- **数据模型 v4 · 地域标引第 1 步（列 + 迁移前自动备份）**
+  **原因**：F3 需要可复核的法规地域标识；而 `docs/release-process.md` 承诺的「数据模型变更先
+  自动备份 db」此前**只有承诺没有实现**（全仓 grep `backup` 仅命中私钥提示）——先补机制再改结构。
+  **影响范围**：`store`——`SchemaVersion` 3→4；`law` 加法式 5 列（`region_code`/`region_source`/
+  `region_rule`/`region_reviewer`/`region_reviewed_at`，刻意不加 CHECK、不重建表）+ 新表
+  `region_log`（law 级审计，与 doc 级 `review_log` 并列不复用）+ 3 个索引；新增 `store/backup.go`：
+  `Open` 写路径在结构迁移前 `VACUUM INTO` 落 `data/backups/openlaw-v<旧版>-<UTC>.db`，
+  **备份失败即中止迁移**（原库不动）；版本一致或空库不产备份。`SchemaMin` 保持 `"3"`：
+  只读消费方读 v3 语料不被迫升级，缺地域列即显示「地域未标注」。
+  真实语料已升级并核对：28,952 法规 / 36,109 文档 / 1,367,161 条文 / 55,930 导入日志 /
+  36,115 校验日志逐表计数与迁移前快照**完全一致**，FTS 1,367,161 条完好；`region_code`
+  已标注 0 条（本步只让列就位，不写任何值）。2.0 GB 库实测：备份 + 迁移 1 分钟内完成，
+  备份落盘后结构变更 1 秒内完成（加法式 `ALTER` 只改元数据）。
+  **回滚方式**：停应用 → 用 `data/backups/openlaw-v3-20261029T121439Z.db` 替换 `db/openlaw.db`
+  （已验证该快照 `schema_version=3`、无 `region_code` 列、无 `region_log` 表、28,952 法规可读）。
+  测试：`store/backup_test.go`（备份确为迁移前快照 / 备份目录不可写时中止迁移且原库分毫未动 /
+  未迁移不产备份 / 路径含单引号仍安全 / 转义单元断言）与 `TestMigrateV3ToV4`（旧数据保留、
+  新列可写且机器建议不带署名、`region_log` 外键与 action 枚举生效、重复打开幂等）。
 - **文档（地域标引写入路径 F3 设计检查点）**：新增 `docs/design-region-write.md`（状态：待批准）
   ——schema v4 加法式列 + law 级 `region_log` 审计表、机器建议与人工落判边界、`openlaw-region`
   默认试采 + `-apply` + `-undo`、桌面复核面板、浏览过滤从标题前缀切到区划码、包格式扩展、

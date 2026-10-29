@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL
 );
 
--- law 法规主表（v2：新增 eli/celex 欧盟标识列；effect_level 扩展欧盟类别）
+-- law 法规主表（v2：新增 eli/celex 欧盟标识列；effect_level 扩展欧盟类别；
+-- v4：新增地域标引 5 列，见 docs/design-region-write.md §3）
 CREATE TABLE IF NOT EXISTS law (
   law_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -18,7 +19,15 @@ CREATE TABLE IF NOT EXISTS law (
   is_local INTEGER NOT NULL DEFAULT 0,
   remark TEXT,
   eli TEXT,      -- 欧盟 European Legislation Identifier（docs/sources-eu.md）
-  celex TEXT     -- 欧盟 CELEX 编号
+  celex TEXT,    -- 欧盟 CELEX 编号
+  -- v4 地域标引：机器建议与人工落判共用同一组列，靠 region_source/region_reviewer 区分。
+  -- 空 = 地域未标注，界面必须如实显示，不得留白或渲染占位。
+  -- 刻意不加 CHECK、不重建表（v2/v3 改 CHECK 需重建表，风险高）：取值合法性放应用层与门禁测试。
+  region_code TEXT,         -- GB/T 2260 区划码（与 geo 包一致）；空 = 未标注
+  region_source TEXT,       -- auto（真实坐标判定）|manual（人工）|trial（试判定）
+  region_rule TEXT,         -- 依据与规则号，如 name-prefix(R1)
+  region_reviewer TEXT,     -- 人工落判署名；空 = 仅机器建议，界面须显示「机器建议 · 待复核」
+  region_reviewed_at TEXT   -- 人工落判时间
 );
 
 -- document 原始文档与溯源（开发文档 4.3；MD5 仅判下载损坏，SHA-256 为防篡改依据）
@@ -139,6 +148,24 @@ CREATE TABLE IF NOT EXISTS review_log (
   created_at TEXT NOT NULL
 );
 
+-- region_log 地域标引审计（law 级，docs/design-region-write.md §3）。
+-- 与 review_log 并列而非复用：review_log 外键是 doc_id（文档级复核），
+-- 地域是法规级判定——正文已复核 ≠ 地域已复核，两者不得混同。
+-- 机器写入 actor 固定为 openlaw-region 且 region_reviewer 留空；人工落判必须署名 + 依据。
+CREATE TABLE IF NOT EXISTS region_log (
+  log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  law_id TEXT NOT NULL REFERENCES law(law_id),
+  action TEXT NOT NULL CHECK (action IN ('suggest','confirm','reject','clear','undo')),
+  from_code TEXT,
+  to_code   TEXT,
+  source    TEXT NOT NULL,          -- auto|manual|trial
+  rule      TEXT,                   -- 机器：规则号；人工：依据
+  actor     TEXT NOT NULL,          -- 机器固定 openlaw-region；人工必须署名
+  reason    TEXT,
+  batch_id  TEXT,                   -- 同一次批量写入/撤销的关联号（-undo 依此回滚）
+  created_at TEXT NOT NULL
+);
+
 -- validate_log 校验日志
 CREATE TABLE IF NOT EXISTS validate_log (
   validate_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,6 +183,9 @@ CREATE INDEX IF NOT EXISTS idx_article_doc ON article(doc_id);      -- 按文档
 CREATE INDEX IF NOT EXISTS idx_document_confirm ON document(confirm_status); -- pending 队列统计与抽样
 CREATE INDEX IF NOT EXISTS idx_element_case ON element(case_type);
 CREATE INDEX IF NOT EXISTS idx_relation_src ON relation(src_law_id);
+CREATE INDEX IF NOT EXISTS idx_law_region_code ON law(region_code); -- 按区划码浏览/过滤（v4）
+CREATE INDEX IF NOT EXISTS idx_region_log_law ON region_log(law_id);
+CREATE INDEX IF NOT EXISTS idx_region_log_batch ON region_log(batch_id); -- 按批次撤销
 
 -- 全文检索（开发文档 13.2）。中文分词不足由 search 层 LIKE 兜底，术语辅助列为后续版本。
 CREATE VIRTUAL TABLE IF NOT EXISTS article_fts USING fts5(
