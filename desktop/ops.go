@@ -119,7 +119,7 @@ func (a *App) PackVerify(packDir string) string {
 // StartPackBuildTask 生成并签名离线更新包（pack.Build——与 openlaw-pack 同路径）。
 func (a *App) StartPackBuildTask(packDir, keyPath, license, attribution string) (TaskInfo, error) {
 	if packDir == "" || keyPath == "" {
-		return TaskInfo{}, errors.New("build 需要包目录与签名私钥路径（私钥不得进数据目录/仓库，16.2）")
+		return TaskInfo{}, errors.New("生成数据包需要指定数据包目录与签名私钥路径（私钥不得放入数据目录）")
 	}
 	if _, err := os.Stat(keyPath); err != nil {
 		return TaskInfo{}, fmt.Errorf("私钥不可读: %w", err)
@@ -144,7 +144,7 @@ func (a *App) StartPackBuildTask(packDir, keyPath, license, attribution string) 
 // StartPackImportTask 校验通过后导入更新包（pack.Import——失败保留旧数据）。
 func (a *App) StartPackImportTask(packDir string) (TaskInfo, error) {
 	if packDir == "" {
-		return TaskInfo{}, errors.New("必须指定包目录")
+		return TaskInfo{}, errors.New("请先指定数据包目录")
 	}
 	pd := a.resolvePackDir(packDir)
 	return a.tm.Submit("pack-import", "pack="+filepath.Base(pd), func(ctx context.Context, progress func(string)) error {

@@ -47,7 +47,7 @@ func (m *TaskManager) Submit(kind, params string, fn func(ctx context.Context, p
 	if m.cur != nil {
 		c := *m.cur
 		m.mu.Unlock()
-		return TaskInfo{}, errors.New("已有采集任务在跑：" + c.Kind + " #" + strconv.Itoa(c.ID) + "（可先取消）")
+		return TaskInfo{}, errors.New("已有任务正在进行（任务 #" + strconv.Itoa(c.ID) + "），可先取消后再开始")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.nextID++

@@ -63,9 +63,9 @@ OpenLaw/
     openlaw-govcn/    # CLI：gov.cn 官方法规库导入（行政法规库 + 国家规章库；人工清单 + 详情页合规抓取 + TRS 正文解析，默认离线）
     openlaw-govlist/  # CLI：国家规章库清单浏览采集（经本机 BrowserOS neo 人在环代理浏览官方列表页；默认离线、回环硬校验、限速护栏）
     openlaw-check/    # 每日哈希重算 + 签名校验 + 断链清单
-  desktop/      # 桌面客户端「OpenLaw 语料台」（Wails v2；六面板：状态+报告分诊/
-                #   检索+引用核验/确认（风险标记+批量）/采集任务（govcn/govlist）/
-                #   运维 check·pack/设置；与 CLI 同一代码路径；仅此壳需 CGO，
+  desktop/      # 桌面客户端「开源法律法规数据库」（Wails v2；公众模式：查法规/
+                #   按目录浏览；专业模式：库总览/法规检索+修订沿革+引用核验/
+                #   人工复核/数据采集与更新；与 CLI 同一代码路径；仅此壳需 CGO，
                 #   核心库仍纯 Go。
                 #   go build -tags desktop,production -o dist/openlaw-desktop ./desktop）
   data/         # pdf/ md/ db/ provenance/ logs/ manifest/ incoming/（gitignore）
