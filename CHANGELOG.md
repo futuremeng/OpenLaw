@@ -57,6 +57,14 @@
   并入变量名，`set -u` 下脚本直接退出）。另如实记录：CoreLocation/Foundation 带入重复
   `-lobjc`，链接期有无害提示，压制需 `CGO_LDFLAGS_ALLOW`（与「构建不依赖外部环境变量」
   冲突），故保留。
+- **修复（定位弹窗不出现：LaunchServices 未注册 + 主队列）**：实测点击后仍显示「未取得
+  定位授权」，由 `locationd` 日志查实第三处根因——`.app` 未注册进 LaunchServices，
+  locationd 报「The given bundleId or bundlePath is not a plugin or an app」
+  +「identity unverified」，身份解析不了就不会弹授权窗。`build-app.sh` 现执行
+  `lsregister -f` 注册产物（注册后 `lsregister -dump` 可查到 bundle id 与应用路径）。
+  同时修同类隐患：`CLLocationManager` 改在**主队列**创建与申请（cgo 线程无 run loop，
+  事件源不被调度，授权变更回传不到），delegate 缓存状态 + Go 侧轮询放宽到 30 秒
+  （够人读完并应答弹窗）。诚实边界不变：未获授权一律如实说明，绝不谎报。
 
 - **修复（库总览面板空白）+ 前端绑定契约门禁**：前端 `app().RecentReports(5)` 与
   Go 侧 `RecentReports()` 实参个数不符，Wails 运行期拒绝该调用

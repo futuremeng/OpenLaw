@@ -10,19 +10,25 @@
 // Go 侧离线判定（geo 包）。不依赖 ARC，对象为进程生命周期单例。
 #import <CoreLocation/CoreLocation.h>
 #import <Foundation/Foundation.h>
+#import <dispatch/dispatch.h>
 
 @interface OpenLawLocationHelper : NSObject <CLLocationManagerDelegate>
 @end
 
+// gLastStatus：delegate 在主线程更新，Go 侧轮询读取（int 读写，容忍良性竞态）。
+static int gLastStatus = 0; // kCLAuthorizationStatusNotDetermined
+
 @implementation OpenLawLocationHelper
 - (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
-    (void)manager; // 授权状态由 Go 侧轮询读取，回调内无需传递
+    gLastStatus = (int)[manager authorizationStatus];
 }
 @end
 
 static OpenLawLocationHelper *gHelper = nil;
 static CLLocationManager *gManager = nil;
 
+// 必须在主队列创建/使用 CLLocationManager：cgo 调用发生在 Go 线程，那里没有
+// run loop，连接的事件源不会被调度，授权变更（delegate 回调）也就回传不到。
 static void openlawEnsureManager(void) {
     if (gManager != nil) return;
     if (gHelper == nil) gHelper = [[OpenLawLocationHelper alloc] init];
@@ -32,18 +38,27 @@ static void openlawEnsureManager(void) {
 
 // OpenLawLocationStatus 当前授权状态（尚未初始化时按「未决定」处理）。
 int OpenLawLocationStatus(void) {
-    if (gManager == nil) return (int)kCLAuthorizationStatusNotDetermined;
-    return (int)[gManager authorizationStatus];
+    __block int st = gLastStatus;
+    if (gManager != nil) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            st = (int)[gManager authorizationStatus];
+        });
+    }
+    gLastStatus = st;
+    return st;
 }
 
-// OpenLawRequestLocationAuthorization 发起 WhenInUse 授权申请，返回申请当下的状态。
-// 系统弹窗是异步的，状态落地由调用方轮询 OpenLawLocationStatus。
+// OpenLawRequestLocationAuthorization 在主队列发起 WhenInUse 授权申请，返回申请
+// 当下的状态快照。系统弹窗是异步的，落地状态由调用方轮询 OpenLawLocationStatus。
 int OpenLawRequestLocationAuthorization(void) {
-    openlawEnsureManager();
-    if ([gManager authorizationStatus] == kCLAuthorizationStatusNotDetermined) {
-        [gManager requestWhenInUseAuthorization];
-    }
-    return (int)[gManager authorizationStatus];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        openlawEnsureManager();
+        if ([gManager authorizationStatus] == kCLAuthorizationStatusNotDetermined) {
+            [gManager requestWhenInUseAuthorization];
+        }
+        gLastStatus = (int)[gManager authorizationStatus];
+    });
+    return gLastStatus;
 }
 
 // OpenLawHasLocationUsageKey Info.plist 是否声明了定位用途（缺声明时系统不会弹窗）。

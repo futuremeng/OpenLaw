@@ -27,7 +27,8 @@ type LocationPermission struct {
 // 不读取位置、不联网——坐标仍由 webview 取出后交 Go 离线判定。
 //
 // 前提不满足时直接如实说明，不去调用申请（避免无谓的系统噪声）；系统弹窗是异步的，
-// 状态仍为「未决定」时最多轮询 10 秒等待用户应答，超时后如实报告，绝不谎报已授权。
+// 状态仍为「未决定」时最多轮询 30 秒等待用户应答（够人读完弹窗并选一次），
+// 超时后如实报告，绝不谎报已授权。
 func (a *App) RequestLocationPermission() LocationPermission {
 	st, hasKey, bundled := locationStatus()
 	if st == locStatusUnsupported || !hasKey || !bundled {
@@ -35,7 +36,7 @@ func (a *App) RequestLocationPermission() LocationPermission {
 	}
 	if st == locNotDetermined {
 		st, _, _ = locationRequest()
-		for i := 0; i < 40 && st == locNotDetermined; i++ {
+		for i := 0; i < 120 && st == locNotDetermined; i++ {
 			time.Sleep(250 * time.Millisecond)
 			st, _, _ = locationStatus()
 		}

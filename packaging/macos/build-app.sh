@@ -27,7 +27,18 @@ cp "$BIN" "$OUT/Contents/MacOS/OpenLaw"
 chmod +x "$OUT/Contents/MacOS/OpenLaw"
 
 echo "==> ad-hoc 签名（TCC 需要签名身份；无开发者证书，重建后系统可能要求重新授权）"
-codesign --force --sign - "$OUT"
+codesign --force --sign - "${OUT}"
+
+# 注册到 LaunchServices。实测：未注册时 locationd 报
+# 「The given bundleId or bundlePath is not a plugin or an app」+「identity unverified」，
+# 系统因此不弹定位授权窗（弹窗前提是能把 bundle id 解析成应用记录）。
+LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "${LSREG}" ]; then
+  echo "==> 注册 LaunchServices"
+  "${LSREG}" -f "${OUT}"
+else
+  echo "==> 警告：未找到 lsregister，定位授权弹窗可能不出现（可手动把 .app 放入 /Applications）"
+fi
 
 echo "==> 自检"
 plutil -lint "$OUT/Contents/Info.plist"

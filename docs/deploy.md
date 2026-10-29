@@ -115,6 +115,14 @@ openlaw-pack import  # 完整性 + 来源信任都通过才入库；失败保留
   （`LocateFromRegion`，以所选地点中心点跑同一条判定链路，来源记 `trial` 并明示
   「非真实定位」，不冒充真实位置）。**仍未实测确认**：用户在系统弹窗点「允许」后
   webview 是否确实回传坐标（需人工点一次授权，机器无法代答）。
+  第三处根因由系统日志查实（`log show --predicate "process == 'locationd'"`）：
+  `.app` 未注册进 LaunchServices 时，locationd 报
+  「The given bundleId or bundlePath is not a plugin or an app」+「identity unverified」，
+  身份无法解析 → 系统不弹授权窗，界面只能显示「未应答」。故 `build-app.sh` 现在
+  会 `lsregister -f` 注册产物（注册后 `lsregister -dump` 可见该 bundle id 与应用路径）。
+  另一处同类隐患：`CLLocationManager` 必须在**主队列**创建与申请——cgo 调用发生在
+  Go 线程，那里没有 run loop，连接事件源不被调度，授权变更回传不到；现改为
+  `dispatch_async(main)` 申请 + delegate 缓存状态 + Go 侧轮询（放宽到 30 秒，够人应答弹窗）。
 
 - 数据不出域：无遥测、无后台请求；一切联网为显式 CLI 触发
 - 私钥（`*.key`）与数据备份均严禁入库，独立加密存储
