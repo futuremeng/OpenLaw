@@ -12,12 +12,14 @@ law 1─n law_version 1─n article 1─n element；law 1─n relation；documen
 law_id（PK）、name、short_name、issuer、effect_level（CHECK 枚举：宪法/法律/行政法规/监察法规/地方性法规/部门规章/地方政府规章/司法解释/其他/欧盟条例/欧盟指令/欧盟决定）、is_local、remark。
 
 **地域（地点定位，OL-12 / F3）**：schema v4 起 `law` 具备地域标引列——`region_code`
-（GB/T 2260 区划码，与 `geo` 包一致；**空 = 地域未标注**）、`region_source`（auto=真实坐标判定 /
-manual=人工 / trial=试判定）、`region_rule`（依据与规则号，如 `name-prefix(R1)`）、
+（GB/T 2260 区划码，与 `geo` 包一致；**空 = 地域未标注**）、`region_source`
+（auto=机器建议（名称/机关推导）/ manual=人工落判 / trial=试判定）、
+`region_rule`（依据与规则号，如 `name-prefix(R1)`、`issuer(R3)`）、
 `region_reviewer`（人工落判署名；**空 = 仅机器建议**）、`region_reviewed_at`。
 列刻意不加 CHECK、不重建表（v2/v3 改 CHECK 需 12 步重建，风险高），取值合法性由应用层与门禁测试保证。
 **当前状态（如实）**：真实语料 28,952 条法规的 `region_code` 全部为空（已标注 0 条）——
-v4 只完成「列就位」，写入属后续阶段（`openlaw-region` 试采报告 → 人工落判）。
+`openlaw-region` 已跑试采（dry-run，只读）给出 24,033 条高置信建议，但**尚未 `-apply` 写入**，
+须人工核对报告后由人工落判或按批次写入（`region_reviewer` 仍留空 = 机器建议 · 待复核）。
 在此之前界面仍按**查询期推导**显示地域：`parse.InferRegion` 按名称前缀匹配内置 `geo` 区划表
 （省级/地级两条规则 + 「××经济特区」别名），判不出一律留空——UI 必须显示「地域未标注」，
 不得假装覆盖。真实语料实测：law 24,033/28,952（83.0%）可判，其中地方类 24,030/25,009（96.1%）；

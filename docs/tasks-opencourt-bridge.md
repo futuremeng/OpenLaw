@@ -353,6 +353,19 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   备份 + 迁移 1 分钟内完成，备份落盘后结构变更 1 秒内完成（加法式 `ALTER` 只改元数据）。
   测试：`store/backup_test.go` + `TestMigrateV3ToV4`。**下一步**：`parse/regioninfer.go`
   （R1–R5）与 `openlaw-region` 试采报告（默认 dry-run，人工看过报告再谈 `-apply`）。
+- **F3 第 2、3 步 · 已实施（2026-10-29，第 3 步止于试采）**：写侧建议层 `parse.SuggestRegion`
+  （读侧 `InferRegion` 未改，界面显示不受影响）+ 新函数 `geo.MatchContained`（机关名命中，
+  与 `MatchPrefix` 共用一份匹配实现）。口径：名称前缀 R1/R2 = 高置信可写；机关名 R3 = 中置信，
+  **只进报告不写库**；名称与机关互不隶属 = 冲突转人工；判不出留空。库层 runner
+  `ingest.RegionMarker`（`Scan` 只读 / `Apply` 只写高置信且未标注、`region_reviewer` 一律留空、
+  逐笔 `region_log` + `batch_id` / `Undo` 按批次撤销且不回滚人工落判）+ CLI `openlaw-region`。
+  真实语料 28,952 条 dry-run：**高置信 24,033**（与既有名称前缀基线 24,033/28,952=83.0% 逐条一致，
+  读写同口径）、中置信 90、冲突 0、无法判定 4,829；试采后 `region_code` 仍 0 条、`region_log`
+  仍 0 行。如实记录：`law.issuer` 仅 5,214/28,952（18%）有值，R3 能补的量有限；名称省略「市」字
+  （如「兰州经济技术开发区条例」）仍判不出，留空不猜。测试：`parse.TestSuggestRegion`、
+  `geo.TestMatchContained`、`ingest/region_test.go`。
+  **`-apply` 未执行**——等人工核对 `region_report.csv` 后再决定。
+  **下一步**：桌面「地域标引」复核面板（逐条 + 小批，先干跑计数）。
 
 
 ---
