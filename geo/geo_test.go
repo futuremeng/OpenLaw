@@ -6,6 +6,34 @@ import (
 	"testing"
 )
 
+// TestMatchContained 机关名里的行政区命中：不要求位于开头、取最长命中、别名参与；
+// 判不出必须返回 false（机关名推导属中置信，不得猜）。
+func TestMatchContained(t *testing.T) {
+	if r, ok := MatchContained("河北省人民政府"); !ok || r.Code != "130000" {
+		t.Errorf("河北省人民政府 → %+v ok=%v", r, ok)
+	}
+	if r, ok := MatchContained("深圳市人民政府"); !ok || r.Code != "440300" {
+		t.Errorf("深圳市人民政府 → %+v ok=%v", r, ok)
+	}
+	if r, ok := MatchContained("石家庄市人力资源和社会保障局"); !ok || r.Code != "130100" {
+		t.Errorf("石家庄市人社局 → %+v ok=%v", r, ok)
+	}
+	// 同级并列取上级：与 MatchPrefix 同一口径（两处判定不得打架）。
+	// 机关名属中置信、只进报告，取上级是保守做法，不影响写库。
+	if r, ok := MatchContained("吉林省长春市人民政府"); !ok || r.Code != "220000" {
+		t.Errorf("吉林省长春市人民政府应取上级 220000，实际 %+v ok=%v", r, ok)
+	}
+	if _, ok := MatchContained("全国人民代表大会常务委员会"); ok {
+		t.Error("国家层面机关名不得命中行政区")
+	}
+	if _, ok := MatchContained(""); ok {
+		t.Error("空串不得命中")
+	}
+	if r, ok := MatchContained("深圳经济特区管理委员会"); !ok || r.Code != "440300" {
+		t.Errorf("别名应命中 440300，实际 %+v ok=%v", r, ok)
+	}
+}
+
 // TestGeoDataIntegrity 内置数据的自检：码/名唯一、父级存在、坐标落在合理范围。
 // 数据是人工整理的，这类门禁防止后续增删条目时把表写坏（错码、漏父级、坐标写反）。
 func TestGeoDataIntegrity(t *testing.T) {

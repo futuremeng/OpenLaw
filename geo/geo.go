@@ -206,9 +206,28 @@ func AliasesOf(code string) []string {
 // 别名前缀（「深圳经济特区…」）同样参与匹配，命中后归到其所属行政区。
 // 无匹配返回 (zero, false)。
 func MatchPrefix(name string) (Region, bool) {
-	n := strings.TrimSpace(name)
+	return matchRegions(strings.TrimSpace(name), false)
+}
+
+// MatchContained 在任意字符串中查找出现过的行政区名（不要求位于开头），取最长命中；
+// 同级并列取上级——与 MatchPrefix 同一口径，两处判定不得打架。别名前缀同样参与。
+// 用途：从发布机关名推地域（河北省人民政府 → 130000）。
+// **命中不等于高置信**：机关名推导属中置信，只进报告、默认不写库
+// （docs/design-region-write.md §6、§9.2）。
+func MatchContained(s string) (Region, bool) {
+	return matchRegions(strings.TrimSpace(s), true)
+}
+
+// matchRegions 共用匹配实现：contained=false 按前缀，true 按任意位置包含。
+func matchRegions(n string, contained bool) (Region, bool) {
 	if n == "" {
 		return Region{}, false
+	}
+	hit := func(s string) bool {
+		if contained {
+			return strings.Contains(n, s)
+		}
+		return strings.HasPrefix(n, s)
 	}
 	var best *Region
 	bestLen := 0
@@ -217,7 +236,7 @@ func MatchPrefix(name string) (Region, bool) {
 	}
 	for i := range regions {
 		r := &regions[i]
-		if !strings.HasPrefix(n, r.Name) {
+		if !hit(r.Name) {
 			continue
 		}
 		if best == nil || better(r.Name, r.Level) {
@@ -225,7 +244,7 @@ func MatchPrefix(name string) (Region, bool) {
 		}
 	}
 	for _, a := range regionAliases {
-		if !strings.HasPrefix(n, a.prefix) {
+		if !hit(a.prefix) {
 			continue
 		}
 		r, ok := byCode[a.code]
