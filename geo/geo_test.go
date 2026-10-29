@@ -2,6 +2,7 @@ package geo
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -66,6 +67,16 @@ func TestGeoLookup(t *testing.T) {
 	}
 	if got := PathName("130000"); got != "河北省" {
 		t.Errorf("省级 PathName=%q", got)
+	}
+	// 直辖市：省市两级同名，不得显示成「北京市 · 北京市」（实测界面上出现过）
+	for _, c := range []string{"110000", "110100", "120100", "310100", "500100"} {
+		got := PathName(c)
+		if strings.Contains(got, " · ") {
+			t.Errorf("直辖市 PathName(%s) 不得重复拼接: %q", c, got)
+		}
+		if got == "" {
+			t.Errorf("PathName(%s) 不应为空", c)
+		}
 	}
 	if got := PathName("999999"); got != "" {
 		t.Errorf("未知码 PathName 应为空，实际 %q", got)

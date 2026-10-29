@@ -112,6 +112,11 @@ func PathName(code string) string {
 	}
 	names := make([]string, 0, len(p))
 	for _, r := range p {
+		// 直辖市省、市两级同名（北京市/北京市），拼接会显示「北京市 · 北京市」——
+		// 那是噪声而非信息，连续同名只保留一次。
+		if len(names) > 0 && names[len(names)-1] == r.Name {
+			continue
+		}
 		names = append(names, r.Name)
 	}
 	return strings.Join(names, " · ")
