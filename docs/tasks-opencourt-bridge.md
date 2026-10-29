@@ -331,7 +331,17 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   ad-hoc 签名有效；用户点「允许」后系统侧状态到 `AuthorizedAlways`（日志证实）。
   门禁：`bundle_test.go`（plist 键 / 声明文案如实性 / 可执行名一致性 / 签名自检 /
   shell 中文插值 / bundle id 可覆盖）+ 定位状态映射与非阻塞契约测试。
-  **仍待实测**：原生单次定位是否回传坐标并显示「已判定 …（坐标精度约 N 米）」。
+  **实测已过（2026-10-29）**：点「获取我的位置」→ 允许 → 原生 `didUpdateLocations` 回传坐标
+  （精度约 76 m）→ 界面「已判定：北京市（按最近行政中心判定，距中心约 17 km，请核对）」；
+  `meta` 记 `user_region=110100`、`user_region_source=auto`、时间戳与日志吻合。
+
+- **地域标引写入路径（F3）· 设计检查点（2026-10-29，待批准）**：方案已成文
+  [docs/design-region-write.md](design-region-write.md)——schema v4 加法式（`law.region_code`
+  等 5 列 + law 级 `region_log` 审计表）、机器建议与人工落判边界、`openlaw-region` 默认试采
+  （dry-run）+ `-apply` + `-undo`、桌面复核面板、浏览过滤由标题前缀切到区划码、包格式扩展。
+  检查过程中查实一处缺口：`release-process.md` 承诺「数据模型变更先自动备份 db」，但代码中
+  无实现（全仓 grep `backup` 仅命中私钥提示）——故实施第 1 步先补自动备份（`VACUUM INTO`，
+  失败即中止迁移），这一步独立有价值。待拍板项见该文档 §9。
 
 ---
 

@@ -148,4 +148,4 @@ case sdk.StatusBrokenChain: // 无法溯源，禁止输出判错结论
 - 语料数据：[DATA-LICENSE.md](DATA-LICENSE.md)（法条原文公有领域；本项目汇编产物 CC BY 4.0；欧盟部分保留 © European Union 署名）；每个 lawdata 发布包内附副本
 - 第三方依赖清单：[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)
 - 免责声明：[DISCLAIMER.md](DISCLAIMER.md) · 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md) · 协作者与 AI 代理约束：[AGENTS.md](AGENTS.md)
-- 架构：[docs/architecture.md](docs/architecture.md) · 数据字典：[docs/data-dictionary.md](docs/data-dictionary.md) · 接口：[docs/api.md](docs/api.md) · 发布：[docs/release-process.md](docs/release-process.md) · OpenCourt 对接桥待办：[docs/tasks-opencourt-bridge.md](docs/tasks-opencourt-bridge.md)
+- 架构：[docs/architecture.md](docs/architecture.md) · 数据字典：[docs/data-dictionary.md](docs/data-dictionary.md) · 接口：[docs/api.md](docs/api.md) · 发布：[docs/release-process.md](docs/release-process.md) · OpenCourt 对接桥待办：[docs/tasks-opencourt-bridge.md](docs/tasks-opencourt-bridge.md) · 地域标引写入设计（待批准）：[docs/design-region-write.md](docs/design-region-write.md)
