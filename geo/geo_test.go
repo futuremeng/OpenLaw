@@ -1,0 +1,161 @@
+package geo
+
+import (
+	"math"
+	"testing"
+)
+
+// TestGeoDataIntegrity 内置数据的自检：码/名唯一、父级存在、坐标落在合理范围。
+// 数据是人工整理的，这类门禁防止后续增删条目时把表写坏（错码、漏父级、坐标写反）。
+func TestGeoDataIntegrity(t *testing.T) {
+	codes := map[string]bool{}
+	names := map[string]string{}
+	for _, r := range regions {
+		if codes[r.Code] {
+			t.Errorf("行政区划码重复: %s (%s)", r.Code, r.Name)
+		}
+		codes[r.Code] = true
+		if prev, dup := names[r.Name]; dup {
+			// 直辖市会出现「省级与地级同名」（北京市 110000 / 北京市 110100），属有意为之；
+			// 其余同名一律视为数据错误。
+			if self, ok := byCode[r.Code]; !ok || prev != self.Parent {
+				t.Errorf("行政区名重复: %s（%s 与 %s）", r.Name, prev, r.Code)
+			}
+		}
+		names[r.Name] = r.Code
+		switch r.Level {
+		case LevelProvince:
+			if r.Parent != "" {
+				t.Errorf("%s 为省级但带父级 %s", r.Name, r.Parent)
+			}
+		case LevelCity:
+			if _, ok := byCode[r.Parent]; !ok {
+				t.Errorf("%s(%s) 的父级 %s 不存在", r.Name, r.Code, r.Parent)
+			}
+		default:
+			t.Errorf("%s 层级非法: %d", r.Name, r.Level)
+		}
+		// 中国大陆及港澳台合理范围（含三沙等南海岛市，取 15°N 起）；写反经纬度会立刻暴露。
+		if r.Lat < 15 || r.Lat > 54 || r.Lng < 72 || r.Lng > 135 {
+			t.Errorf("%s(%s) 坐标超出合理范围: lat=%v lng=%v（是否写反？）", r.Name, r.Code, r.Lat, r.Lng)
+		}
+	}
+	if len(provinces) != 34 {
+		t.Errorf("省级应为 34 个，实际 %d", len(provinces))
+	}
+	if len(cities) < 300 {
+		t.Errorf("地级条目过少（%d），就近判定会大面积误判", len(cities))
+	}
+}
+
+func TestGeoLookup(t *testing.T) {
+	if got, ok := ByCode("130100"); !ok || got.Name != "石家庄市" {
+		t.Errorf("ByCode(130100)=%v,%v", got, ok)
+	}
+	if _, ok := ByCode("999999"); ok {
+		t.Error("未知码应返回 false")
+	}
+	if !ValidCode("") {
+		t.Error("空码 = 不限地区，应合法")
+	}
+	if ValidCode("999999") {
+		t.Error("未知码应非法")
+	}
+	if got := PathName("130100"); got != "河北省 · 石家庄市" {
+		t.Errorf("PathName(130100)=%q", got)
+	}
+	if got := PathName("130000"); got != "河北省" {
+		t.Errorf("省级 PathName=%q", got)
+	}
+	if got := PathName("999999"); got != "" {
+		t.Errorf("未知码 PathName 应为空，实际 %q", got)
+	}
+	if cs := Children("430000"); len(cs) < 13 {
+		t.Errorf("湖南省下级过少: %d", len(cs))
+	}
+	for _, c := range Children("430000") {
+		if c.Parent != "430000" {
+			t.Errorf("Children 混入非下级: %+v", c)
+		}
+	}
+}
+
+// TestNearest 就近判定：已知城市坐标应判到该城市；非法坐标如实返回 -1。
+// 判定必然带误差，因此上层必须把距离如实展示（见 desktop/region.go）。
+func TestNearest(t *testing.T) {
+	cases := []struct {
+		name      string
+		lat, lng  float64
+		wantCode  string
+		wantMaxKm float64
+	}{
+		{"石家庄", 38.04, 114.51, "130100", 1},
+		{"上海", 31.23, 121.47, "310100", 1},
+		{"吉首（湘西州）", 28.26, 109.74, "433100", 2},
+		{"昆明", 25.04, 102.71, "530100", 1},
+		{"喀什", 39.47, 75.99, "653100", 1},
+		{"北京南郊（仍判北京市）", 39.72, 116.30, "110100", 30},
+	}
+	for _, c := range cases {
+		got, d := Nearest(c.lat, c.lng)
+		if got.Code != c.wantCode {
+			t.Errorf("%s 就近判定为 %s(%s)，期望 %s", c.name, got.Name, got.Code, c.wantCode)
+		}
+		if d < 0 || d > c.wantMaxKm {
+			t.Errorf("%s 距离 %v km 超出预期上限 %v", c.name, d, c.wantMaxKm)
+		}
+	}
+	if got, d := Nearest(999, 0); d >= 0 || got.Code != "" {
+		t.Errorf("非法坐标应如实拒绝（距离 -1），实际 %+v %v", got, d)
+	}
+	// 边界外（公海/境外）仍会给出最近行政区，但距离必须如实很大——UI 据此提示不确定。
+	if _, d := Nearest(20.0, 130.0); d < 100 {
+		t.Errorf("远离任何行政区的点应给出大距离提示，实际 %v km", d)
+	}
+}
+
+// TestMatchPrefix 名称前缀匹配：最长匹配优先，同级并列取上级
+// （「吉林省吉林市…」判省级，与 parse/levelinfer.go 先强后弱一致）。
+func TestMatchPrefix(t *testing.T) {
+	cases := []struct {
+		name, wantCode string
+		wantName       string
+	}{
+		{"河北省地质灾害防治条例", "130000", "河北省"},
+		{"吉林省吉林市…, 应为省级", "220000", "吉林省"},
+		{"玉溪市革命遗址保护条例", "530400", "玉溪市"},
+		{"湘西土家族苗族自治州环境保护条例", "433100", "湘西土家族苗族自治州"},
+		{"北京市民宿管理办法", "110000", "北京市"},
+		{"中华人民共和国劳动法", "", ""},
+		{"国务院关于…, 不判地域", "", ""},
+		{"", "", ""},
+	}
+	for _, c := range cases {
+		got, ok := MatchPrefix(c.name)
+		if c.wantCode == "" {
+			if ok {
+				t.Errorf("%q 不应匹配任何行政区，实际 %+v", c.name, got)
+			}
+			continue
+		}
+		if !ok || got.Code != c.wantCode {
+			t.Errorf("%q 应匹配 %s，实际 %+v (ok=%v)", c.name, c.wantCode, got, ok)
+		}
+		if ok && got.Name != c.wantName {
+			t.Errorf("%q 匹配名 %q，期望 %q", c.name, got.Name, c.wantName)
+		}
+	}
+}
+
+// TestNearestSymmetry 距离计算自洽：任一点到自身中心距离为 0。
+func TestNearestSymmetry(t *testing.T) {
+	for _, code := range []string{"130100", "440100", "650100", "232700"} {
+		r, ok := ByCode(code)
+		if !ok {
+			t.Fatalf("内置数据缺少 %s", code)
+		}
+		if got, d := Nearest(r.Lat, r.Lng); got.Code != r.Code || math.Abs(d) > 0.001 {
+			t.Errorf("%s 中心点应判自身且距离 0，实际 %+v d=%v", r.Name, got, d)
+		}
+	}
+}
