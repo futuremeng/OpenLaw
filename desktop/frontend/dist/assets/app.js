@@ -567,7 +567,7 @@ const RG_CONF_TEXT = {
 // auto = 本库机器判定；manual = 人工落判；trial = 试判定。
 const RG_SRC_TEXT = {
   auto: "本库机器判定",
-  manual: "人工落判",
+  manual: "人工确认",
   trial: "试判定",
   pack: "随更新包携带（本库未复核）",
 };
@@ -641,15 +641,15 @@ async function showRegionReview(lawID) {
 async function judgeRegion(action) {
   if (!rgSelected) return toast("请先在左侧点选条目");
   const reviewer = $("#rg-reviewer").value.trim(), reason = $("#rg-reason").value.trim();
-  if (!reviewer || !reason) return toast("落判须填写复核人与结论依据");
+  if (!reviewer || !reason) return toast("确认或驳回须填写复核人与结论依据");
   const cur = rgQueue.find((x) => x.law_id === rgSelected) || {};
   const code = action === "confirm" ? ($("#rg-region").value || cur.region_code || "") : "";
   if (action === "confirm" && !code) return toast("该条目无机器建议，请在地区下拉中选择地区");
   try {
     const sum = await app().JudgeRegion([rgSelected], code, action, reviewer, reason);
-    toast(`已落判：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除 ${num(sum.cleared)}`);
+    toast(`已处理：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除标注 ${num(sum.cleared)}`);
     loadRegionStats(); loadRegionQueue(); showRegionReview(rgSelected);
-  } catch (e) { toast("落判失败：" + (e.message || e)); }
+  } catch (e) { toast("处理失败：" + (e.message || e)); }
 }
 $("#rg-load").addEventListener("click", () => { loadRegionStats(); loadRegionQueue(); });
 $("#rg-state").addEventListener("change", loadRegionQueue);
@@ -662,22 +662,24 @@ async function rgBulkPreview() {
   try {
     const n = await app().RegionBulkPreview($("#rg-b-prov").value, $("#rg-b-verdict").value);
     rgBulkN = n;
-    $("#rg-b-info").textContent = `影响范围：${num(n)} 条`;
-  } catch (e) { $("#rg-b-info").textContent = "失败：" + (e.message || e); }
+    $("#rg-b-info").textContent = n > 0
+      ? `会影响 ${num(n)} 条。核对无误后再点「执行批量处理」。`
+      : "按所选条件没有可处理的条目，无需执行。";
+  } catch (e) { $("#rg-b-info").textContent = "读取失败：" + (e.message || e); }
 }
 async function rgBulkApply() {
-  if (rgBulkN < 0) return toast("请先「先查看影响范围」再执行");
+  if (rgBulkN < 0) return toast("请先点「先看看会影响多少条」，确认范围后再执行");
   const reviewer = $("#rg-reviewer").value.trim(), reason = $("#rg-reason").value.trim();
-  if (!reviewer || !reason) return toast("批量落判须填写复核人与结论依据");
+  if (!reviewer || !reason) return toast("批量处理须填写复核人与结论依据");
   try {
     const sum = await app().RegionBulkApply($("#rg-b-prov").value, $("#rg-b-verdict").value, reviewer, reason, rgBulkN);
-    toast(`批量完成：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除 ${num(sum.cleared)}`);
+    toast(`批量完成：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除标注 ${num(sum.cleared)}`);
     rgBulkN = -1;
-    $("#rg-b-info").textContent = "已执行，请重新预览";
+    $("#rg-b-info").textContent = "已执行；若要再处理一批，请重新查看范围。";
     loadRegionStats(); loadRegionQueue();
   } catch (e) {
     rgBulkN = -1;
-    $("#rg-b-info").textContent = "已中止：请重新预览";
+    $("#rg-b-info").textContent = "已中止：条目有变动或条件不符，请重新查看范围。";
     toast("批量失败：" + (e.message || e));
   }
 }

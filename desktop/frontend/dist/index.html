@@ -173,35 +173,35 @@
     <section id="panel-region" class="panel hidden">
       <div id="rg-stats" class="qstats"></div>
       <div class="toolbar">
-        <input id="rg-filter" placeholder="过滤：条目编号 / 法规名 / 制定机关"/>
+        <input id="rg-filter" placeholder="按法规名称、条目编号或制定机关查找"/>
         <select id="rg-state">
           <option value="">全部（机器建议优先）</option>
           <option value="suggest">机器建议 · 待复核</option>
           <option value="unmarked">地域未标注</option>
           <option value="reviewed">已人工复核</option>
         </select>
-        <button id="rg-load">载入队列</button>
+        <button id="rg-load">载入待复核条目</button>
         <span id="rg-info"></span>
         <span class="spacer"></span>
         <input id="rg-reviewer" placeholder="复核人（必填）"/>
         <input id="rg-reason" placeholder="结论依据（必填）"/>
         <select id="rg-region"></select>
-        <button id="rg-confirm" class="ok">确认 / 改选 ✓</button>
-        <button id="rg-reject" class="warn">驳回 ✗</button>
+        <button id="rg-confirm" class="ok">确认（或改选地区）</button>
+        <button id="rg-reject" class="warn">驳回</button>
         <button id="rg-clear">清除标注</button>
       </div>
       <div class="bulk">
-        批量落判（按省）：
+        批量处理（按省）：
         <select id="rg-b-prov"></select>
         <select id="rg-b-verdict">
           <option value="confirm">确认机器建议</option>
           <option value="reject">驳回（留空但记复核）</option>
           <option value="clear">清除标注</option>
         </select>
-        <button id="rg-b-preview">先查看影响范围</button>
+        <button id="rg-b-preview">先看看会影响多少条</button>
         <span id="rg-b-info" class="muted"></span>
-        <button id="rg-b-apply" class="ok">执行（须复核人+依据）</button>
-        <span class="muted">单次上限 500 条；预览与执行之间队列有变即中止。</span>
+        <button id="rg-b-apply" class="ok">执行批量处理</button>
+        <span class="muted">一次最多处理 500 条；预览与执行之间条目有变动即中止，请重新预览。</span>
       </div>
       <div class="split">
         <div id="rg-list" class="list"></div>
