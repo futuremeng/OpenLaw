@@ -112,7 +112,8 @@ v3 语料时没有 region 列，界面显示「地域未标注」即可，不被
    不额外判为冲突——真实语料 28,952 条试采冲突为 0，未见需要更严的证据。
 
 一致性自检（只报告、不自动改）：`effect_level='地方性法规'` 却无地域；非地方性法规却有地域；
-`is_local` 与地域矛盾。计数如实进报告（尚未实现，随第 4 步面板一起做）。
+`is_local` 与地域矛盾。计数如实进报告。**第 4 步未做**（面板只做队列与落判），推到第 5 步
+与浏览过滤一起补。
 
 ## 7. CLI、界面、检索与包
 
@@ -131,12 +132,25 @@ v3 语料时没有 region 列，界面显示「地域未标注」即可，不被
 - `-apply`：仅写高置信；`-undo <batch_id>`（加 `-apply` 才执行）。
 - 文案沿用：`dry-run：未写库。核对报告后加 -apply 执行（只写高置信）`。
 
-**桌面「地域标引」面板**
+**桌面「地域标引」面板**（已落地，第 4 步）
 
-- 待复核列表（机器建议优先）：名称 / 建议地区 / 规则号 / 来源徽章；
-- 操作：确认 / 驳回 / 改选地区，署名与依据必填（沿用现有复核署名约定）；
-- 批量流转先干跑计数（`BulkPreview` 模式）再执行；
-- 新绑定方法纳入 `desktop/binding_test.go` 契约门禁。
+- 绑定（`desktop/regionreview.go`，全部经 `ingest.RegionMarker`，桌面不是第二写路径）：
+  `RegionReviewStats` / `RegionReviewList(filter,state,limit,offset)` /
+  `RegionReviewDetail(lawID)` / `JudgeRegion(lawIDs,code,verdict,reviewer,reason)` /
+  `RegionBulkPreview(province,verdict)` / `RegionBulkApply(province,verdict,reviewer,reason,expected)`；
+  已纳入 `desktop/binding_test.go` 契约门禁（42 方法 / 51 处调用核对通过）。
+- 队列三态如实命名：`机器建议 · 待复核`（`region_source='auto'` 且无署名）、
+  `地域未标注`、`已人工复核`；排序把机器建议排在未标注之前。
+- 预览必须回显「机器判定 + 判定依据」：中置信/冲突/国家级效力/无法判定一律说明**为什么没写**，
+  未标注行的 `region_code` 取库里的实际值，不得用机器建议码顶替（曾因此把未标注显示成已标注，
+  已修并有测试）。
+- 落判动作 `confirm`（确认 / 改选地区）/ `reject`（驳回）/ `clear`（清除标注）：复核人与
+  结论依据必填（库层 `Review()` 强制，界面同样校验），写 `region_log(action=...)`，
+  `source='manual'`、`actor`=复核人。
+- **驳回后留空但署名仍在 → 机器不得再写**：`Apply` 的 WHERE 增加 `region_reviewer IS NULL`，
+  `Scan` 把这类行分类为 `rejected`（不再当待判定），`ReviewStats.LeftBlank` 单独计数。
+- 批量：先 `RegionBulkPreview` 干跑计数，执行时把该数当 `expected` 带回；预览与执行之间
+  队列有变即中止；单次上限 500 条（§9.3 只做逐条 + 小批）。
 
 **检索与包**
 
@@ -213,10 +227,18 @@ v3 语料时没有 region 列，界面显示「地域未标注」即可，不被
   （如「兰州经济技术开发区条例」）仍判不出（留空，不猜）；`is_local` 不可靠
   （`is_local=0` 却有地域 3,612 条），只报告、不当护栏。
   **界面尚未切换**：浏览过滤仍走标题前缀（`desktop/region.go`），切区划码属第 5 步。
-- 第 4 步起（桌面复核面板等）尚未开始。
+- 第 4 步（桌面「地域标引」复核面板）**已落地**：新增 `ingest.RegionMarker` 落判层
+  （`Review` / `BulkReviewMatch` / `BulkReview` / `ReviewStats` / `ReviewLog` / `SuggestOne`）
+  与 `desktop/regionreview.go` 六个绑定 + 前端面板。顺带补上「人工驳回后机器不得再写」的
+  写入护栏（`Apply` 的 WHERE 增加 `region_reviewer IS NULL`），并把 `Scan` 的分类抽成
+  `classify`，让全量扫描与单条预览共用同一口径，不出现两边各说一套。
+  测试：`ingest/regionreview_test.go`（署名强制、驳回不被机器顶回、改选留痕、批量预览数核对）、
+  `desktop/regionreview_test.go`（队列排序与状态口径、详情不得把机器建议码显示成已标注、
+  按省批量与预览数不符即中止）。
+- 第 5 步（浏览过滤切区划码 + `pack` 列扩展 + §6 一致性自检报告）尚未开始。
 
 ---
 
-原 §9 的四项待决事项已在 2026-10-29 全部按建议拍板（见上）。第 1–3 步已落地（第 3 步止于试采）；
-第 4 步起须按 §8 顺序逐步推进，每步过门禁再提交。
+原 §9 的四项待决事项已在 2026-10-29 全部按建议拍板（见上）。第 1–4 步已落地（第 3 步已对
+真实语料 `-apply`，第 4 步已交付复核面板）；第 5 步起须按 §8 顺序逐步推进，每步过门禁再提交。
 

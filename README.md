@@ -69,7 +69,9 @@ OpenLaw/
     openlaw-check/    # 每日哈希重算 + 签名校验 + 断链清单
   desktop/      # 桌面客户端「开源法律法规数据库」（Wails v2；公众模式：查法规/
                 #   按目录浏览；专业模式：库总览/法规检索+修订沿革+引用核验/
-                #   人工复核/数据采集与更新；地点定位为离线就近判定 + 手动选择 +
+                #   人工复核/地域标引/数据采集与更新；「地域标引」面板把机器建议落判为
+                #   人工结论（确认/改选地区/驳回/清除，一律署名+结论依据，批量先干跑计数）；
+                #   地点定位为离线就近判定 + 手动选择 +
                 #   试判定，真实定位需打包 .app（见 packaging/），法规按名称判定地域、
                 #   判不出如实显示「地域未标注」；与 CLI 同一代码路径；仅此壳需 CGO，
                 #   核心库仍纯 Go。
@@ -149,4 +151,4 @@ case sdk.StatusBrokenChain: // 无法溯源，禁止输出判错结论
 - 语料数据：[DATA-LICENSE.md](DATA-LICENSE.md)（法条原文公有领域；本项目汇编产物 CC BY 4.0；欧盟部分保留 © European Union 署名）；每个 lawdata 发布包内附副本
 - 第三方依赖清单：[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)
 - 免责声明：[DISCLAIMER.md](DISCLAIMER.md) · 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md) · 协作者与 AI 代理约束：[AGENTS.md](AGENTS.md)
-- 架构：[docs/architecture.md](docs/architecture.md) · 数据字典：[docs/data-dictionary.md](docs/data-dictionary.md) · 接口：[docs/api.md](docs/api.md) · 发布：[docs/release-process.md](docs/release-process.md) · OpenCourt 对接桥待办：[docs/tasks-opencourt-bridge.md](docs/tasks-opencourt-bridge.md) · 地域标引写入设计（已批准 · 第 1 步已实施）：[docs/design-region-write.md](docs/design-region-write.md)
+- 架构：[docs/architecture.md](docs/architecture.md) · 数据字典：[docs/data-dictionary.md](docs/data-dictionary.md) · 接口：[docs/api.md](docs/api.md) · 发布：[docs/release-process.md](docs/release-process.md) · OpenCourt 对接桥待办：[docs/tasks-opencourt-bridge.md](docs/tasks-opencourt-bridge.md) · 地域标引写入设计（已批准 · 第 1–4 步已实施）：[docs/design-region-write.md](docs/design-region-write.md)

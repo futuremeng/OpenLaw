@@ -27,6 +27,7 @@ function showPanel(p) {
   if (p === "browse") loadLaws();
   if (p === "overview") loadOverview();
   if (p === "confirm") { loadStats(); loadQueue(); }
+  if (p === "region") { loadRegionStats(); loadRegionQueue(); }
   if (p === "collect") { loadSources(); loadTasks(); loadTasksTick(); }
 }
 // 重新加载当前可见面板（地区等全局偏好变更后需要刷新列表）。
@@ -473,6 +474,126 @@ async function bulkApply() {
 }
 $("#btn-bulk-preview").addEventListener("click", bulkPreview);
 $("#btn-bulk-apply").addEventListener("click", bulkApply);
+
+/* ---------- 专业 · 地域标引（机器建议 → 人工落判） ---------- */
+const RG_CONF_TEXT = {
+  high: "高置信（名称前缀命中）",
+  medium: "中置信（仅制定机关命中，机器不写入）",
+  conflict: "名称与制定机关指向不同地区（机器不写入）",
+  national: "国家级效力，不按名称标地域",
+  none: "无法判定",
+  marked: "已有标注",
+  rejected: "人工已复核并留空",
+};
+function rgStateBadge(s) {
+  if (s === "suggest") return '<span class="badge pend">机器建议 · 待复核</span>';
+  if (s === "reviewed") return '<span class="badge ok">已人工复核</span>';
+  return '<span class="badge na">地域未标注</span>';
+}
+let rgQueue = [];
+let rgSelected = "";
+let rgBulkN = -1; // 最近一次干跑计数；执行时带回核对
+
+function fillRegionReviewSelects() {
+  const all = regionOpts || [];
+  if (!all.length) return;
+  $("#rg-region").innerHTML = '<option value="">（沿用机器建议；无建议时请选地区）</option>' + all.map((o) => {
+    const label = o.level === 1 ? o.name : "\u3000\u3000" + o.name;
+    return `<option value="${escapeHTML(o.code)}">${escapeHTML(label)}</option>`;
+  }).join("");
+  $("#rg-b-prov").innerHTML = '<option value="">全部省份</option>' + all.filter((o) => o.level === 1)
+    .map((o) => `<option value="${escapeHTML(o.code)}">${escapeHTML(o.name)}</option>`).join("");
+}
+
+async function loadRegionStats() {
+  try {
+    const st = await app().RegionReviewStats();
+    $("#rg-stats").innerHTML = `<span>法规总数 <b>${num(st.total)}</b></span>` +
+      `<span>机器建议 · 待复核 <b>${num(st.suggest_pending)}</b></span>` +
+      `<span>已人工确认 <b>${num(st.confirmed)}</b></span>` +
+      `<span>已人工驳回/清除 <b>${num(st.left_blank)}</b></span>` +
+      `<span>地域未标注 <b>${num(st.unmarked)}</b></span>`;
+  } catch (e) { $("#rg-stats").textContent = "统计读取失败：" + (e.message || e); }
+}
+
+async function loadRegionQueue() {
+  fillRegionReviewSelects();
+  try {
+    rgQueue = (await app().RegionReviewList($("#rg-filter").value.trim(), $("#rg-state").value, 300, 0)) || [];
+    $("#rg-info").textContent = `队列 ${rgQueue.length} 条（最多显示 300）`;
+    $("#rg-list").innerHTML = rgQueue.map((r) => `
+      <div class="item ${r.law_id === rgSelected ? "sel" : ""}" data-law="${escapeHTML(r.law_id)}">
+        <div class="t">${escapeHTML(r.name || r.law_id)} ${rgStateBadge(r.state)}</div>
+        <div class="m">${escapeHTML(r.law_id)}${r.effect_level ? " · " + escapeHTML(r.effect_level) : ""}${r.issuer ? " · " + escapeHTML(r.issuer) : ""}</div>
+        <div class="m">${r.region_path ? "当前标注：" + escapeHTML(r.region_path) : "当前标注：缺失/未知"}${r.region_reviewer ? "（" + escapeHTML(r.region_reviewer) + "）" : ""}</div>
+      </div>`).join("") || '<p class="muted">队列为空（或过滤无匹配）。</p>';
+    document.querySelectorAll("#rg-list .item").forEach((el) => el.addEventListener("click", () => showRegionReview(el.dataset.law)));
+  } catch (e) { $("#rg-list").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
+}
+
+async function showRegionReview(lawID) {
+  rgSelected = lawID;
+  document.querySelectorAll("#rg-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.law === lawID));
+  try {
+    const d = await app().RegionReviewDetail(lawID);
+    const row = d.row || {}, s = d.suggest || {};
+    $("#rg-preview").innerHTML = `<h3>${escapeHTML(row.name || lawID)}</h3>
+      <p class="muted">${escapeHTML(lawID)}${row.effect_level ? " · " + escapeHTML(row.effect_level) : ""}${row.issuer ? " · 制定机关：" + escapeHTML(row.issuer) : ""}</p>
+      <p><b>当前标注：</b>${row.region_code ? escapeHTML(row.region_path) + "（" + escapeHTML(row.region_code) + "）" : "缺失/未知"} ${rgStateBadge(row.state)}</p>
+      <p><b>机器判定：</b>${escapeHTML(RG_CONF_TEXT[s.confidence] || s.confidence || "无")}${s.region_path ? " → " + escapeHTML(s.region_path) : ""}</p>
+      <p class="muted">判定依据：${escapeHTML(s.note || "无")}${row.region_rule ? " · 现值依据：" + escapeHTML(row.region_rule) : ""}${row.region_reviewer ? " · 复核人：" + escapeHTML(row.region_reviewer) : ""}</p>
+      ${row.state === "unmarked" && s.region_code ? '<p class="muted">该建议置信不足，机器未写入；是否采纳由人工决定。</p>' : ""}
+      ${row.state === "suggest" ? '<p class="muted">机器建议未经人工确认前不算已复核。</p>' : ""}
+      <h4>复核记录</h4><ul class="log">${(d.log || []).map((x) => "<li>" + escapeHTML(x) + "</li>").join("") || '<li class="muted">暂无</li>'}</ul>`;
+    if (row.region_code) $("#rg-region").value = row.region_code;
+  } catch (e) { $("#rg-preview").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
+}
+
+async function judgeRegion(action) {
+  if (!rgSelected) return toast("请先在左侧点选条目");
+  const reviewer = $("#rg-reviewer").value.trim(), reason = $("#rg-reason").value.trim();
+  if (!reviewer || !reason) return toast("落判须填写复核人与结论依据");
+  const cur = rgQueue.find((x) => x.law_id === rgSelected) || {};
+  const code = action === "confirm" ? ($("#rg-region").value || cur.region_code || "") : "";
+  if (action === "confirm" && !code) return toast("该条目无机器建议，请在地区下拉中选择地区");
+  try {
+    const sum = await app().JudgeRegion([rgSelected], code, action, reviewer, reason);
+    toast(`已落判：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除 ${num(sum.cleared)}`);
+    loadRegionStats(); loadRegionQueue(); showRegionReview(rgSelected);
+  } catch (e) { toast("落判失败：" + (e.message || e)); }
+}
+$("#rg-load").addEventListener("click", () => { loadRegionStats(); loadRegionQueue(); });
+$("#rg-state").addEventListener("change", loadRegionQueue);
+$("#rg-confirm").addEventListener("click", () => judgeRegion("confirm"));
+$("#rg-reject").addEventListener("click", () => judgeRegion("reject"));
+$("#rg-clear").addEventListener("click", () => judgeRegion("clear"));
+
+async function rgBulkPreview() {
+  rgBulkN = -1;
+  try {
+    const n = await app().RegionBulkPreview($("#rg-b-prov").value, $("#rg-b-verdict").value);
+    rgBulkN = n;
+    $("#rg-b-info").textContent = `影响范围：${num(n)} 条`;
+  } catch (e) { $("#rg-b-info").textContent = "失败：" + (e.message || e); }
+}
+async function rgBulkApply() {
+  if (rgBulkN < 0) return toast("请先「先查看影响范围」再执行");
+  const reviewer = $("#rg-reviewer").value.trim(), reason = $("#rg-reason").value.trim();
+  if (!reviewer || !reason) return toast("批量落判须填写复核人与结论依据");
+  try {
+    const sum = await app().RegionBulkApply($("#rg-b-prov").value, $("#rg-b-verdict").value, reviewer, reason, rgBulkN);
+    toast(`批量完成：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除 ${num(sum.cleared)}`);
+    rgBulkN = -1;
+    $("#rg-b-info").textContent = "已执行，请重新预览";
+    loadRegionStats(); loadRegionQueue();
+  } catch (e) {
+    rgBulkN = -1;
+    $("#rg-b-info").textContent = "已中止：请重新预览";
+    toast("批量失败：" + (e.message || e));
+  }
+}
+$("#rg-b-preview").addEventListener("click", rgBulkPreview);
+$("#rg-b-apply").addEventListener("click", rgBulkApply);
 
 /* ---------- 专业 · 数据采集与更新 ---------- */
 async function loadSources() {

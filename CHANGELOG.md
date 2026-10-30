@@ -132,6 +132,26 @@
   另如实记录语料缺陷：`is_local=0` 却有地域的 3,612 条（如「山东省地震群测群防办法」是地方政府规章），
   `is_local` 本身不可靠，只报告、不当护栏用。
   测试：`TestRegionNationalEffectGuard`（部门规章不误标、「其他」不被否决）。
+- **地域标引 · 第 4 步（桌面「地域标引」复核面板）**：把已写入的 24,032 条机器建议接上人工闭环。
+  库层新增落判层 `ingest/regionreview.go`：`Review`（`confirm` 确认或改选地区 / `reject` 驳回 /
+  `clear` 清除标注；复核人与结论依据在库层强制，写 `region_log(action=…, source='manual',
+  actor=复核人)`）、`BulkReviewMatch` 干跑 + `BulkReview` 执行（**执行必须带回预览数**，
+  预览与执行之间队列有变即中止；单次上限 500 条，首版只做逐条 + 小批）、
+  `ReviewStats`（待复核 / 已确认 / 已驳回留空 / 未标注）、`ReviewLog`、`SuggestOne`；
+  `Scan` 的分类抽成 `classify`，全量扫描与单条预览共用同一口径。
+  **顺带修一条写路径漏洞**：人工驳回后 `region_code` 留空但署名仍在，原 `Apply` 会把机器建议
+  重新填回去、把人工结论顶掉——现 `Apply` 的 WHERE 增加 `region_reviewer IS NULL`，
+  `Scan` 把这类行分类为 `rejected`（不再当待判定）。
+  桌面新增 `desktop/regionreview.go` 六个绑定（`RegionReviewStats` / `RegionReviewList` /
+  `RegionReviewDetail` / `JudgeRegion` / `RegionBulkPreview` / `RegionBulkApply`），一律经
+  `ingest.RegionMarker`——桌面不是第二条写路径；纳入绑定契约门禁（42 方法 / 51 处调用核对通过）。
+  前端专业模式加「地域标引」面板：统计条、队列（机器建议优先）、预览（当前标注 / 机器判定 /
+  判定依据 / 复核记录）、确认·改选·驳回·清除、按省批量（先干跑后执行）。状态一律用
+  「机器建议 · 待复核」「地域未标注」「已人工复核」，未标注显示「缺失/未知」。
+  开发中抓到一处诚实性错误：详情用机器建议码填 `region_code`，会把未标注条目显示成已标注——
+  现 `region_code` 一律取库中实际值。测试：`ingest/regionreview_test.go`（署名强制、
+  驳回不被机器顶回、改选留痕、批量预览数与上限）、`desktop/regionreview_test.go`
+  （队列排序与状态口径、详情不得虚标、按省批量与预览数不符即中止）。
 - **修复（直辖市路径重复）**：`geo.PathName` 对省市同名的直辖市会拼成「北京市 · 北京市」
   （实测界面上就这么显示）。连续同名只保留一次，现为「北京市」；`geo_test.go` 覆盖
   110000/110100/120100/310100/500100。

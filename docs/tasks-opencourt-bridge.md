@@ -374,7 +374,26 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   另记录语料缺陷：`is_local=0` 却有地域 3,612 条，`is_local` 不可靠，只报告不当护栏。
   **界面尚未切换**：浏览过滤仍走标题前缀，切区划码属第 5 步。
   测试另加 `TestRegionNationalEffectGuard`。
-  **下一步**：桌面「地域标引」复核面板（逐条 + 小批，先干跑计数）。
+  **第 4 步已落地（2026-10-29）· 桌面「地域标引」复核面板**：
+- 库层落判（`ingest/regionreview.go`）：`Review`（confirm 确认/改选、reject 驳回、clear 清除，
+  复核人与结论依据必填，写 `region_log(action=…, source='manual', actor=复核人)`）、
+  `BulkReviewMatch` 干跑 + `BulkReview` 执行（**执行必须带回预览数**，数变了即中止；
+  单次上限 500 条）、`ReviewStats`（待复核/已确认/已驳回留空/未标注）、`ReviewLog`、
+  `SuggestOne`。`Scan` 的分类抽成 `classify`，全量与单条共用同一口径。
+- **补上一条写路径漏洞**：人工驳回后 `region_code` 留空但署名仍在，原 `Apply` 会把机器建议
+  重新填回去、把人工结论顶掉。现 `Apply` 的 WHERE 增加 `region_reviewer IS NULL`，
+  `Scan` 把这类行分类为 `rejected` 不再当待判定。测试 `TestRegionRejectedNotRewrittenByMachine`。
+- 桌面绑定（`desktop/regionreview.go`）：`RegionReviewStats` / `RegionReviewList` /
+  `RegionReviewDetail` / `JudgeRegion` / `RegionBulkPreview` / `RegionBulkApply`，
+  全部经 `ingest.RegionMarker`（桌面不是第二写路径）；纳入绑定契约门禁（42 方法 / 51 处调用）。
+- 前端面板（专业模式「地域标引」）：统计条 + 队列（机器建议优先）+ 预览（当前标注 / 机器判定 /
+  判定依据 / 复核记录）+ 确认·改选·驳回·清除 + 按省批量（先干跑后执行）。状态一律用
+  「机器建议 · 待复核」「地域未标注」「已人工复核」，未标注显示「缺失/未知」。
+  开发中抓到一处会把未标注显示成已标注的错（详情用机器建议码填 `region_code`），已修并有测试。
+- 测试：`ingest/regionreview_test.go`、`desktop/regionreview_test.go`；门禁全过
+  （gofmt/build/vet/test、`node --check`、生产与 devtools 桌面构建）。
+  **下一步**：第 5 步——浏览过滤由标题前缀切到 `region_code`（未标注行回退前缀并如实标注）、
+  `pack` 的 `changes.csv` 增 `region_code`/`region_source` 列、§6 一致性自检报告。
 
 
 ---

@@ -24,6 +24,10 @@ law_id（PK）、name、short_name、issuer、effect_level（CHECK 枚举：宪�
 suggest/undo 完整痕迹）。仍留空 4,920 条，分类如实：**2,820 条属国家级效力**
 （法律/行政法规/部门规章/司法解释/宪法/欧盟条例——本就不该有地域）、**2,010 条判不出**
 （县级市、名称省略「市」字等）、90 条仅机关命中的中置信（按拍板不写）。
+桌面「地域标引」面板已交付（专业模式）：机器建议可确认 / 改选地区 / 驳回 / 清除，一律署名 +
+结论依据并写 `region_log`。**驳回后 `region_code` 留空但署名仍在——机器写入不再覆盖**
+（`Apply` 的 WHERE 含 `region_reviewer IS NULL`），这类行在扫描报告里分类为 `rejected`，
+不再计入待判定；界面显示「已人工复核」（留空是人工结论，不是缺失）。
 **桌面浏览过滤仍按标题前缀**（`desktop/region.go` 的 `regionPatterns`），尚未切到区划码——
 本批写入属「数据就位」，界面切换与如实提示属实施第 5 步。
 在此之前界面仍按**查询期推导**显示地域：`parse.InferRegion` 按名称前缀匹配内置 `geo` 区划表
@@ -75,7 +79,9 @@ source（auto/manual/trial）、rule（机器规则号或人工依据）、actor
 created_at。**与 review_log 并列而非复用**：review_log 外键是 doc_id（文档级正文复核），
 region_log 是 law 级（地域复核）——正文已复核 ≠ 地域已复核，两者不得混同。
 机器写入必须 `law.region_reviewer` 留空，界面据此显示「机器建议 · 待复核」；
-人工落判（confirm/reject/clear）一律署名 + 结论依据。
+人工落判（confirm/reject/clear）一律署名 + 结论依据。面板落判写 `source='manual'`、
+`actor`=复核人，`rule` 记动作（人工标注 / 确认机器建议 / 改选地区 / 驳回机器建议 / 清除标注）；
+批量落判必须先干跑计数，执行时把该数带回核对，预览与执行之间队列有变即中止。
 
 ## 3. 溯源文件（provenance/<doc_id>.json）
 
