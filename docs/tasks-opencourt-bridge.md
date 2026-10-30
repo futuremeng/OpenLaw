@@ -433,8 +433,19 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   效力依据」两条。`is_local` 只作线索，绝不据此改数。
 - 测试：`ingest/regionaudit_test.go`（逐项计数、地方政府规章不得虚报为「无地方效力依据」、
   自检前后数据指纹一致 = 只读）。
-  **第 5 步三块全部完成。下一步**：面板在打包 `.app` 里的手工冒烟；`cmd/openlaw-region`
-  与复核层动作对齐（confirm/reject/clear 走同一 `RegionMarker`）；多法域（美国数据）设计文档。
+  **第 5 步三块全部完成。**
+  **复核动作已对齐 CLI（2026-10-30）**：`openlaw-region` 增 `-stats`（复核面统计，与面板同口径）、
+  `-review <条目编号[,编号…]> -verdict confirm|reject|clear [-code] -reviewer -reason`（逐条落判）、
+  `-bulk [-province <码前缀>]`（缺省只计数，执行必须 `-apply -expected <计数>`，计数变了即中止）——
+  全部走 `ingest.RegionMarker` 同一入口，桌面与 CLI 都不是第二条写路径；批量只挑「机器建议 · 待复核」，
+  人工已落判的行绝不批量推翻。读侧口径同时修正：`region_reviewer` 空串与 NULL 同义，没有署名的行
+  不得算「已人工复核」（`ingest.SQLReviewerSet`/`SQLReviewerBlank` 统一统计、队列与批量范围）。
+  真实语料实测空署名 0 条，属防御性口径统一，现有计数不变。
+  真实语料只读实测：待复核 24,032 / 已人工确认 0 / 已复核留空 0 / 未标注且未复核 4,920；
+  按 `13` 前缀计数 870 条待流转（未写入，跑完 `region_log` 仍 72,098 条）。测试：
+  `cmd/openlaw-region/review_test.go`、`ingest.TestRegionReviewBlankReviewerIsNotReviewed`、
+  `desktop.TestRegionReviewBlankReviewerNotReviewed`。
+  **下一步**：面板在打包 `.app` 里的手工冒烟；多法域（美国数据）设计文档。
 
 
 ---

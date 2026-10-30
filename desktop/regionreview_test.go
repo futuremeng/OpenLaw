@@ -173,3 +173,46 @@ func TestRegionReviewBulk(t *testing.T) {
 		t.Errorf("clear 后应留空，实际 %q", code)
 	}
 }
+
+// 空署名不得显示成已复核：region_reviewer 空串与 NULL 同义，队列与状态口径都必须
+// 把它留在「机器建议 · 待复核」，不得渲染成已人工复核。
+func TestRegionReviewBlankReviewerNotReviewed(t *testing.T) {
+	a := newRegionReviewApp(t)
+	if _, err := a.db.Exec(`INSERT INTO law(law_id,name,region_code,region_source,region_reviewer)
+		VALUES('RR5','天津市河道管理条例','120000','auto','')`); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := a.RegionReviewList("", "suggest", 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, r := range rows {
+		if r.LawID != "RR5" {
+			continue
+		}
+		found = true
+		if r.State != "suggest" {
+			t.Errorf("空署名行状态应为 suggest，实际 %q", r.State)
+		}
+	}
+	if !found {
+		t.Error("空署名行必须留在待复核队列")
+	}
+	reviewed, err := a.RegionReviewList("", "reviewed", 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range reviewed {
+		if r.LawID == "RR5" {
+			t.Error("空署名行不得出现在已复核队列")
+		}
+	}
+	st, err := a.RegionReviewStats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Confirmed != 0 {
+		t.Errorf("空署名行不得计入已人工确认，实际 %d", st.Confirmed)
+	}
+}

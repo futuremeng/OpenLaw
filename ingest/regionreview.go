@@ -53,6 +53,16 @@ type RegionFilter struct {
 	Limit       int    // <=0 用 RegionBulkLimit
 }
 
+// SQLReviewerSet / SQLReviewerBlank 署名状态的统一判定片段。
+//
+// NULL 与空串同义：没有署名的行绝不能算「已人工复核」（诚实展示纪律）。读侧
+// （统计、队列、批量范围）一律用这两条，防止空署名被渲染成已复核；写侧的守卫
+// 仍按「署名非空即人工结论」从严，不覆盖任何可能有结论的行。
+const (
+	SQLReviewerSet   = "COALESCE(region_reviewer,'')<>''"
+	SQLReviewerBlank = "COALESCE(region_reviewer,'')=''"
+)
+
 // bulkWhere 组装批量条件（参数化，不拼字符串）。
 func (f RegionFilter) bulkWhere(action string) (string, []any) {
 	var conds []string
@@ -60,9 +70,9 @@ func (f RegionFilter) bulkWhere(action string) (string, []any) {
 	switch action {
 	case RegionActionConfirm, RegionActionReject:
 		conds = append(conds, "region_code IS NOT NULL AND region_code<>''",
-			"region_reviewer IS NULL", "region_source='auto'")
+			SQLReviewerBlank, "region_source='auto'")
 	case RegionActionClear:
-		conds = append(conds, "region_code IS NOT NULL AND region_code<>''", "region_reviewer IS NULL")
+		conds = append(conds, "region_code IS NOT NULL AND region_code<>''", SQLReviewerBlank)
 		if f.OnlySuggest {
 			conds = append(conds, "region_source='auto'")
 		}
@@ -83,10 +93,10 @@ func (m *RegionMarker) ReviewStats() (RegionReviewStats, error) {
 	}
 	var s RegionReviewStats
 	err := m.DB.QueryRow(`SELECT count(*),
-		COALESCE(sum(CASE WHEN region_code IS NOT NULL AND region_code<>'' AND region_reviewer IS NULL THEN 1 ELSE 0 END),0),
-		COALESCE(sum(CASE WHEN region_code IS NOT NULL AND region_code<>'' AND region_reviewer IS NOT NULL THEN 1 ELSE 0 END),0),
-		COALESCE(sum(CASE WHEN (region_code IS NULL OR region_code='') AND region_reviewer IS NOT NULL THEN 1 ELSE 0 END),0),
-		COALESCE(sum(CASE WHEN (region_code IS NULL OR region_code='') AND region_reviewer IS NULL THEN 1 ELSE 0 END),0)
+		COALESCE(sum(CASE WHEN region_code IS NOT NULL AND region_code<>'' AND `+SQLReviewerBlank+` THEN 1 ELSE 0 END),0),
+		COALESCE(sum(CASE WHEN region_code IS NOT NULL AND region_code<>'' AND `+SQLReviewerSet+` THEN 1 ELSE 0 END),0),
+		COALESCE(sum(CASE WHEN (region_code IS NULL OR region_code='') AND `+SQLReviewerSet+` THEN 1 ELSE 0 END),0),
+		COALESCE(sum(CASE WHEN (region_code IS NULL OR region_code='') AND `+SQLReviewerBlank+` THEN 1 ELSE 0 END),0)
 		FROM law`).Scan(&s.Total, &s.SuggestPending, &s.Confirmed, &s.LeftBlank, &s.Unmarked)
 	return s, err
 }

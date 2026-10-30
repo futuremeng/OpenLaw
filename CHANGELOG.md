@@ -188,6 +188,19 @@
   照原口径报会把 `is_local` 自己的毛病算成地域的毛病，故拆成两条。`is_local` 只作线索、不改数。
   测试：`ingest/regionaudit_test.go`（逐项计数、地方政府规章不得虚报、自检前后指纹一致 = 只读）。
   至此设计 §8 的第 5 步三块（浏览过滤切码 / `pack` 列扩展 / 一致性自检）全部完成。
+- **地域标引 · 复核动作对齐 CLI**：`openlaw-region` 新增 `-stats`（复核面统计，与桌面面板同口径）、
+  `-review <条目编号[,编号…]> -verdict confirm|reject|clear [-code <区划码>] -reviewer <复核人>
+  -reason <结论依据>`（逐条落判）、`-bulk [-province <码前缀>]`（批量落判：缺省只计数，
+  执行必须 `-apply -expected <上一步计数>`，计数变了即中止）。全部走 `ingest.RegionMarker`
+  同一入口——桌面与 CLI 都不是第二条写路径；批量只挑「机器建议 · 待复核」，人工已落判的行绝不被推翻。
+  顺带修正读侧口径：`region_reviewer` 空串与 NULL 同义，没有署名的行不得算「已人工复核」
+  （新增 `ingest.SQLReviewerSet`/`SQLReviewerBlank`，统计、复核队列、批量范围统一使用）。
+  真实语料实测空署名行 0 条：这条是防御性口径修正，现有数据计数不变，不谎称修掉了脏数据。
+  真实语料只读实测：待复核 24,032 / 已人工确认 0 / 已复核留空 0 / 未标注且未复核 4,920；
+  按 `13`（河北省）前缀计数 870 条待流转（未写入，跑完 `region_log` 仍 72,098 条）。
+  测试：`cmd/openlaw-region/review_test.go`（未计数即拒绝执行、计数不符即中止、人工落判行不被
+  批量推翻、缺复核人即拒绝、驳回落空但已复核并留复核记录）+
+  `ingest.TestRegionReviewBlankReviewerIsNotReviewed` + `desktop.TestRegionReviewBlankReviewerNotReviewed`。
 - **修复（直辖市路径重复）**：`geo.PathName` 对省市同名的直辖市会拼成「北京市 · 北京市」
   （实测界面上就这么显示）。连续同名只保留一次，现为「北京市」；`geo_test.go` 覆盖
   110000/110100/120100/310100/500100。

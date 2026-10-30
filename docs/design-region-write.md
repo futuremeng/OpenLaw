@@ -278,8 +278,19 @@ v3 语料时没有 region 列，界面显示「地域未标注」即可，不被
   是地方政府规章——它们本就是地方级，只是 `is_local` 从未置位；照原口径报会把 `is_local`
   自己的毛病算成地域的毛病，故拆成两条。`is_local` 只作线索，绝不据此改数。
 - 测试：`ingest/regionaudit_test.go`（逐项计数、地方政府规章不得虚报、只读指纹断言）。
-  **第 5 步三块全部完成。下一步**：面板在打包 `.app` 里的手工冒烟；`cmd/openlaw-region`
-  与复核层动作对齐（confirm/reject/clear 走同一 `RegionMarker`）；多法域（美国数据）设计文档。
+  **第 5 步三块全部完成。**
+  **第 5 步之后（2026-10-30）· 复核动作对齐 CLI**：`cmd/openlaw-region` 增 `-stats`（复核面统计，
+  与面板同口径）、`-review <条目编号[,编号…]> -verdict confirm|reject|clear [-code] -reviewer -reason`
+  （逐条落判）、`-bulk [-province <码前缀>]`（缺省只计数，执行必须 `-apply -expected <计数>`，
+  计数变了即中止）——全部调用 `ingest.RegionMarker` 同一入口，桌面与 CLI 都不是第二条写路径；
+  批量只挑「机器建议 · 待复核」，人工已落判的行绝不批量推翻。读侧口径同时修正：`region_reviewer`
+  空串与 NULL 同义，没有署名的行不得算「已人工复核」（`ingest.SQLReviewerSet`/`SQLReviewerBlank`
+  统一统计、队列与批量范围；写侧守卫仍从严，署名非空即不覆盖）。真实语料实测空署名 0 条，
+  属防御性口径统一，现有计数不变。真实语料只读实测：待复核 24,032 /
+  已人工确认 0 / 已复核留空 0 / 未标注且未复核 4,920；按 `13` 前缀计数 870 条待流转
+  （未写入，跑完 `region_log` 仍 72,098 条）。测试：`cmd/openlaw-region/review_test.go`、
+  `ingest.TestRegionReviewBlankReviewerIsNotReviewed`、`desktop.TestRegionReviewBlankReviewerNotReviewed`。
+  **下一步**：面板在打包 `.app` 里的手工冒烟；多法域（美国数据）设计文档。
 
 ---
 

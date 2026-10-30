@@ -94,11 +94,11 @@ func (a *App) RegionReviewList(filter, state string, limit, offset int) ([]Regio
 	}
 	switch strings.TrimSpace(state) {
 	case "suggest":
-		conds = append(conds, marked, "region_reviewer IS NULL")
+		conds = append(conds, marked, ingest.SQLReviewerBlank)
 	case "unmarked":
-		conds = append(conds, "("+marked+")=0", "region_reviewer IS NULL")
+		conds = append(conds, "("+marked+")=0", ingest.SQLReviewerBlank)
 	case "reviewed":
-		conds = append(conds, "region_reviewer IS NOT NULL")
+		conds = append(conds, ingest.SQLReviewerSet)
 	}
 	if limit <= 0 || limit > 300 {
 		limit = 300
@@ -111,8 +111,8 @@ func (a *App) RegionReviewList(filter, state string, limit, offset int) ([]Regio
 		COALESCE(region_reviewer,'')
 		FROM law WHERE `+strings.Join(conds, " AND ")+`
 		ORDER BY CASE
-			WHEN `+marked+` AND region_reviewer IS NULL THEN 0
-			WHEN region_reviewer IS NOT NULL THEN 2
+			WHEN `+marked+` AND `+ingest.SQLReviewerBlank+` THEN 0
+			WHEN `+ingest.SQLReviewerSet+` THEN 2
 			ELSE 1 END, law_id
 		LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {

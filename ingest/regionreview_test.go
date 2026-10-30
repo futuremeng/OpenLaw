@@ -198,6 +198,33 @@ func TestRegionReviewStats(t *testing.T) {
 	}
 }
 
+// 空署名不得算已复核：region_reviewer 空串与 NULL 同义（诚实展示纪律——没有复核人
+// 就不能显示成已人工复核），统计与批量范围都必须把它当待复核处理。
+func TestRegionReviewBlankReviewerIsNotReviewed(t *testing.T) {
+	m := setupRegion(t)
+	if _, err := m.DB.Exec(`INSERT INTO law(law_id,name,region_code,region_source,region_reviewer)
+		VALUES('r_blank','天津市河道管理条例','120000','auto','')`); err != nil {
+		t.Fatal(err)
+	}
+	st, err := m.ReviewStats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.SuggestPending != 1 { // r_blank 有码无署名 → 待复核
+		t.Errorf("空署名行应计入待复核，实际 %d", st.SuggestPending)
+	}
+	if st.Confirmed != 1 { // 只有 r_marked（张三）算已确认
+		t.Errorf("空署名行不得计入已人工确认，实际 %d", st.Confirmed)
+	}
+	n, err := m.BulkReviewMatch(RegionFilter{Province: "12"}, RegionActionConfirm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("空署名行应可进入批量落判范围，实际 %d", n)
+	}
+}
+
 func hasSub(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
