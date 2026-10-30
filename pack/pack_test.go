@@ -2,6 +2,7 @@ package pack
 
 import (
 	"archive/zip"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -380,6 +381,145 @@ func TestImportPackLang(t *testing.T) {
 	var n int
 	if err := tdb.QueryRow(`SELECT COUNT(*) FROM article WHERE doc_id='eu_32016r0679_eng'`).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("回灌应按 SplitArticlesEU 切出 2 条，实际 %d (%v)", n, err)
+	}
+}
+
+// TestImportPackRegion 地域随包往返（第 5 步，§9.4）：changes.csv 带 region_code/
+// region_source；导入侧写码但来源一律记 pack、署名留空 = 接收方仍显示「随包携带 · 待复核」，
+// 并逐笔留 region_log（关联号指向具体包，便于追溯）。
+func TestImportPackRegion(t *testing.T) {
+	dir, db, key := setupSource(t)
+	if _, err := db.Exec(`UPDATE law SET region_code='130100', region_source='auto' WHERE law_id='law_pack'`); err != nil {
+		t.Fatal(err)
+	}
+	packDir := filepath.Join(t.TempDir(), "pack-region")
+	if err := Build(db, dir, packDir, key, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(packDir, "changes.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.SplitN(string(body), "\n", 2)[0]
+	if !strings.Contains(head, "region_code") || !strings.Contains(head, "region_source") {
+		t.Errorf("changes.csv 表头应含 region 两列，实际: %s", head)
+	}
+	changes, err := ReadChanges(packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, c := range changes {
+		if c.LawID == "law_pack" {
+			found = true
+			if c.RegionCode != "130100" || c.RegionSource != "auto" {
+				t.Fatalf("changes.csv 地域列 = %q/%q，期望 130100/auto", c.RegionCode, c.RegionSource)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("changes.csv 缺该法规行")
+	}
+
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, "db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tdb, err := store.Open(filepath.Join(target, "db", "openlaw.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.Close()
+	trustPack(t, packDir)
+	if _, err := Import(tdb, target, packDir); err != nil {
+		t.Fatalf("带地域的包导入应成功: %v", err)
+	}
+	var code, src string
+	var reviewer any
+	if err := tdb.QueryRow(`SELECT COALESCE(region_code,''), COALESCE(region_source,''), region_reviewer
+		FROM law WHERE law_id='law_pack'`).Scan(&code, &src, &reviewer); err != nil {
+		t.Fatal(err)
+	}
+	if code != "130100" {
+		t.Errorf("导入后 region_code = %q，期望 130100", code)
+	}
+	if src != ingest.RegionSourcePack {
+		t.Errorf("导入后 region_source = %q，期望 pack（不得照抄上游来源冒充本库判定）", src)
+	}
+	if reviewer != nil {
+		t.Errorf("导入不得写署名（接收方必须显示待复核），实际 %v", reviewer)
+	}
+	var logSrc, actor, batch string
+	if err := tdb.QueryRow(`SELECT source, actor, COALESCE(batch_id,'') FROM region_log WHERE law_id='law_pack'`).
+		Scan(&logSrc, &actor, &batch); err != nil {
+		t.Fatalf("包携带写入必须留 region_log: %v", err)
+	}
+	if logSrc != ingest.RegionSourcePack || actor != "openlaw-pack" || !strings.HasPrefix(batch, "pack:") {
+		t.Errorf("region_log 异常: source=%s actor=%s batch=%s", logSrc, actor, batch)
+	}
+}
+
+// TestReadChangesLegacyHeaders 旧表头照常读取：v0/v1/v2 缺的列一律留空，
+// 不得用默认值伪造（region 留空就是「上游未标注」）。
+func TestReadChangesLegacyHeaders(t *testing.T) {
+	base := []string{"add", "d1", "l1", "测试法", "", "", "法律", "2018版", "2018-01-01",
+		"", "", "0", "", "测试样例", ""}
+	cases := []struct {
+		name       string
+		header     []string
+		row        []string
+		wantWhole  bool
+		wantLang   string
+		wantRegion string
+	}{
+		{"v0", oldChangeHeader, base, false, "", ""},
+		{"v1", v1ChangeHeader, append(append([]string{}, base...), "0"), false, "", ""},
+		{"v2", v2ChangeHeader, append(append([]string{}, base...), "0", "zho"), false, "zho", ""},
+		{"v3", changeHeader, append(append([]string{}, base...), "0", "zho", "130100", "auto"), false, "zho", "130100"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			f, err := os.Create(filepath.Join(dir, "changes.csv"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := csv.NewWriter(f)
+			if err := w.Write(tc.header); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.Write(tc.row); err != nil {
+				t.Fatal(err)
+			}
+			w.Flush()
+			if err := w.Error(); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+			changes, err := ReadChanges(dir)
+			if err != nil {
+				t.Fatalf("%s 表头应向后兼容: %v", tc.name, err)
+			}
+			if len(changes) != 1 {
+				t.Fatalf("%s 应读到 1 行，实际 %d", tc.name, len(changes))
+			}
+			c := changes[0]
+			if c.Whole != tc.wantWhole || c.Lang != tc.wantLang || c.RegionCode != tc.wantRegion {
+				t.Errorf("%s 解析异常: whole=%v lang=%q region=%q", tc.name, c.Whole, c.Lang, c.RegionCode)
+			}
+		})
+	}
+
+	// 表头不符必须拒绝，不得猜列序。
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "changes.csv"),
+		[]byte("action,doc_id\nadd,d1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadChanges(dir); err == nil {
+		t.Error("陌生表头应被拒绝")
 	}
 }
 

@@ -407,8 +407,18 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
 - 测试：`desktop/region_test.go` 种子扩到 LR1–LR9（已落码但标题无地区名 / 未落码但标题有地区名 /
   人工落判省级 / 码名不一致 / 码不在表内），断言按码命中、回退命中、码优先于名称、
   `unknown` 码显示、未标注数按码统计。
-  **下一步**：`pack` 的 `changes.csv` 增 `region_code`/`region_source` 列（旧表头向后兼容）、
-  §6 一致性自检报告（只报告、不自动改）。
+  **第 5 步之二已落地（2026-10-30）· 更新包携带地域**：
+- `changes.csv` v3 表头增 `region_code`/`region_source`；v0/v1/v2 旧表头照常读取，
+  缺的列一律留空（= 上游未标注，不用默认值伪造）；陌生表头仍拒绝。
+- 导入按 §9.4 只写码：`region_source` 一律改写为 `pack`、`region_reviewer` 留空
+  → 接收方界面显示「随包携带 · 待复核」；上游来源（auto/manual）只进 `region_log.reason`，
+  `batch_id`=`pack:<generated_at>` 便于按包追溯。守卫：已有码或已人工落判的行不被包推翻
+  （既不写码也不留审计）。
+- 前端同步：队列徽章区分「机器建议 · 待复核」与「随包携带 · 待复核」，预览显示标注来源。
+- 测试：`ingest.TestImportRegionCarried`（署名留空、审计内容、无地域导入不动列、
+  人工结论不被包顶掉）、`pack.TestImportPackRegion`（往返 + 来源改写 + 审计）、
+  `pack.TestReadChangesLegacyHeaders`（v0–v3 四代表头 + 陌生表头拒绝）。
+  **下一步**：§6 一致性自检报告（只报告、不自动改）。
 
 
 ---

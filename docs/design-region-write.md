@@ -158,8 +158,11 @@ v3 语料时没有 region 列，界面显示「地域未标注」即可，不被
   未标注行回退名称前缀；已标注行不再回退名称（码优先，人工结论不被名称推翻）。统计条如实给出
   「其中 N 部未标地域码（这些按标题前缀匹配，其余按区划码匹配）」。真实语料逐省核对：
   旧 24,033 = 新 24,033（净增 0、净失 0），仅按码 24,032——差 1 条即护栏故意不写码的那条部门规章。
-- `pack`：`changes.csv` 增 `region_code`/`region_source` 列，新增 header 版本，旧包按现有
-  三种 header 机制保持兼容；包内 `schema_version` 协商不变。
+- `pack`（已落地，第 5 步）：`changes.csv` 增 `region_code`/`region_source` 两列（v3 表头），
+  旧包按 v0/v1/v2 三代表头照常读取、缺列留空；导入侧只写码，`region_source` 一律改写为 `pack`、
+  `region_reviewer` 留空 → 接收方界面显示「随包携带 · 待复核」（§9.4 拍板）；已有码或已人工
+  落判的行不被包推翻；逐笔写 `region_log`（actor=`openlaw-pack`，batch_id=`pack:<generated_at>`）。
+  包内 `schema_version` 协商不变。
 
 ## 8. 验收门禁与实施顺序
 
@@ -244,7 +247,11 @@ v3 语料时没有 region 列，界面显示「地域未标注」即可，不被
   旧口径 24,033 = 新口径 24,033，净增 0、净失 0，仅按码 24,032（差 1 条为护栏不写码的部门规章）——
   现有码本就由名称前缀写出，故切码当下等价；价值在人工改选之后（过滤随复核走）。
   测试：`desktop/region_test.go`（按码命中、未标注回退、码优先于名称、`unknown` 码、
-  未标注数按码统计）。`pack` 列扩展与 §6 一致性自检报告仍未开始。
+  未标注数按码统计）。**`pack` 列扩展已落地**：`changes.csv` v3 表头增 `region_code`/
+  `region_source`（v0/v1/v2 向后兼容，缺列留空不伪造）；导入只写码、来源改写为 `pack`、
+  署名留空（接收方显示「随包携带 · 待复核」），已有码或已人工落判的行不被包推翻，逐笔写
+  `region_log`（actor=`openlaw-pack`）。测试：`ingest.TestImportRegionCarried`、
+  `pack.TestImportPackRegion`、`pack.TestReadChangesLegacyHeaders`。§6 一致性自检报告仍未开始。
 
 ---
 

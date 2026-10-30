@@ -166,6 +166,16 @@
   统计条如实说明「这些按标题前缀匹配，其余按区划码匹配」。
   测试：`desktop/region_test.go` 种子扩至 LR1–LR9，断言按码命中、未标注回退、码优先于名称、
   `unknown` 码显示、未标注数按码统计。
+- **地域标引 · 第 5 步之二（更新包携带地域）**：`changes.csv` 升 v3 表头，增
+  `region_code`/`region_source` 两列；v0/v1/v2 旧包照常读取，缺的列一律留空（留空就是
+  「上游未标注」，不得用默认值伪造），陌生表头仍拒绝。导入按 §9.4 只写码：
+  `region_source` **一律改写为 `pack`**、`region_reviewer` 一律留空——接收方界面显示
+  「随包携带 · 待复核」，不得显示成已人工复核；上游来源只写进 `region_log.reason`，
+  `batch_id` 记 `pack:<generated_at>` 便于按包追溯。守卫：已有码或已人工落判的行不被包推翻
+  （既不写码也不留审计）。前端队列徽章区分「机器建议 · 待复核」与「随包携带 · 待复核」，
+  预览显示标注来源。顺带更正 `release-process.md` 里「待补：changes.csv」的过期说法。
+  测试：`ingest.TestImportRegionCarried`、`pack.TestImportPackRegion`、
+  `pack.TestReadChangesLegacyHeaders`。
 - **修复（直辖市路径重复）**：`geo.PathName` 对省市同名的直辖市会拼成「北京市 · 北京市」
   （实测界面上就这么显示）。连续同名只保留一次，现为「北京市」；`geo_test.go` 覆盖
   110000/110100/120100/310100/500100。

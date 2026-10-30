@@ -74,7 +74,72 @@ func TestImportSuccess(t *testing.T) {
 	}
 }
 
-// TestImportNoOverwrite 原始层只读：重复 doc_id 必须拒绝，不得覆盖（7 章）。
+// TestImportRegionCarried 随更新包携带的地域标引（第 5 步）：只写码与来源（pack），
+// 署名一律留空 = 接收方界面仍显示待复核；已有码或已人工落判的行不得被包推翻；
+// 写入逐笔进 region_log（actor=openlaw-pack，非人工署名）。
+func TestImportRegionCarried(t *testing.T) {
+	im, _ := setupImporter(t)
+	req := sampleRequest()
+	req.RegionCode, req.RegionSource, req.RegionBatch = "130000", "auto", "pack:2026-10-30T00:00:00Z"
+	if _, err := im.Import(req); err != nil {
+		t.Fatal(err)
+	}
+	var code, src string
+	var reviewer any
+	if err := im.DB.QueryRow(`SELECT COALESCE(region_code,''), COALESCE(region_source,''), region_reviewer
+		FROM law WHERE law_id='law_test'`).Scan(&code, &src, &reviewer); err != nil {
+		t.Fatal(err)
+	}
+	if code != "130000" || src != RegionSourcePack {
+		t.Errorf("携带的地域应落库且来源记 pack: code=%q source=%q", code, src)
+	}
+	if reviewer != nil {
+		t.Errorf("包携带不得写署名（接收方必须显示待复核），实际 %v", reviewer)
+	}
+	var action, logSrc, actor, batch, to string
+	if err := im.DB.QueryRow(`SELECT action, source, actor, COALESCE(batch_id,''), COALESCE(to_code,'')
+		FROM region_log WHERE law_id='law_test'`).Scan(&action, &logSrc, &actor, &batch, &to); err != nil {
+		t.Fatalf("包携带写入必须留审计: %v", err)
+	}
+	if action != "suggest" || logSrc != RegionSourcePack || actor != regionActorPack ||
+		batch != "pack:2026-10-30T00:00:00Z" || to != "130000" {
+		t.Errorf("region_log 内容异常: %s/%s/%s/%s/%s", action, logSrc, actor, batch, to)
+	}
+
+	// 不带地域的常规导入完全不触碰地域列与审计。
+	req2 := sampleRequest()
+	req2.DocID, req2.LawID, req2.VersionNo, req2.EffectiveDate = "law_other_2018", "law_other", "2018版", "2018-01-01"
+	if _, err := im.Import(req2); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := im.DB.QueryRow(`SELECT COUNT(*) FROM law WHERE law_id='law_other'
+		AND COALESCE(region_code,'')<>''`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("无地域的导入不应写码: %d (%v)", n, err)
+	}
+	if err := im.DB.QueryRow(`SELECT COUNT(*) FROM region_log WHERE law_id='law_other'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("无地域的导入不应留地域审计: %d (%v)", n, err)
+	}
+
+	// 守卫：本地已人工落判 → 包不得推翻（既不写码也不写审计）。
+	if _, err := im.DB.Exec(`UPDATE law SET region_code='310000', region_source='manual',
+		region_reviewer='复核人甲' WHERE law_id='law_test'`); err != nil {
+		t.Fatal(err)
+	}
+	req3 := sampleRequest()
+	req3.DocID, req3.VersionNo, req3.EffectiveDate = "law_test_2019", "2019修正", "2019-01-01"
+	req3.AutoExpirePrior = true
+	req3.RegionCode, req3.RegionSource, req3.RegionBatch = "110000", "auto", "pack:2026-10-31T00:00:00Z"
+	if _, err := im.Import(req3); err != nil {
+		t.Fatal(err)
+	}
+	if err := im.DB.QueryRow(`SELECT COALESCE(region_code,'') FROM law WHERE law_id='law_test'`).Scan(&code); err != nil || code != "310000" {
+		t.Errorf("人工落判的码不得被包顶掉: %q (%v)", code, err)
+	}
+	if err := im.DB.QueryRow(`SELECT COUNT(*) FROM region_log WHERE law_id='law_test'`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("被守卫挡下的写入不得留审计: %d (%v)", n, err)
+	}
+}
 func TestImportNoOverwrite(t *testing.T) {
 	im, _ := setupImporter(t)
 	if _, err := im.Import(sampleRequest()); err != nil {

@@ -70,17 +70,22 @@ type Change struct {
 	Notes         string
 	Whole         bool   // 全文即一节模式（article_no=全文，无条文结构文档）
 	Lang          string // 正文语言（ISO 639-3；空=zho。EU 通道 eng 等，回灌按语言选切分器）
+	RegionCode    string // 区划码（GB/T 2260 风格，与 geo 一致）；空 = 上游未标注
+	RegionSource  string // 上游标注来源（auto/manual）；导入侧一律写 pack（本库未复核）
 }
 
 var changeHeader = []string{"action", "doc_id", "law_id", "law_name", "short_name", "issuer",
 	"effect_level", "version_no", "effective_date", "expire_date", "publish_date", "is_gongbao",
-	"source_url", "source_type", "notes", "whole", "lang"}
+	"source_url", "source_type", "notes", "whole", "lang", "region_code", "region_source"}
 
-// oldChangeHeader v0 格式（无 whole/lang 列）：读取时向后兼容。
-var oldChangeHeader = changeHeader[:15]
-
-// v1ChangeHeader 中间格式（有 whole 无 lang）：向后兼容。
-var v1ChangeHeader = changeHeader[:16]
+// 历史表头（读取时向后兼容，写出只用 changeHeader）：
+// v0 = 15 列（无 whole/lang/region）；v1 = 16 列（+whole）；
+// v2 = 17 列（+lang）；v3 = 19 列（+region_code/region_source，即当前 changeHeader）。
+var (
+	oldChangeHeader = changeHeader[:15]
+	v1ChangeHeader  = changeHeader[:16]
+	v2ChangeHeader  = changeHeader[:17]
+)
 
 // Build 从数据目录构建更新包：复制 pdf/ md/ provenance/，从数据库导出 changes.csv，
 // 生成 manifest.json 并用私钥签名（私钥独立存储，不进包）。
@@ -126,7 +131,7 @@ func writeChanges(db *store.DB, path string) error {
 		COALESCE(v.expire_date,''), COALESCE(d.publish_date,''), d.is_gongbao,
 		COALESCE(d.source_url,''), COALESCE(d.source_type,''),
 		EXISTS(SELECT 1 FROM article a WHERE a.version_id = v.version_id AND a.article_no = '全文'),
-		COALESCE(v.lang,'zho')
+		COALESCE(v.lang,'zho'), COALESCE(l.region_code,''), COALESCE(l.region_source,'')
 		FROM law_version v JOIN law l ON l.law_id = v.law_id
 		JOIN document d ON d.doc_id = v.doc_id
 		ORDER BY v.law_id, v.effective_date`)
@@ -147,13 +152,14 @@ func writeChanges(db *store.DB, path string) error {
 	count := 0
 	for rows.Next() {
 		var docID, lawID, name, short, issuer, level, vno, eff, exp, pub, url, stype, lang string
+		var regionCode, regionSource string
 		var gongbao, whole int
 		if err := rows.Scan(&docID, &lawID, &name, &short, &issuer, &level, &vno, &eff,
-			&exp, &pub, &gongbao, &url, &stype, &whole, &lang); err != nil {
+			&exp, &pub, &gongbao, &url, &stype, &whole, &lang, &regionCode, &regionSource); err != nil {
 			return err
 		}
 		rec := []string{"add", docID, lawID, name, short, issuer, level, vno, eff, exp, pub,
-			strconv.Itoa(gongbao), url, stype, "", strconv.Itoa(whole), lang}
+			strconv.Itoa(gongbao), url, stype, "", strconv.Itoa(whole), lang, regionCode, regionSource}
 		if len(rec) != len(changeHeader) {
 			return fmt.Errorf("%w: %s", ErrBadChange, docID)
 		}
@@ -187,21 +193,28 @@ func ReadChanges(packDir string) ([]Change, error) {
 	if len(records) < 2 {
 		return nil, fmt.Errorf("%w: 表头不符", ErrBadChange)
 	}
-	hasWhole, hasLang := true, true
+	// 表头版本：v3（当前，含 region 两列）/ v2（+lang）/ v1（+whole）/ v0。
+	// 旧包照常读取，缺的列一律留空——不得用默认值伪造（region 留空就是「上游未标注」）。
+	version := 3
 	switch strings.Join(records[0], ",") {
 	case strings.Join(changeHeader, ","):
+	case strings.Join(v2ChangeHeader, ","):
+		version = 2
 	case strings.Join(v1ChangeHeader, ","):
-		hasLang = false
+		version = 1
 	case strings.Join(oldChangeHeader, ","):
-		hasWhole, hasLang = false, false
+		version = 0
 	default:
 		return nil, fmt.Errorf("%w: 表头不符", ErrBadChange)
 	}
 	wantCols := len(oldChangeHeader)
-	if hasWhole {
+	if version >= 1 {
 		wantCols = len(v1ChangeHeader)
 	}
-	if hasLang {
+	if version >= 2 {
+		wantCols = len(v2ChangeHeader)
+	}
+	if version >= 3 {
 		wantCols = len(changeHeader)
 	}
 	out := make([]Change, 0, len(records)-1)
@@ -216,11 +229,14 @@ func ReadChanges(packDir string) ([]Change, error) {
 			ExpireDate: rec[9], PublishDate: rec[10], IsGongbao: g == 1,
 			SourceURL: rec[12], SourceType: rec[13], Notes: rec[14],
 		}
-		if hasWhole {
+		if version >= 1 {
 			c.Whole = rec[15] == "1"
 		}
-		if hasLang {
+		if version >= 2 {
 			c.Lang = rec[16]
+		}
+		if version >= 3 {
+			c.RegionCode, c.RegionSource = rec[17], rec[18]
 		}
 		out = append(out, c)
 	}
@@ -365,6 +381,7 @@ func importPack(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, e
 		return nil, err
 	}
 	im := &ingest.Importer{DataDir: targetDataDir, DB: db}
+	batchID := packBatchID(packDir) // 地域携带写入的审计关联号：必须能追到具体包
 	var done []ingest.Result
 	for i, c := range changes {
 		if c.Action != "add" {
@@ -399,6 +416,7 @@ func importPack(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, e
 			SourceURL: c.SourceURL, SourceType: c.SourceType, IsGongbao: c.IsGongbao,
 			PublishDate: c.PublishDate, ConfirmStatus: "pending", Notes: c.Notes,
 			PDFPath: srcFile, MDPath: md, WholeTextMode: c.Whole, Lang: c.Lang,
+			RegionCode: c.RegionCode, RegionSource: c.RegionSource, RegionBatch: batchID,
 		})
 		if err != nil {
 			return done, fmt.Errorf("导入 %s 失败（第 %d/%d 条）: %w", c.DocID, i+1, len(changes), err)
@@ -406,6 +424,18 @@ func importPack(db *store.DB, targetDataDir, packDir string) ([]ingest.Result, e
 		done = append(done, *res)
 	}
 	return done, nil
+}
+
+// packBatchID 包的关联号（写入 region_log.batch_id）：取 manifest.generated_at，
+// 读不到退回包目录名——审计必须能追到具体包，不得留空了事。
+func packBatchID(packDir string) string {
+	if b, err := os.ReadFile(filepath.Join(packDir, "manifest.json")); err == nil {
+		var m Manifest
+		if json.Unmarshal(b, &m) == nil && m.GeneratedAt != "" {
+			return "pack:" + m.GeneratedAt
+		}
+	}
+	return "pack:" + filepath.Base(packDir)
 }
 
 func copyTree(src, dst string) error {

@@ -500,8 +500,18 @@ const RG_CONF_TEXT = {
   marked: "已有标注",
   rejected: "人工已复核并留空",
 };
-function rgStateBadge(s) {
-  if (s === "suggest") return '<span class="badge pend">机器建议 · 待复核</span>';
+// 标注来源文案：pack = 随更新包携带（本库未复核），不得显示成已复核；
+// auto = 本库机器判定；manual = 人工落判；trial = 试判定。
+const RG_SRC_TEXT = {
+  auto: "本库机器判定",
+  manual: "人工落判",
+  trial: "试判定",
+  pack: "随更新包携带（本库未复核）",
+};
+function rgStateBadge(s, src) {
+  if (s === "suggest") {
+    return '<span class="badge pend">' + (src === "pack" ? "随包携带 · 待复核" : "机器建议 · 待复核") + "</span>";
+  }
   if (s === "reviewed") return '<span class="badge ok">已人工复核</span>';
   return '<span class="badge na">地域未标注</span>';
 }
@@ -538,7 +548,7 @@ async function loadRegionQueue() {
     $("#rg-info").textContent = `队列 ${rgQueue.length} 条（最多显示 300）`;
     $("#rg-list").innerHTML = rgQueue.map((r) => `
       <div class="item ${r.law_id === rgSelected ? "sel" : ""}" data-law="${escapeHTML(r.law_id)}">
-        <div class="t">${escapeHTML(r.name || r.law_id)} ${rgStateBadge(r.state)}</div>
+        <div class="t">${escapeHTML(r.name || r.law_id)} ${rgStateBadge(r.state, r.region_source)}</div>
         <div class="m">${escapeHTML(r.law_id)}${r.effect_level ? " · " + escapeHTML(r.effect_level) : ""}${r.issuer ? " · " + escapeHTML(r.issuer) : ""}</div>
         <div class="m">${r.region_path ? "当前标注：" + escapeHTML(r.region_path) : "当前标注：缺失/未知"}${r.region_reviewer ? "（" + escapeHTML(r.region_reviewer) + "）" : ""}</div>
       </div>`).join("") || '<p class="muted">队列为空（或过滤无匹配）。</p>';
@@ -554,11 +564,12 @@ async function showRegionReview(lawID) {
     const row = d.row || {}, s = d.suggest || {};
     $("#rg-preview").innerHTML = `<h3>${escapeHTML(row.name || lawID)}</h3>
       <p class="muted">${escapeHTML(lawID)}${row.effect_level ? " · " + escapeHTML(row.effect_level) : ""}${row.issuer ? " · 制定机关：" + escapeHTML(row.issuer) : ""}</p>
-      <p><b>当前标注：</b>${row.region_code ? escapeHTML(row.region_path) + "（" + escapeHTML(row.region_code) + "）" : "缺失/未知"} ${rgStateBadge(row.state)}</p>
+      <p><b>当前标注：</b>${row.region_code ? escapeHTML(row.region_path) + "（" + escapeHTML(row.region_code) + "）" : "缺失/未知"} ${rgStateBadge(row.state, row.region_source)}</p>
+      ${row.region_code ? '<p class="muted">标注来源：' + escapeHTML(RG_SRC_TEXT[row.region_source] || ("未知来源 " + (row.region_source || ""))) + "</p>" : ""}
       <p><b>机器判定：</b>${escapeHTML(RG_CONF_TEXT[s.confidence] || s.confidence || "无")}${s.region_path ? " → " + escapeHTML(s.region_path) : ""}</p>
       <p class="muted">判定依据：${escapeHTML(s.note || "无")}${row.region_rule ? " · 现值依据：" + escapeHTML(row.region_rule) : ""}${row.region_reviewer ? " · 复核人：" + escapeHTML(row.region_reviewer) : ""}</p>
       ${row.state === "unmarked" && s.region_code ? '<p class="muted">该建议置信不足，机器未写入；是否采纳由人工决定。</p>' : ""}
-      ${row.state === "suggest" ? '<p class="muted">机器建议未经人工确认前不算已复核。</p>' : ""}
+      ${row.state === "suggest" ? '<p class="muted">' + (row.region_source === "pack" ? "随更新包携带的地域未经本库人工确认前不算已复核。" : "机器建议未经人工确认前不算已复核。") + "</p>" : ""}
       <h4>复核记录</h4><ul class="log">${(d.log || []).map((x) => "<li>" + escapeHTML(x) + "</li>").join("") || '<li class="muted">暂无</li>'}</ul>`;
     if (row.region_code) $("#rg-region").value = row.region_code;
   } catch (e) { $("#rg-preview").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }

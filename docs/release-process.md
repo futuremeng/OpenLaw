@@ -32,7 +32,8 @@ pack-YYYYMMDD/
 
 导入时校验哈希与清单一致性，成功后写日志；失败保留旧数据，不覆盖（6.4）。不做静默自动抓取更新。
 
-当前已实装：manifest 生成 + Ed25519 签名/验签（`validate/manifest.go`）。待补：包体打包与 changes.csv。
+当前已实装：manifest 生成 + Ed25519 签名/验签（`validate/manifest.go`）+ 包体打包与
+`changes.csv`（`pack/pack.go`；当前 v3 表头含 `region_code`/`region_source`，v0/v1/v2 旧包向后兼容）。
 
 ## 4. 日常运维（9.2）
 

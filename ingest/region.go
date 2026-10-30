@@ -33,6 +33,15 @@ const (
 	RegionConfNone     = "none"     // 无法判定 → 留空（绝不猜）
 )
 
+// RegionSourcePack 随更新包携带的地域来源（§9.4 拍板：机器建议随包分发，但
+// region_reviewer 留空 → 接收方界面仍显示待复核）。pack 既不是「已复核」也不等于
+// 本库机器判定，它的含义是「这个码来自签名包，本库尚未复核」。
+const (
+	RegionSourcePack = "pack"
+	// regionActorPack region_log.actor：包携带写入的机器署名（非人工，不得冒充复核人）。
+	regionActorPack = "openlaw-pack"
+)
+
 // nationalEffectLevels 国家级效力等级：这类法规的地域不是「名称开头的行政区」。
 // 实测抓出的反例：「台湾渔船停泊点边防治安管理办法」（issuer=公安部，部门规章）
 // 按名称前缀会误标 710000 台湾省——名称里的地名不等于法规的地域归属。

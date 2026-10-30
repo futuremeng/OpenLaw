@@ -53,6 +53,14 @@ type Request struct {
 	MDContent string
 	// ParserVersion 覆盖 article.parser_version（EU 通道=parse.ParserVersionEU；空=默认）。
 	ParserVersion string
+	// RegionCode/RegionSource/RegionBatch 随更新包携带的地域标引（仅 pack 导入使用；
+	// 其他通道留空 = 完全不触碰地域列）。只写码与来源，**region_reviewer 一律留空**：
+	// 接收方界面必须显示「随更新包携带 · 待复核」，不得显示成已人工复核（§9.4）。
+	// 已有码或已人工落判的行不被覆盖——包不得推翻本地结论；写入逐笔进 region_log。
+	// RegionSource 是上游来源（auto/manual 等），只进审计说明，不写进 law.region_source。
+	RegionCode   string
+	RegionSource string
+	RegionBatch  string // 关联号（包的 generated_at），便于按包追溯
 }
 
 // Result 导入成功后的产出。
@@ -300,6 +308,26 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 			issuer=excluded.issuer, effect_level=excluded.effect_level`,
 		req.LawID, req.LawName, nullable(req.ShortName), nullable(req.Issuer), nullable(req.EffectLevel)); err != nil {
 		return nil, "", fmt.Errorf("写入 law 失败: %w", err)
+	}
+
+	// 随更新包携带的地域标引（§9.4）：只写码与来源，署名一律留空 = 接收方仍待复核。
+	// 守卫：已有码或已人工落判的行不动——包不得推翻本地结论（写路径从严）。
+	if req.RegionCode != "" {
+		res, err := tx.Exec(`UPDATE law SET region_code=?, region_source=?
+			WHERE law_id=? AND region_code IS NULL AND region_reviewer IS NULL`,
+			req.RegionCode, RegionSourcePack, req.LawID)
+		if err != nil {
+			return nil, "", fmt.Errorf("写入地域标引失败（%s）: %w", req.LawID, err)
+		}
+		if n, err := res.RowsAffected(); err == nil && n == 1 {
+			if _, err := tx.Exec(`INSERT INTO region_log(law_id,action,to_code,source,actor,reason,batch_id,created_at)
+				VALUES(?,'suggest',?,?,?,?,?,?)`,
+				req.LawID, req.RegionCode, RegionSourcePack, regionActorPack,
+				"随更新包携带（上游来源 "+req.RegionSource+"），本库未复核",
+				nullable(req.RegionBatch), now); err != nil {
+				return nil, "", fmt.Errorf("写入地域审计失败（%s）: %w", req.LawID, err)
+			}
+		}
 	}
 
 	ext, kind := srcExtKind(req.PDFPath)

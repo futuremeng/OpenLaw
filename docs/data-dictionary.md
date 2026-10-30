@@ -13,7 +13,8 @@ law_id（PK）、name、short_name、issuer、effect_level（CHECK 枚举：宪�
 
 **地域（地点定位，OL-12 / F3）**：schema v4 起 `law` 具备地域标引列——`region_code`
 （GB/T 2260 区划码，与 `geo` 包一致；**空 = 地域未标注**）、`region_source`
-（auto=机器建议（名称/机关推导）/ manual=人工落判 / trial=试判定）、
+（auto=机器建议（名称/机关推导）/ manual=人工落判 / trial=试判定 /
+pack=随更新包携带（本库未复核））、
 `region_rule`（依据与规则号，如 `name-prefix(R1)`、`issuer(R3)`）、
 `region_reviewer`（人工落判署名；**空 = 仅机器建议**）、`region_reviewed_at`。
 列刻意不加 CHECK、不重建表（v2/v3 改 CHECK 需 12 步重建，风险高），取值合法性由应用层与门禁测试保证。
@@ -28,6 +29,12 @@ suggest/undo 完整痕迹）。仍留空 4,920 条，分类如实：**2,820 条�
 结论依据并写 `region_log`。**驳回后 `region_code` 留空但署名仍在——机器写入不再覆盖**
 （`Apply` 的 WHERE 含 `region_reviewer IS NULL`），这类行在扫描报告里分类为 `rejected`，
 不再计入待判定；界面显示「已人工复核」（留空是人工结论，不是缺失）。
+**更新包携带地域**（第 5 步）：`changes.csv` v3 表头新增 `region_code`/`region_source`
+两列（v0/v1/v2 旧包照常读取，缺的列一律留空 = 上游未标注，不得用默认值伪造）。
+导入侧只写码：`region_source` **一律改写为 `pack`**、`region_reviewer` 一律留空——
+接收方界面显示「随包携带 · 待复核」，不得显示成已人工复核；上游来源（auto/manual）只写进
+`region_log.reason` 说明，`batch_id` 记 `pack:<generated_at>` 便于按包追溯。
+守卫：已有码或已人工落判的行不被包推翻（既不写码也不留审计）。
 **桌面浏览过滤已切区划码**（实施第 5 步）：已标注行按 `law.region_code` 前缀（省级取 2 位、
 天然含下辖地级；地级取 4 位），**未标注行回退名称前缀**（`desktop/region.go` 的
 `regionCodePrefix` + `regionPatterns`）——只按码过滤会把 4,920 条未落码条目无声漏掉。
@@ -83,8 +90,9 @@ confirm 流程（openlaw-confirm）的状态流转留痕：doc_id、action（con
 
 ### region_log 地域标引审计（v4）
 law 级地域判定留痕：law_id、action（suggest/confirm/reject/clear/undo）、from_code→to_code、
-source（auto/manual/trial）、rule（机器规则号或人工依据）、actor（机器固定 `openlaw-region`，
-人工必须署名）、reason、batch_id（同一次批量写入/撤销的关联号，`openlaw-region -undo` 依此回滚）、
+source（auto/manual/trial/pack）、rule（机器规则号或人工依据）、actor（机器固定 `openlaw-region`，
+包携带写入记 `openlaw-pack`，人工必须署名）、reason、
+batch_id（同一次批量写入/撤销的关联号，`openlaw-region -undo` 依此回滚；包携带记 `pack:<generated_at>`）、
 created_at。**与 review_log 并列而非复用**：review_log 外键是 doc_id（文档级正文复核），
 region_log 是 law 级（地域复核）——正文已复核 ≠ 地域已复核，两者不得混同。
 机器写入必须 `law.region_reviewer` 留空，界面据此显示「机器建议 · 待复核」；
