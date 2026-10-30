@@ -131,32 +131,42 @@
       </div>
     </section>
 
-    <!-- 专业 · 人工复核 -->
+    <!-- 专业 · 人工复核：① 找到条目 → ② 看原文与复核记录 → ③ 署名落判（docs/design-ui-language.md） -->
     <section id="panel-confirm" class="panel hidden">
       <div id="qstats" class="qstats"></div>
+      <h2 class="step">第一步 · 找到要复核的条目</h2>
       <div class="toolbar">
-        <input id="filter" placeholder="过滤：编号 / 法规名 / 来源"/>
-        <button id="btn-load">载入待复核队列</button>
+        <input id="filter" placeholder="按法规名称、条目编号或来源查找"/>
+        <button id="btn-load">载入待复核条目</button>
         <span id="queue-info"></span>
-        <span class="spacer"></span>
-        <input id="reviewer" placeholder="复核人（必填）"/>
-        <input id="reason" placeholder="结论依据（必填）"/>
-        <button id="btn-confirm" class="ok">确认 ✓</button>
-        <button id="btn-reject" class="warn">驳回 ✗</button>
-        <button id="btn-reset">重新复核</button>
-      </div>
-      <div class="bulk">
-        批量复核：来源 <input id="b-source" placeholder="如 gov.cn% / flk%"/>
-        效力等级 <input id="b-level2" placeholder="如 部门规章" size="8"/>
-        <select id="b-verdict"><option value="confirm">确认</option><option value="reject">驳回</option><option value="reset">重新复核</option></select>
-        <button id="btn-bulk-preview">先查看影响范围</button>
-        <span id="bulk-info" class="muted"></span>
-        <button id="btn-bulk-apply" class="ok">执行（须复核人+依据）</button>
       </div>
       <div class="split">
         <div id="queue-list" class="list"></div>
-        <div id="preview" class="preview"><p class="muted">点选左侧条目查看条文全文与复核记录。复核须由人工完成：确认/驳回须填写复核人与结论依据。</p></div>
+        <div id="preview" class="preview"><p class="muted">点选左侧条目，这里显示条文原文、原文出处与复核记录。<br>机器不会替你确认：每条都要人工与官方原文比对之后再定。</p></div>
       </div>
+      <h2 class="step">第二步 · 写下结论并署名</h2>
+      <div class="toolbar">
+        <label>复核人 <input id="reviewer" placeholder="你的名字或工号（必填）"/></label>
+        <label>结论依据 <input id="reason" placeholder="例如：已与官网原文逐字比对（必填）"/></label>
+        <button id="btn-confirm" class="ok">确认这条</button>
+        <button id="btn-reject" class="warn">驳回这条</button>
+        <button id="btn-reset">退回重新复核</button>
+      </div>
+      <p class="muted small">先点左侧条目，再填复核人与结论依据，最后点「确认这条」或「驳回这条」。复核记录会长期保留，写明依据比只写「已看过」更有用。</p>
+      <details class="disclose">
+        <summary>批量复核（一次处理一批 · 须先看范围再执行）</summary>
+        <div class="form">
+          <label>来源 <select id="b-source"></select></label>
+          <label>效力等级 <select id="b-level2"></select></label>
+          <label>结论 <select id="b-verdict"><option value="confirm">确认</option><option value="reject">驳回</option><option value="reset">退回重新复核</option></select></label>
+          <div class="rowbtns">
+            <button id="btn-bulk-preview">先看看会影响多少条</button>
+            <button id="btn-bulk-apply" class="ok">执行批量复核</button>
+          </div>
+          <span id="bulk-info" class="muted"></span>
+          <p class="muted small">必须先点「先看看会影响多少条」才能执行；未填复核人与结论依据不会执行。批量只处理所选来源、所选效力等级下尚未复核的条目，已经人工复核过的不会被改写。</p>
+        </div>
+      </details>
     </section>
 
     <!-- 专业 · 地域标引（机器建议 → 人工落判；写 law.region_* 与 region_log） -->

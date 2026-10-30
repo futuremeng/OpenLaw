@@ -474,17 +474,48 @@ func (a *App) QueueStats() (*ingest.ConfirmStats, error) {
 	return c.Stats(a.riskSet())
 }
 
-// BulkPreview 批量流转 dry-run：只计数不写库（先看清楚再动手）。
-func (a *App) BulkPreview(sourceLike, level, verdict string) (int, error) {
+// SourceFacet 待复核条目的来源分布（批量复核的来源下拉用）。
+type SourceFacet struct {
+	Source  string `json:"source"`
+	Pending int    `json:"pending"`
+	Total   int    `json:"total"`
+}
+
+// ConfirmSources 真实来源名与各来源的待复核条数。界面据此出下拉：用户只选来源名，
+// 不需要也不应该手写 gov.cn% 这类通配符（docs/design-ui-language.md 主视图禁止项）。
+// Source 为空串的是「未记录来源」的条目，前端不列进下拉（无法按名选择，请逐条处理）。
+func (a *App) ConfirmSources() []SourceFacet {
+	if a.db == nil {
+		return nil
+	}
+	rows, err := a.db.Query(`SELECT COALESCE(source_type,''), SUM(confirm_status='pending'), COUNT(*)
+		FROM document GROUP BY 1 HAVING SUM(confirm_status='pending')>0 ORDER BY 2 DESC`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []SourceFacet
+	for rows.Next() {
+		var s SourceFacet
+		if err := rows.Scan(&s.Source, &s.Pending, &s.Total); err == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// BulkPreview 批量流转干跑：只计数不写库（先看清楚再动手）。
+// source 是来源名精确匹配（来自 ConfirmSources 下拉），不是 LIKE 模式串。
+func (a *App) BulkPreview(source, level, verdict string) (int, error) {
 	if a.db == nil {
 		return 0, errors.New(a.openErr)
 	}
 	c := &ingest.Confirmer{DataDir: a.dataDir, DB: a.db}
-	return c.BulkMatch(ingest.BulkFilter{SourceLike: sourceLike, Level: level}, verdict)
+	return c.BulkMatch(ingest.BulkFilter{Source: source, Level: level}, verdict)
 }
 
 // BulkApply 批量流转执行：署名与依据必填（库层同样强制，双保险）。
-func (a *App) BulkApply(sourceLike, level, verdict, reviewer, reason string) (*ingest.ApplySummary, error) {
+func (a *App) BulkApply(source, level, verdict, reviewer, reason string) (*ingest.ApplySummary, error) {
 	if a.db == nil {
 		return nil, errors.New(a.openErr)
 	}
@@ -492,7 +523,7 @@ func (a *App) BulkApply(sourceLike, level, verdict, reviewer, reason string) (*i
 		return nil, errors.New("批量复核须填写复核人与结论依据")
 	}
 	c := &ingest.Confirmer{DataDir: a.dataDir, DB: a.db}
-	return c.Bulk(ingest.BulkFilter{SourceLike: sourceLike, Level: level}, verdict, reviewer, reason)
+	return c.Bulk(ingest.BulkFilter{Source: source, Level: level}, verdict, reviewer, reason)
 }
 
 // ---- 采集任务面板（M2）----

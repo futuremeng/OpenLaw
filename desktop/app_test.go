@@ -84,12 +84,20 @@ func TestQueueStatsAndBulkPreview(t *testing.T) {
 	if st.Pending != 1 || st.Confirmed != 2 || st.Risk.InferredDate != 1 {
 		t.Errorf("统计错: %+v", st)
 	}
-	n, err := a.BulkPreview("gov.cn%", "", "confirm")
-	if err != nil || n != 1 {
-		t.Errorf("dry-run 计数错: %v %v", n, err)
+	// 来源按真实来源名精确匹配（界面下拉交来的值），不是 LIKE 模式串。
+	if n, err := a.BulkPreview("gov.cn 国家规章库", "", "confirm"); err != nil || n != 1 {
+		t.Errorf("干跑计数错: %v %v", n, err)
 	}
-	if _, err := a.BulkApply("gov.cn%", "", "confirm", "", ""); err == nil {
+	if n, err := a.BulkPreview("gov.cn%", "", "confirm"); err != nil || n != 0 {
+		t.Errorf("通配符串应按字面匹配（命中 0）: %v %v", n, err)
+	}
+	if _, err := a.BulkApply("gov.cn 国家规章库", "", "confirm", "", ""); err == nil {
 		t.Error("批量落判必须署名+依据")
+	}
+	// ConfirmSources：界面来源下拉的数据源——只列有待复核条目的真实来源名。
+	fs := a.ConfirmSources()
+	if len(fs) != 1 || fs[0].Source != "gov.cn 国家规章库" || fs[0].Pending != 1 {
+		t.Errorf("来源分布错: %+v", fs)
 	}
 }
 

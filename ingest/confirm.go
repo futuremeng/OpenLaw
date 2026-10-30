@@ -520,8 +520,27 @@ func SyncProvenanceStatus(dataDir, docID, status string) error {
 
 // BulkFilter 批量流转的过滤条件（结构化参数，非裸 SQL）。
 type BulkFilter struct {
-	SourceLike string // document.source_type LIKE
+	SourceLike string // document.source_type LIKE（CLI 用，允许通配符）
+	Source     string // document.source_type 精确匹配（界面下拉交来的是真实来源名，不让用户写通配符）
 	Level      string // law.effect_level 精确匹配
+}
+
+// describe 把过滤条件写成一句人话，进复核记录（审计可读）。
+func (f BulkFilter) describe() string {
+	var parts []string
+	if f.Source != "" {
+		parts = append(parts, fmt.Sprintf("来源=%q", f.Source))
+	}
+	if f.SourceLike != "" {
+		parts = append(parts, fmt.Sprintf("来源按模式 %q", f.SourceLike))
+	}
+	if f.Level != "" {
+		parts = append(parts, fmt.Sprintf("效力等级=%q", f.Level))
+	}
+	if len(parts) == 0 {
+		return "全部条目"
+	}
+	return strings.Join(parts, "，")
 }
 
 // verdictToFrom 各裁决的合法起始状态（reset 只能回流已确认/已驳回，不能空转）。
@@ -541,6 +560,10 @@ func (f BulkFilter) where(from []string) (string, []any) {
 	args := make([]any, 0, len(from)+2)
 	for _, s := range from {
 		args = append(args, s)
+	}
+	if f.Source != "" {
+		cond = append(cond, "COALESCE(d.source_type,'') = ?")
+		args = append(args, f.Source)
 	}
 	if f.SourceLike != "" {
 		cond = append(cond, "COALESCE(d.source_type,'') LIKE ?")
@@ -595,8 +618,7 @@ func (c *Confirmer) Bulk(f BulkFilter, verdict, reviewer, reason string) (*Apply
 	}
 	rows.Close()
 
-	note := fmt.Sprintf("批量 %s | 条件: source LIKE %q, level=%q | 依据: %s",
-		verdict, f.SourceLike, f.Level, reason)
+	note := fmt.Sprintf("批量 %s | 条件: %s | 依据: %s", verdict, f.describe(), reason)
 	now := time.Now().UTC().Format(time.RFC3339)
 	sum := &ApplySummary{}
 	for _, id := range docs {

@@ -40,7 +40,7 @@ function showPanel(p) {
   if (p === "home") loadHome();
   if (p === "browse") loadLaws();
   if (p === "overview") loadOverview();
-  if (p === "confirm") { loadStats(); loadQueue(); }
+  if (p === "confirm") { loadStats(); loadQueue(); loadBulkOptions(); }
   if (p === "region") { loadRegionStats(); loadRegionQueue(); }
   if (p === "collect") { loadSources(); loadTasks(); loadTasksTick(); }
 }
@@ -459,27 +459,27 @@ async function doCite() {
 $("#btn-cite").addEventListener("click", doCite);
 
 
-/* ---------- 专业 · 人工复核 ---------- */
+/* ---------- 专业 · 人工复核（① 找到条目 → ② 看原文 → ③ 署名落判） ---------- */
 let queue = [];
 let selectedDoc = null;
 async function loadStats() {
   try {
     const st = await app().QueueStats();
     const risk = Object.entries(st.risk || {}).map(([k, n]) => `<span class="pill">${escapeHTML(FLAG_TEXT[k] || k)} ${num(n)}</span>`).join("");
-    $("#qstats").innerHTML = `<span>待复核 <b>${num(st.pending)}</b></span><span>已复核确认 <b>${num(st.confirmed)}</b></span><span>已驳回 <b>${num(st.rejected)}</b></span><span class="muted">来源提示：</span>${risk || '<span class="muted">无</span>'}`;
+    $("#qstats").innerHTML = `<span>待复核 <b>${num(st.pending)}</b></span><span>已复核确认 <b>${num(st.confirmed)}</b></span><span>已驳回 <b>${num(st.rejected)}</b></span><span class="muted">需要留意的来源情况：</span>${risk || '<span class="muted">无</span>'}`;
   } catch (e) { $("#qstats").textContent = "统计读取失败：" + (e.message || e); }
 }
 async function loadQueue() {
   const f = $("#filter").value.trim();
   try {
     queue = (await app().PendingList(f, 300, 0)) || [];
-    $("#queue-info").textContent = `队列 ${queue.length} 条（最多显示 300）`;
+    $("#queue-info").textContent = queue.length ? `已载入 ${queue.length} 条（一次最多显示 300 条）` : "";
     $("#queue-list").innerHTML = queue.map((r) => `
       <div class="item ${r.doc_id === selectedDoc ? "sel" : ""}" data-doc="${escapeHTML(r.doc_id)}">
         <div class="t">${escapeHTML(r.law_name || r.doc_id)} ${statusBadge("pending")}</div>
-        <div class="m">${escapeHTML(r.doc_id)} · ${escapeHTML(r.source_type || "")}${r.publish_date ? " · 公布 " + r.publish_date : ""}</div>
+        <div class="m">条目编号 ${escapeHTML(r.doc_id)} · 来源：${escapeHTML(r.source_type || "未记录来源")}${r.publish_date ? " · 公布 " + r.publish_date : ""}</div>
         <div class="m">${(r.flags || []).map((x) => `<span class="pill warn">${escapeHTML(FLAG_TEXT[x] || x)}</span>`).join(" ")}</div>
-      </div>`).join("") || '<p class="muted">队列为空（或过滤无匹配）。</p>';
+      </div>`).join("") || '<p class="muted">没有待复核条目。若上面填了查找条件，清空后再点「载入待复核条目」。</p>';
     document.querySelectorAll("#queue-list .item").forEach((el) => el.addEventListener("click", () => showPreview(el.dataset.doc)));
   } catch (e) { $("#queue-list").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
 }
@@ -488,15 +488,16 @@ async function showPreview(docID) {
   document.querySelectorAll("#queue-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.doc === docID));
   const p = await app().Preview(docID);
   const el = $("#preview");
-  el.innerHTML = legalHTML(p) + `<h4>复核记录</h4><ul class="log">${(p.review_log || []).map((x) => "<li>" + escapeHTML(x) + "</li>").join("") || '<li class="muted">暂无</li>'}</ul>`;
+  el.innerHTML = legalHTML(p) + `<h4>复核记录</h4><ul class="log">${(p.review_log || []).map((x) => "<li>" + escapeHTML(x) + "</li>").join("") || '<li class="muted">暂无复核记录。</li>'}</ul>`;
   bindCopy(el);
 }
 async function judge(action) {
-  if (!selectedDoc) return toast("请先在左侧点选条目");
+  if (!selectedDoc) return toast("请先在左侧点选要复核的条目");
   const reviewer = $("#reviewer").value.trim(), reason = $("#reason").value.trim();
+  if (!reviewer || !reason) return toast("请先填写复核人与结论依据，再确认或驳回");
   try {
     const sum = await app().Judge([selectedDoc], action, reviewer, reason);
-    toast(`已处理：确认 ${sum.confirmed} · 驳回 ${sum.rejected} · 重新复核 ${sum.reset}`);
+    toast(`已记录：确认 ${sum.confirmed} · 驳回 ${sum.rejected} · 退回重新复核 ${sum.reset}`);
     loadStats(); loadQueue();
   } catch (e) { toast("操作失败：" + (e.message || e)); }
 }
@@ -506,21 +507,47 @@ $("#btn-reset").addEventListener("click", () => judge("reset"));
 $("#btn-load").addEventListener("click", () => { loadStats(); loadQueue(); });
 
 
-/* ---------- 专业 · 人工复核 · 批量 ---------- */
-async function bulkPreview() {
+/* ---------- 专业 · 人工复核 · 批量（先干跑计数，再执行） ---------- */
+let cfBulkN = -1; // 最近一次干跑计数；未预览过不得执行
+
+// loadBulkOptions：批量条件一律用下拉给真实值——来源名来自 ConfirmSources，
+// 效力等级来自实际收录分布。界面不得让用户手写 gov.cn% 这类通配符。
+async function loadBulkOptions() {
   try {
-    const n = await app().BulkPreview($("#b-source").value.trim(), $("#b-level2").value.trim(), $("#b-verdict").value);
-    $("#bulk-info").textContent = `影响范围：${num(n)} 条`;
-  } catch (e) { $("#bulk-info").textContent = "失败：" + (e.message || e); }
+    const fs = ((await app().ConfirmSources()) || []).filter((x) => x.source);
+    $("#b-source").innerHTML = '<option value="">全部来源</option>' + fs.map((x) =>
+      `<option value="${escapeHTML(x.source)}">${escapeHTML(x.source)}（待复核 ${num(x.pending)} 条）</option>`).join("");
+    const v = await app().Status();
+    const levels = (v.by_level || []).map((r) => r.level).filter((x) => x && x !== "效力等级未标注");
+    $("#b-level2").innerHTML = '<option value="">全部效力等级</option>' + levels.map((x) => `<option>${escapeHTML(x)}</option>`).join("");
+    $("#bulk-info").textContent = fs.length ? "" : "当前没有可按来源批量处理的条目。";
+  } catch (e) { $("#bulk-info").textContent = "来源与等级读取失败：" + (e.message || e); }
+}
+async function bulkPreview() {
+  cfBulkN = -1;
+  try {
+    const n = await app().BulkPreview($("#b-source").value, $("#b-level2").value, $("#b-verdict").value);
+    cfBulkN = n;
+    $("#bulk-info").textContent = n > 0
+      ? `会影响 ${num(n)} 条。核对无误后再点「执行批量复核」。`
+      : "按所选条件没有可处理的条目，无需执行。";
+  } catch (e) { $("#bulk-info").textContent = "读取失败：" + (e.message || e); }
 }
 async function bulkApply() {
+  if (cfBulkN < 0) return toast("请先点「先看看会影响多少条」，确认范围后再执行");
+  if (cfBulkN === 0) return toast("按所选条件没有可处理的条目");
   const reviewer = $("#reviewer").value.trim(), reason = $("#reason").value.trim();
   if (!reviewer || !reason) return toast("批量复核须填写复核人与结论依据");
   try {
-    const sum = await app().BulkApply($("#b-source").value.trim(), $("#b-level2").value.trim(), $("#b-verdict").value, reviewer, reason);
-    toast(`批量完成：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 重新复核 ${num(sum.reset)}`);
-    loadStats(); loadQueue();
-  } catch (e) { toast("批量失败：" + (e.message || e)); }
+    const sum = await app().BulkApply($("#b-source").value, $("#b-level2").value, $("#b-verdict").value, reviewer, reason);
+    cfBulkN = -1;
+    toast(`批量完成：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 退回重新复核 ${num(sum.reset)}`);
+    loadStats(); loadQueue(); loadBulkOptions();
+  } catch (e) {
+    cfBulkN = -1;
+    toast("批量失败：" + (e.message || e));
+    loadBulkOptions();
+  }
 }
 $("#btn-bulk-preview").addEventListener("click", bulkPreview);
 $("#btn-bulk-apply").addEventListener("click", bulkApply);

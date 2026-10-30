@@ -120,6 +120,33 @@ func TestConfirmStatsSampleApply(t *testing.T) {
 	}
 }
 
+func TestConfirmBulkSourceExact(t *testing.T) {
+	// 界面（人工复核面板）交来的是真实来源名，必须按字面精确匹配；
+	// 通配符串按字面处理（命中 0），不再被当成 LIKE 模式——界面不得让用户写 gov.cn%。
+	c, _ := setupConfirm(t)
+	const src = "flk 批量下载（用户提供存量）"
+	if n, err := c.BulkMatch(BulkFilter{Source: src}, "confirm"); err != nil || n != 3 {
+		t.Fatalf("来源名精确匹配应命中 3，实际 %d (%v)", n, err)
+	}
+	if n, err := c.BulkMatch(BulkFilter{Source: "flk%"}, "confirm"); err != nil || n != 0 {
+		t.Fatalf("通配符串应按字面匹配（命中 0），实际 %d (%v)", n, err)
+	}
+	if n, err := c.BulkMatch(BulkFilter{Source: "不存在的来源"}, "confirm"); err != nil || n != 0 {
+		t.Fatalf("不存在的来源应命中 0，实际 %d (%v)", n, err)
+	}
+	sum, err := c.Bulk(BulkFilter{Source: src}, "confirm", "复核员甲", "逐条与官网比对")
+	if err != nil || sum.Confirmed != 3 {
+		t.Fatalf("按来源名批量确认失败: %+v (%v)", sum, err)
+	}
+	var note string
+	if err := c.DB.QueryRow(`SELECT reason FROM review_log WHERE reviewer='复核员甲' ORDER BY created_at DESC LIMIT 1`).Scan(&note); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(note, `来源="flk 批量下载（用户提供存量）"`) {
+		t.Errorf("复核记录应写明白话条件，实际: %s", note)
+	}
+}
+
 func TestConfirmBulk(t *testing.T) {
 	c, _ := setupConfirm(t)
 	n, err := c.BulkMatch(BulkFilter{SourceLike: "flk%"}, "confirm")
