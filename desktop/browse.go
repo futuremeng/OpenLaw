@@ -49,7 +49,7 @@ func (a *App) BrowseLaws(level, keyword, region string, limit, offset int) ([]La
 	}
 	args = append(args, limit, offset)
 	rows, err := a.db.Query(`SELECT l.law_id, l.name, COALESCE(l.issuer,''),
-		COALESCE(l.effect_level,'（未标注）'), COALESCE(l.region_code,''), COALESCE(l.region_source,''),
+		COALESCE(l.effect_level,'效力等级未标注'), COALESCE(l.region_code,''), COALESCE(l.region_source,''),
 		COALESCE(v.version_no,''),
 		COALESCE(v.effective_date,''), COALESCE(v.expire_date,''),
 		COALESCE(d.publish_date,''), COALESCE(d.confirm_status,'')

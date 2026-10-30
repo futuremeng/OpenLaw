@@ -6,6 +6,20 @@
 
 const $ = (s) => document.querySelector(s);
 const num = (n) => (n == null ? "0" : Number(n).toLocaleString("zh-CN"));
+// fmtWhen：ISO UTC → 本机时间「YYYY-MM-DD HH:mm」。界面一律显示本机时间
+// （docs/design-ui-language.md：主视图禁止 ISO UTC 时间戳）；原始串留在 title 里供核对，
+// 不做任何美化或改写。
+function fmtWhen(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  const p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+// utcTitle：把原始 UTC 串挂到 title 属性，白话显示与技术留证并存。
+function utcTitle(iso) {
+  return iso ? ' title="原始时间（UTC）：' + escapeHTML(iso) + '"' : "";
+}
 function escapeHTML(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -331,33 +345,54 @@ $("#b-level").addEventListener("change", loadLaws);
 $("#b-local").addEventListener("change", loadLaws);
 $("#b-kw").addEventListener("keydown", (e) => { if (e.key === "Enter") loadLaws(); });
 
-/* ---------- 专业 · 库总览 ---------- */
+/* ---------- 专业 · 库总览（数字 → 处境 → 下一步；技术信息折叠在页尾） ---------- */
 async function loadOverview() {
   try {
     const v = await app().Status();
     $("#status-err").textContent = v.open_err || "";
-    $("#ov-datadir").textContent = "语料目录：" + (v.data_dir || "未知") + (v.data_src ? "（来源：" + v.data_src + "）" : "");
-    $("#schema-badge").textContent = "数据库版本 " + (v.schema_version || "?");
     const lf = Object.values(v.last_fetch || {}).sort().reverse()[0];
+    $("#ov-datadir").textContent = "本机法规库：" + num(v.laws) + " 部法规、" + num(v.articles) + " 条条文" +
+      (lf ? "；最近一次获取 " + fmtWhen(lf) + "（本机时间）" : "；本机尚未记录任何获取时间");
+    setSideFoot(v);
     $("#ov-hero").innerHTML = `
       <div class="card big"><b>${num(v.laws)}</b><span>收录法规</span></div>
       <div class="card big"><b>${num(v.confirmed)}</b><span>已复核可用</span></div>
-      <div class="card big warn"><b>${num(v.pending)}</b><span>待人工复核</span></div>
-      <div class="card big"><b>${escapeHTML(lf ? lf.slice(0, 10) : "—")}</b><span>数据最近更新</span></div>`;
+      <div class="card big warn"><b>${num(v.pending)}</b><span>待复核</span></div>
+      <div class="card big"><b>${escapeHTML(lf ? fmtWhen(lf).slice(0, 10) : "—")}</b><span>数据最近更新</span></div>`;
+    // 处境一句话 + 下一步动作（最多两个）。按钮按用户目标命名，不用内部流程名
+    // （原「去复核」「采集与更新」是内部流程说法）。
     let acts = "";
-    if (v.pending > 0) acts += `<span>${num(v.pending)} 条新条目等待人工复核</span><button data-go="confirm">去复核 →</button>`;
-    acts += `<button data-go="collect">采集与更新 →</button>`;
+    if (v.pending > 0) {
+      acts += `<span>法规库中有 <b>${num(v.pending)}</b> 条内容尚未经人工复核，引用前请以官方原文为准。</span><button data-go="confirm">查看待复核条目</button>`;
+    } else {
+      acts += "<span>已收录的条目均已人工复核。</span>";
+    }
+    acts += `<button data-go="collect">获取最新法规</button>`;
     $("#ov-actions").innerHTML = acts;
     document.querySelectorAll("#ov-actions [data-go]").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.go)));
     $("#level-table tbody").innerHTML = (v.by_level || []).map((r) =>
       `<tr><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
     const reps = (await app().RecentReports(5)) || [];
-    $("#reports").innerHTML = reps.map((r) => `<div class="rep"><b>${escapeHTML(SRC_TEXT[r.source] || r.source)}</b> ${escapeHTML(r.modified_at || "")}<br><span class="muted">成功 ${num(r.ok)} · 失败 ${num(r.failed)}${r.pages ? " · 页数 " + num(r.pages) : ""}</span></div>`).join("") || '<p class="muted">暂无采集记录。</p>';
+    // 失败如实说：ok=0 不得渲染成中性数字（诚实展示纪律）。
+    $("#reports").innerHTML = reps.map((r) => `<div class="rep"><b>${escapeHTML(SRC_TEXT[r.source] || r.source)}</b> ${fmtWhen(r.modified_at)}<span class="muted">（本机时间）</span><br><span class="muted"${utcTitle(r.modified_at)}>${r.ok > 0 ? "获取到 " + num(r.ok) + " 条" : "本轮没有新增内容"} · 失败 ${num(r.failed)} 条${r.pages ? " · 翻页 " + num(r.pages) + " 页" : ""}</span></div>`).join("") ||
+      '<p class="muted">暂无获取记录。可在「获取最新法规」中从官方渠道获取原文。</p>';
     const revs = (await app().RecentReviews(5)) || [];
-    $("#reviews").innerHTML = revs.map((r) => `<div class="rep">${escapeHTML(r.created_at || "")} · ${escapeHTML(r.reviewer)} <span class="muted">${escapeHTML(r.action === "confirm" ? "确认" : r.action === "reject" ? "驳回" : "重新复核")} ${escapeHTML(r.doc_id)}</span></div>`).join("") || '<p class="muted">暂无复核记录。</p>';
+    $("#reviews").innerHTML = revs.map((r) => `<div class="rep"${utcTitle(r.created_at)}>${fmtWhen(r.created_at)}（本机时间）· ${escapeHTML(r.reviewer)} <span class="muted">${escapeHTML(r.action === "confirm" ? "确认" : r.action === "reject" ? "驳回" : "重新复核")} 条目 ${escapeHTML(r.doc_id)}</span></div>`).join("") ||
+      '<p class="muted">暂无复核记录。复核在「人工复核」中由人工完成，须填写复核人与结论依据。</p>';
+    // 技术信息：路径、启动参数、数据格式版本一律收在折叠里，不占主视图。
+    $("#ov-tech").innerHTML = `<span>数据存放位置：${escapeHTML(v.data_dir || "未知")}${v.data_src ? "（由启动参数指定：" + escapeHTML(v.data_src) + "）" : ""}</span>
+      <span>数据格式版本 ${escapeHTML(v.schema_version || "?")}（本程序支持 ${escapeHTML(v.schema_min)}–${escapeHTML(v.schema_max)}）</span>
+      <span>版本记录 ${num(v.versions)} 条 · 文档 ${num(v.documents)} 份 · 条文 ${num(v.articles)} 条</span>`;
   } catch (e) {
     $("#status-err").textContent = "读取失败：" + (e.message || e);
   }
+}
+
+// setSideFoot 侧栏底部一行白话状态。原先显示「数据库版本 4」——schema 版本号属
+// 技术信息，按规范只能在「技术信息」折叠里出现。
+function setSideFoot(v) { $("#schema-badge").textContent = "本机法规库 · " + num(v.laws) + " 部"; }
+async function loadSideFoot() {
+  try { setSideFoot(await app().Status()); } catch (e) { /* 绑定未就绪时略过，进面板会再取 */ }
 }
 
 
@@ -714,6 +749,6 @@ async function loadSettings() {
 /* ---------- 启动 ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   loadManifest(); loadSettings();
-  waitBindings(() => { applyMode(); loadRegion(); });
+  waitBindings(() => { applyMode(); loadRegion(); loadSideFoot(); });
 });
 

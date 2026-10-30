@@ -79,18 +79,30 @@
       </div>
     </section>
 
-    <!-- 专业 · 库总览 -->
+    <!-- 专业 · 库总览：数字 → 处境 → 下一步动作；技术信息折叠在页尾（docs/design-ui-language.md） -->
     <section id="panel-overview" class="panel hidden">
       <div id="status-err" class="err"></div>
-      <div id="ov-datadir" class="muted small"></div>
+      <p id="ov-datadir" class="muted small"></p>
       <div id="ov-hero" class="hero-cards"></div>
       <div id="ov-actions" class="actions"></div>
-      <h2>覆盖情况（按效力等级）</h2>
+      <h2>法规构成（按效力等级）</h2>
       <table id="level-table"><thead><tr><th>效力等级</th><th>待复核</th><th>已复核确认</th><th>已驳回</th></tr></thead><tbody></tbody></table>
       <div class="cols">
-        <div><h2>最近采集记录</h2><div id="reports" class="reports"></div></div>
-        <div><h2>最近复核记录</h2><div id="reviews" class="reviews"></div></div>
+        <div>
+          <h2>最近获取记录</h2>
+          <p class="muted small">显示为本机时间；鼠标悬停可查看原始 UTC 时间。</p>
+          <div id="reports" class="reports"></div>
+        </div>
+        <div>
+          <h2>最近复核记录</h2>
+          <p class="muted small">谁在什么时候确认或驳回了哪一条。</p>
+          <div id="reviews" class="reviews"></div>
+        </div>
       </div>
+      <details class="disclose">
+        <summary>技术信息（数据存放位置 · 数据格式版本）</summary>
+        <div id="ov-tech" class="kv"></div>
+      </details>
     </section>
 
 

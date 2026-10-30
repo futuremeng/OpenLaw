@@ -135,7 +135,7 @@ func (a *App) Status() (StatusView, error) {
 	v.Govcn = a.count(`SELECT COUNT(*) FROM document WHERE doc_id LIKE 'govcn_%'`)
 	v.Govlocal = a.count(`SELECT COUNT(*) FROM document WHERE doc_id LIKE 'govlocal_%'`)
 
-	rows, err := a.db.Query(`SELECT COALESCE(l.effect_level,'（未标注）'),
+	rows, err := a.db.Query(`SELECT COALESCE(l.effect_level,'效力等级未标注'),
 		SUM(d.confirm_status='pending'), SUM(d.confirm_status='confirmed'), SUM(d.confirm_status='rejected')
 		FROM document d LEFT JOIN law_version v ON v.doc_id=d.doc_id LEFT JOIN law l ON l.law_id=v.law_id
 		GROUP BY 1 ORDER BY 2 DESC`)
@@ -193,7 +193,7 @@ func (a *App) PendingList(filter string, limit, offset int) ([]PendingItem, erro
 		limit = 200
 	}
 	like := "%" + filter + "%"
-	rows, err := a.db.Query(`SELECT d.doc_id, COALESCE(l.name,''), COALESCE(l.effect_level,'（未标注）'),
+	rows, err := a.db.Query(`SELECT d.doc_id, COALESCE(l.name,''), COALESCE(l.effect_level,'效力等级未标注'),
 		COALESCE(l.issuer,''), COALESCE(v.version_no,''), COALESCE(v.effective_date,''),
 		COALESCE(d.publish_date,''), COALESCE(d.source_type,''), COALESCE(d.source_url,''),
 		(SELECT COUNT(*) FROM article a WHERE a.doc_id=d.doc_id)
@@ -440,7 +440,7 @@ func (a *App) SearchArticles(query string, topK int) ([]SearchRow, error) {
 	var out []SearchRow
 	for _, h := range hits {
 		r := SearchRow{ArticleID: h.ArticleID, ArticleNo: h.ArticleNo, Snippet: h.Snippet, DocID: h.DocID}
-		err := a.db.QueryRow(`SELECT COALESCE(l.name,''), COALESCE(l.effect_level,'（未标注）'), COALESCE(v.version_no,''),
+		err := a.db.QueryRow(`SELECT COALESCE(l.name,''), COALESCE(l.effect_level,'效力等级未标注'), COALESCE(v.version_no,''),
 			d.confirm_status, COALESCE(d.publish_date,''), v.effective_date, COALESCE(v.expire_date,'')
 			FROM document d JOIN law_version v ON v.doc_id=d.doc_id LEFT JOIN law l ON l.law_id=v.law_id
 			WHERE d.doc_id=? LIMIT 1`, h.DocID).
