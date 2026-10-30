@@ -106,6 +106,44 @@ func TestTechnicalTermsOnlyInDisclosure(t *testing.T) {
 	}
 }
 
+// TestBrowseFilterRailIsPrimary 筛选必须是浏览页的主结构，且不得回流到侧栏：
+// 地区等维度是「定位法规」的手段，属面板；侧栏只报状态。计数与列表必须同源
+// （前端同一处调用 BrowseLawList / BrowseFacets，Go 侧共用 browseWhere）。
+func TestBrowseFilterRailIsPrimary(t *testing.T) {
+	html := readFrontend(t, "index.html")
+	start := strings.Index(html, `<aside id="side">`)
+	end := strings.Index(html, `</aside>`)
+	if start < 0 || end <= start {
+		t.Fatalf("未定位到侧栏结构")
+	}
+	side := html[start:end]
+	for _, banned := range []string{"<select", "region-prov", "btn-locate", "region-bar"} {
+		if strings.Contains(side, banned) {
+			t.Errorf("侧栏出现筛选控件 %q——筛选属面板职责，侧栏只报状态", banned)
+		}
+	}
+	parts := strings.Split(html, `<section id="panel-browse"`)
+	if len(parts) != 2 {
+		t.Fatalf("未定位到浏览面板")
+	}
+	body := parts[1]
+	if i := strings.Index(body, `<section id="`); i >= 0 {
+		body = body[:i]
+	}
+	for _, want := range []string{`class="filters"`, `id="f-levels"`, `id="f-confirms"`,
+		`id="f-sources"`, `id="f-years"`, `id="f-regions"`, `id="btn-filter-clear"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("浏览面板缺少 %q：多维筛选与分面计数是本页主结构", want)
+		}
+	}
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	for _, want := range []string{"app().BrowseLawList(", "app().BrowseFacets("} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——列表与计数必须走同一条件，不能各算各的", want)
+		}
+	}
+}
+
 // TestFrontendWiringSmoke 跑 frontend/wiring_smoke.mjs：桩化 DOM 与 Go 绑定，把
 // api.js + app.js 真实执行一遍（切面板、检索、载入队列、渲染任务、切外观）。
 // 绑定契约测试只核对 id 是否存在与实参个数，这里补上「执行期不抛错、
@@ -123,7 +161,9 @@ func TestFrontendWiringSmoke(t *testing.T) {
 		t.Errorf("前端接线冒烟未通过（err=%v）：\n%s", err, strings.TrimSpace(string(out)))
 		return
 	}
-	for _, want := range []string{"侧栏待复核计数", "待复核为 0 时清空徽标\": true", "总览占比条含 bar-row\": true", "任务卡 class 含 running\": true"} {
+	for _, want := range []string{"侧栏待复核计数", "待复核为 0 时清空徽标\": true", "总览占比条含 bar-row\": true",
+		"任务卡 class 含 running\": true", "筛选前后总数联动\": true", "浏览分面给出计数\": true",
+		"未标注地区如实说明\": true", "检索命中可就地收窄\": true"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("接线冒烟缺少期望产出 %q：\n%s", want, strings.TrimSpace(string(out)))
 		}

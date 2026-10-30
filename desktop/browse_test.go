@@ -33,6 +33,151 @@ func TestBrowseLawsAndArticles(t *testing.T) {
 	}
 }
 
+// seedFacetLaws 追加若干法规，覆盖：不同效力等级、不同复核状态、不同来源、
+// 不同公布年代（含公布日期缺失）、已标区划码与未标注。
+func seedFacetLaws(t *testing.T, a *App) {
+	t.Helper()
+	seed := []string{
+		`INSERT INTO law(law_id,name,effect_level,region_code,region_source) VALUES('L2','安全生产违法行为行政处罚办法','部门规章','','')`,
+		`INSERT INTO law(law_id,name,effect_level,region_code,region_source) VALUES('L3','北京市生活垃圾管理条例','地方性法规','110000','auto')`,
+		`INSERT INTO law(law_id,name,effect_level,region_code,region_source) VALUES('L4','某项未标注地区的决定','其他','','')`,
+		`INSERT INTO document(doc_id,file_name,file_path,file_size,sha256,hash_computed_at,source_type,publish_date,confirm_status)
+		 VALUES('govcn_x2','x2.md','md/govcn_x2.md',10,'dd','2026-10-01T00:00:00Z','gov.cn 国家规章库','2015-07-10','confirmed')`,
+		`INSERT INTO document(doc_id,file_name,file_path,file_size,sha256,hash_computed_at,source_type,publish_date,confirm_status)
+		 VALUES('govcn_x3','x3.md','md/govcn_x3.md',10,'ee','2026-10-01T00:00:00Z','地方人大公布','1996-03-01','pending')`,
+		`INSERT INTO document(doc_id,file_name,file_path,file_size,sha256,hash_computed_at,source_type,confirm_status)
+		 VALUES('govcn_x4','x4.md','md/govcn_x4.md',10,'ff','2026-10-01T00:00:00Z','','pending')`,
+		`INSERT INTO law_version(version_id,law_id,version_no,effective_date,doc_id) VALUES('V2','L2','现行','2015-10-01','govcn_x2')`,
+		`INSERT INTO law_version(version_id,law_id,version_no,effective_date,doc_id) VALUES('V3','L3','现行','1996-06-01','govcn_x3')`,
+		`INSERT INTO law_version(version_id,law_id,version_no,effective_date,doc_id) VALUES('V4','L4','现行','2020-01-01','govcn_x4')`,
+	}
+	for _, s := range seed {
+		if _, err := a.db.Exec(s); err != nil {
+			t.Fatalf("种子失败: %v\n%.60s", err, s)
+		}
+	}
+}
+
+func facetCount(opts []FacetOption, value string) (int, bool) {
+	for _, o := range opts {
+		if o.Value == value {
+			return o.Count, true
+		}
+	}
+	return 0, false
+}
+
+// TestBrowseFacetsLinkage 分面计数必须与其他维度实时联动，且与本维度自身选择无关
+// （选中某等级后，等级维度仍显示全部可选值，用户才能改选）。
+func TestBrowseFacetsLinkage(t *testing.T) {
+	a := newTestApp(t)
+	seedFacetLaws(t, a)
+
+	v, err := a.BrowseFacets(LawFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Total != 4 { // 基础种子 1 部 + 本例追加 3 部
+		t.Fatalf("总数应为 4: %+v", v)
+	}
+	if v.Unlabeled != 3 { // L1/L2/L4 未落区划码
+		t.Errorf("未标注区划码数应如实为 3: %+v", v)
+	}
+	if c, ok := facetCount(v.Levels, "部门规章"); !ok || c != 1 {
+		t.Errorf("等级分面错: %+v", v.Levels)
+	}
+	if c, ok := facetCount(v.Confirms, "pending"); !ok || c != 3 {
+		t.Errorf("复核状态分面错: %+v", v.Confirms)
+	}
+	if c, ok := facetCount(v.Years, "2000"); !ok || c != 1 {
+		t.Errorf("公布年代分面错: %+v", v.Years)
+	}
+	if c, ok := facetCount(v.Years, "none"); !ok || c != 1 {
+		t.Errorf("公布日期缺失必须单独成桶: %+v", v.Years)
+	}
+	if c, ok := facetCount(v.Regions, "11"); !ok || c != 1 {
+		t.Errorf("地区分面错: %+v", v.Regions)
+	}
+	if c, ok := facetCount(v.Regions, ""); !ok || c != 3 {
+		t.Errorf("未标注地区应单列: %+v", v.Regions)
+	}
+
+	// 选了「部门规章」后：其他维度按该子集计数，本维度仍给全量。
+	v2, err := a.BrowseFacets(LawFilter{Level: "部门规章"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v2.Total != 1 {
+		t.Fatalf("等级过滤后总数应为 1: %+v", v2)
+	}
+	if c, ok := facetCount(v2.Confirms, "confirmed"); !ok || c != 1 {
+		t.Errorf("复核状态应随等级联动: %+v", v2.Confirms)
+	}
+	if c, ok := facetCount(v2.Confirms, "pending"); ok && c != 0 {
+		t.Errorf("不适用的可选值不应出现计数: %+v", v2.Confirms)
+	}
+	if c, ok := facetCount(v2.Levels, "行政法规"); !ok || c != 1 {
+		t.Errorf("等级维度不应被自身选择收窄（否则无法改选）: %+v", v2.Levels)
+	}
+
+	// 列表与计数必须同源：同一条件下条数 == Total。
+	rows, err := a.BrowseLawList(LawFilter{Level: "部门规章", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != v2.Total {
+		t.Errorf("列表与计数口径不一致: 列表 %d 条, Total %d", len(rows), v2.Total)
+	}
+}
+
+// TestBrowseFacetsRegionAndSource 地区与来源维度：区划码前缀过滤（省级含下辖）
+// 与来源精确值过滤都要反映在计数上；地区标签取内置区划表名称。
+func TestBrowseFacetsRegionAndSource(t *testing.T) {
+	a := newTestApp(t)
+	seedFacetLaws(t, a)
+
+	v, err := a.BrowseFacets(LawFilter{Region: "110000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Total != 1 {
+		t.Fatalf("按北京市过滤应只剩 1 部: %+v", v)
+	}
+	var label string
+	for _, o := range v.Regions {
+		if o.Value == "11" {
+			label = o.Label
+		}
+	}
+	if label != "北京市" {
+		t.Errorf("地区标签应为内置区划表名称: %q", label)
+	}
+
+	src, err := a.BrowseFacets(LawFilter{Source: "gov.cn 国家规章库"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.Total != 2 {
+		t.Fatalf("来源精确过滤应 2 部: %+v", src)
+	}
+	// 来源维度自身不被自身选择收窄（否则无法改选），但其他维度必须联动。
+	if c, ok := facetCount(src.Sources, "gov.cn 国家规章库"); !ok || c != 2 {
+		t.Errorf("来源维度应保留全量可选值: %+v", src.Sources)
+	}
+	if c, ok := facetCount(src.Confirms, "confirmed"); !ok || c != 1 {
+		t.Errorf("复核状态应随来源联动: %+v", src.Confirms)
+	}
+
+	// 名称关键词 + 年代组合：跨维度收窄可用。
+	kw, err := a.BrowseFacets(LawFilter{Kw: "条例", Year: "1990"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kw.Total != 1 {
+		t.Fatalf("关键词+年代组合应 1 部: %+v", kw)
+	}
+}
+
 func TestLawVersionsTimeline(t *testing.T) {
 	a := newTestApp(t)
 	vs, err := a.LawVersions("L1")

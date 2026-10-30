@@ -1,6 +1,6 @@
 // app.js 「开源法律法规数据库」前端逻辑：
-//   公众模式（默认）：查法规（搜索为中心）+ 按目录浏览（类别→法规→条款）；
-//   专业模式：库总览 / 法规检索 / 人工复核 / 获取最新法规 / 地域标引。
+//   公众模式（默认）：查法规（搜索为中心）+ 按条件筛选（维度组合→法规→条款）；
+//   专业模式：库总览 / 法规检索 / 按条件筛选（多维收窄）/ 人工复核 / 获取最新法规 / 地域标引。
 // 全部数据经 api.js → Go 只读/受控写路径，前端不做任何裁决。
 // 用户可见文案遵守 docs/design-ui-language.md（目标语言、渐进披露、诚实展示）。
 "use strict";
@@ -167,6 +167,7 @@ async function loadRegion() {
     regionOpts = (await app().RegionOptions()) || [];
     const st = await app().CurrentRegion();
     regionCode = st.code || "";
+    browseFilter.region = regionCode; // 本机地区即当前地区筛选：一处概念，不得「显示已设地区而列表未筛」
     fillRegionSelects();
     renderRegion(st);
   } catch (e) {
@@ -193,9 +194,12 @@ function fillRegionCities(pick) {
   if (pick) city.value = pick;
 }
 function renderRegion(st) {
-  $("#region-text").textContent = st.path ? "当前地区：" + st.path : "未设置地区";
+  $("#region-text").textContent = st.path ? "当前地区：" + st.path : "未设置地区（按全部地区浏览）";
   const src = { auto: "按位置就近判定", manual: "手动选择", trial: "试判定 · 非真实定位" }[st.source] || "";
   $("#region-note").textContent = [st.at ? String(st.at).slice(0, 10) : "", src, st.note || ""].filter(Boolean).join(" · ");
+  // 侧栏只留一行状态，不再放整套地区控件——地区是筛选维度，控件在「按条件筛选」里。
+  const chip = $("#side-region");
+  if (chip) { chip.hidden = !st.path; chip.textContent = st.path ? "地区：" + st.path : ""; }
 }
 async function applyRegion(code) {
   const msg = await app().SetRegion(code || "");
@@ -203,6 +207,7 @@ async function applyRegion(code) {
   const label = ($("#region-city").value && $("#region-city").selectedOptions[0].text) ||
     ($("#region-prov").value && $("#region-prov").selectedOptions[0].text) || "";
   await loadRegion();
+  browseFilter.region = code || ""; // 应用地区即套用该筛选，界面与数据当次联动
   toast(code ? "当前地区：" + label + "（按名称判定地域，未标注的条目不在此列）" : "已取消地区限制");
   reloadViewing();
 }
@@ -234,6 +239,7 @@ async function locateFrom(f) {
   const r = await app().LocateFromCoords(f.lat, f.lon);
   if (!r.ok) { toast("未能判定地区：" + r.msg); return; }
   await loadRegion();
+  browseFilter.region = (r.region && r.region.code) || ""; // 定位成功后直接按本地区筛选，所见即所得
   const extra = f.acc >= 0 ? "，坐标精度约 " + Math.round(f.acc) + " 米" : "";
   toast("已判定：" + r.region.path + "（" + r.msg + extra + "）");
   reloadViewing();
@@ -290,8 +296,104 @@ $("#btn-region-trial").addEventListener("click", async () => {
     reloadViewing();
   } catch (e) { toast("试判定失败：" + (e.message || e)); }
 });
-// 浏览面板是否按当前地区过滤（默认不勾选，避免改变既有浏览行为）。
-function browseRegionArg() { return $("#b-local").checked ? regionCode : ""; }
+/* ---------- 按条件筛选：多维筛选（筛选 ↔ 条目与计数实时联动） ---------- */
+// browseFilter 是浏览页唯一的筛选状态。公众模式常用「效力等级 + 地区」两个维度，
+// 专业模式可再叠加复核状态、来源、公布年代——同一套条件、同一条 SQL 口径
+// （Go 侧 BrowseLawList 与 BrowseFacets 共用 browseWhere，计数与列表不会两说）。
+const browseFilter = { level: "", confirm: "", source: "", year: "", region: "" };
+
+function browseArgs(limit, offset) {
+  return {
+    level: browseFilter.level, confirm: browseFilter.confirm, source: browseFilter.source,
+    year: browseFilter.year, region: browseFilter.region,
+    kw: $("#b-kw").value.trim(), limit: limit || 300, offset: offset || 0,
+  };
+}
+
+// facetChips 渲染一个维度的可选值与计数。计数按「其余条件已生效、本维度不限」给出
+// （Go 侧 skip 自身维度），所以选中某项后仍可改选；计数为 0 的选项禁点，
+// 免得用户点了换来一个空列表。地区维度只列条目最多的前 8 个省份，
+// 其余省市用下方下拉（下拉能选到地级，比芯片更细）。
+function facetChips(box, dim, opts, max, isOn) {
+  const el = $(box);
+  if (!el) return;
+  const usable = (opts || []).filter((o) => o.value !== "");
+  const shown = max ? usable.slice(0, max) : usable;
+  if (!shown.length) { el.innerHTML = '<span class="fempty">该维度暂无可选值</span>'; return; }
+  el.innerHTML = shown.map((o) => {
+    const on = isOn ? isOn(o.value) : browseFilter[dim] === o.value;
+    const off = o.count === 0 && !on;
+    const cls = on ? "on" : ""; // 选中态单独成类，class 属性里保留 fchip 字面量供样式门禁核对
+    return `<button class="fchip ${cls}" data-dim="${dim}" data-val="${escapeHTML(o.value)}"` +
+      (off ? " disabled" : "") + ` title="${escapeHTML(o.label)}：${num(o.count)} 部">${escapeHTML(o.label)}` +
+      `<span class="fcount num">${num(o.count)}</span></button>`;
+  }).join("");
+  el.querySelectorAll(".fchip").forEach((b) => b.addEventListener("click", () => {
+    const d = b.dataset.dim, val = b.dataset.val;
+    if (d === "region") {
+      // 芯片按已标注的区划码前两位分组，选省即按整省筛选（含下辖地级）。
+      applyRegion(isOn(val) ? "" : val + "0000");
+      return;
+    }
+    browseFilter[d] = browseFilter[d] === val ? "" : val;
+    loadLaws();
+  }));
+}
+
+function renderFacets(v) {
+  facetChips("#f-levels", "level", v.levels);
+  facetChips("#f-confirms", "confirm", v.confirms);
+  facetChips("#f-years", "year", v.years);
+  facetChips("#f-sources", "source", v.sources);
+  facetChips("#f-regions", "region", v.regions, 8, (val) => (browseFilter.region || "").slice(0, 2) === val);
+  const note = $("#f-region-note");
+  if (note) {
+    note.textContent = v.unlabeled
+      ? `另有 ${num(v.unlabeled)} 部未标注地区码，按法规名称中的地名匹配（上方下拉可选到具体地级）`
+      : "当前条件下的条目均已标注地区";
+  }
+  $("#f-total").textContent = num(v.total);
+  $("#b-stats").textContent = activeFilterText();
+}
+
+// activeFilterText 把当前生效的筛选回显成一句白话——用户必须能看到
+// 「现在看到的是被筛过的」，而不是以为在看全库。
+function activeFilterText() {
+  const parts = [];
+  if (browseFilter.level) parts.push("类别 " + browseFilter.level);
+  if (browseFilter.confirm) parts.push("复核状态 " + { confirmed: "已复核确认", pending: "待复核", rejected: "已驳回" }[browseFilter.confirm]);
+  if (browseFilter.year) parts.push("公布年代 " + (browseFilter.year === "none" ? "缺失" : browseFilter.year + " 年代"));
+  if (browseFilter.source) parts.push("来源 " + browseFilter.source);
+  if (browseFilter.region) parts.push("地区 " + (($("#region-city").selectedOptions[0] || {}).text || regionPathOf(browseFilter.region) || browseFilter.region));
+  const kw = $("#b-kw").value.trim();
+  if (kw) parts.push("名称含「" + kw + "」");
+  return parts.length ? "当前筛选：" + parts.join(" · ") : "未设筛选条件（显示全库）";
+}
+function regionPathOf(code) {
+  const hit = (regionOpts || []).find((o) => o.code === code);
+  return hit ? hit.name : "";
+}
+
+async function loadLaws() {
+  const args = browseArgs(300, 0);
+  try {
+    const [rows, v] = await Promise.all([app().BrowseLawList(args), app().BrowseFacets(args)]);
+    renderFacets(v || {});
+    const list = rows || [];
+    $("#law-list").innerHTML = list.length ? list.map((r) => `
+      <div class="item" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
+        <div class="t">${escapeHTML(r.name)} ${statusBadge(r.status)} ${validBadge(r.effective_date, r.expire_date)}</div>
+        <div class="m">${escapeHTML(r.level)} · ${regionCell(r)} · ${escapeHTML(r.issuer || "发布机关未标注")}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
+      </div>`).join("") :
+      '<p class="muted">' + (browseFilter.region
+        ? "当前条件下没有法规。已标注地区的按区划码匹配、未标注的按名称中的地名匹配；两者都判不出地区的条目不会出现在按地区筛选的结果中——可点「清空筛选」或改用上方下拉。"
+        : "当前条件下没有法规。可点「清空筛选」，或放宽名称关键词。") + "</p>";
+    document.querySelectorAll("#law-list .item").forEach((el) =>
+      el.addEventListener("click", () => openLaw(el.dataset.law, el.dataset.name)));
+  } catch (e) {
+    $("#law-list").innerHTML = '<p class="bad">读取失败：' + escapeHTML(e.message || e) + "</p>";
+  }
+}
 
 /* ---------- 公众 · 查法规（搜索为中心） ---------- */
 async function loadHome() {
@@ -300,11 +402,17 @@ async function loadHome() {
     const levels = ["行政法规", "部门规章", "地方政府规章"];
     let html = levels.map((lv) => {
       const r = (v.by_level || []).find((x) => x.level === lv) || { pending: 0, confirmed: 0, rejected: 0 };
-      return `<div class="card big"><b>${num(r.pending + r.confirmed + r.rejected)}</b><span>${lv}</span><span class="muted">已复核 ${num(r.confirmed)}</span></div>`;
+      return `<button class="card big" data-level="${lv}" title="按该类别浏览"><b>${num(r.pending + r.confirmed + r.rejected)}</b><span>${lv}</span><span class="muted">已复核 ${num(r.confirmed)}</span></button>`;
     }).join("");
     const lf = Object.values(v.last_fetch || {}).sort().reverse()[0];
     if (lf) html += `<div class="card big"><b>${escapeHTML(lf.slice(0, 10))}</b><span>数据最近更新</span></div>`;
     $("#h-cards").innerHTML = html;
+    // 首页卡片即入口：点类别直接进浏览页并带上该筛选，数字与筛选当场对上。
+    document.querySelectorAll("#h-cards .card[data-level]").forEach((el) => el.addEventListener("click", () => {
+      browseFilter.level = el.dataset.level;
+      browseFilter.confirm = browseFilter.source = browseFilter.year = "";
+      showPanel("browse");
+    }));
   } catch (e) { /* 首页卡片失败不阻塞搜索 */ }
 }
 async function homeSearch() {
@@ -328,7 +436,7 @@ async function homeSearch() {
 $("#btn-hsearch").addEventListener("click", homeSearch);
 $("#hq").addEventListener("keydown", (e) => { if (e.key === "Enter") homeSearch(); });
 
-/* ---------- 公众 · 按目录浏览 ---------- */
+/* ---------- 按条件筛选 · 地域显示 ---------- */
 // regionCell 地域显示：库里已标注（auto/manual/pack）与未标注（名称推定）必须区别显示——
 // 机器建议不得看起来像已复核，名称推定不得看起来像已标注（诚实展示纪律）。
 function regionCell(r) {
@@ -344,30 +452,7 @@ function regionCell(r) {
     : r.region_source === "pack" ? "随更新包携带 · 待复核" : "机器建议 · 待复核";
   return '<span class="region">' + escapeHTML(r.region || "区划码 " + r.region_code) + "（" + tag + "）</span>";
 }
-async function loadLaws() {
-  const level = $("#b-level").value, kw = $("#b-kw").value.trim(), region = browseRegionArg();
-  try {
-    const rows = (await app().BrowseLaws(level, kw, region, 300, 0)) || [];
-    $("#law-list").innerHTML = rows.length ? rows.map((r) => `
-      <div class="item" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
-        <div class="t">${escapeHTML(r.name)} ${statusBadge(r.status)} ${validBadge(r.effective_date, r.expire_date)}</div>
-        <div class="m">${escapeHTML(r.level)} · ${regionCell(r)} · ${escapeHTML(r.issuer || "发布机关未标注")}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
-      </div>`).join("") :
-      '<p class="muted">' + (region ? "当前地区下没有符合条件的法规（已标注的按区划码匹配，未标注的按标题前缀匹配；两者都判不出的条目不会出现在此列表中）。" : "该类别下暂无收录法规。") + "</p>";
-    document.querySelectorAll("#law-list .item").forEach((el) =>
-      el.addEventListener("click", () => openLaw(el.dataset.law, el.dataset.name)));
-  } catch (e) {
-    $("#law-list").innerHTML = '<p class="bad">读取失败：' + escapeHTML(e.message || e) + "</p>";
-  }
-  try {
-    const st = await app().BrowseStats(level, kw, region);
-    const total = Array.isArray(st) ? st[0] : 0, unlabeled = Array.isArray(st) ? st[1] : 0;
-    $("#b-stats").textContent = `共 ${num(total)} 部` + (region ? "（已按当前地区过滤）" : "") +
-      `；其中 ${num(unlabeled)} 部未标地域码（这些按标题前缀匹配，其余按区划码匹配）`;
-  } catch (e) {
-    $("#b-stats").textContent = "统计读取失败：" + (e.message || e);
-  }
-}
+// openLaw 右侧详情：修订沿革 + 条款列表（点条款看留证原文）。
 async function openLaw(lawID, name) {
   document.querySelectorAll("#law-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.law === lawID));
   const vs = (await app().LawVersions(lawID)) || [];
@@ -381,9 +466,16 @@ async function openLaw(lawID, name) {
     el.addEventListener("click", async () => openModal(await app().Preview(el.dataset.doc), el.dataset.no)));
 }
 $("#btn-browse").addEventListener("click", loadLaws);
-$("#b-level").addEventListener("change", loadLaws);
-$("#b-local").addEventListener("change", loadLaws);
-$("#b-kw").addEventListener("keydown", (e) => { if (e.key === "Enter") loadLaws(); });
+// 清空筛选：维度一律复位；地区是全局偏好，一并取消，避免下一次浏览又被悄悄筛掉。
+$("#btn-filter-clear").addEventListener("click", () => {
+  browseFilter.level = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
+  if (browseFilter.region) { applyRegion(""); return; }
+  loadLaws();
+});
+// 名称关键词即时联动：停手 400ms 再查库，既不逐字打库，也不必按回车。
+let kwTimer = null;
+$("#b-kw").addEventListener("input", () => { clearTimeout(kwTimer); kwTimer = setTimeout(loadLaws, 400); });
+$("#b-kw").addEventListener("keydown", (e) => { if (e.key === "Enter") { clearTimeout(kwTimer); loadLaws(); } });
 
 // renderBars：法规构成给出「形状」而不只是数字——每级一条堆叠条，段长按条目数比例，
 // 条长之间按最大等级归一（哪一级占多少一眼可辨）。精确值仍在「各等级的精确数字」折叠里。
@@ -463,26 +555,71 @@ async function loadSideFoot() {
 
 /* ---------- 专业 · 法规检索 ---------- */
 $("#search-preview").insertAdjacentHTML("afterbegin", '<div id="sp-slot"></div>');
+// 检索命中后就地按维度收窄：计数按本次命中统计（全文检索不重排序、不额外查库），
+// 点选即筛、再点取消——所见计数与所见列表始终同源。
+let lastHits = [];
+const hitFilter = { level: "", confirm: "" };
+const CONFIRM_LABEL = { confirmed: "已复核确认", pending: "待复核", rejected: "已驳回", "": "复核状态未记录" };
+
+function hitChips(box, dim, counts) {
+  const el = $(box);
+  if (!el) return;
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) { el.innerHTML = '<span class="fempty">检索后在此收窄</span>'; return; }
+  el.innerHTML = entries.map(([val, n]) => {
+    const label = dim === "confirm" ? (CONFIRM_LABEL[val] || val) : (val || "效力等级未标注");
+    const cls = hitFilter[dim] === val ? "on" : "";
+    return `<button class="fchip ${cls}" data-dim="${dim}" data-val="${escapeHTML(val)}"` +
+      ` title="${escapeHTML(label)}：${num(n)} 条命中">${escapeHTML(label)}<span class="fcount num">${num(n)}</span></button>`;
+  }).join("");
+  el.querySelectorAll(".fchip").forEach((b) => b.addEventListener("click", () => {
+    const d = b.dataset.dim, val = b.dataset.val;
+    hitFilter[d] = hitFilter[d] === val ? "" : val;
+    renderHits();
+  }));
+}
+
+function renderHitFacets() {
+  const lv = {}, cf = {};
+  for (const r of lastHits) {
+    lv[r.level || ""] = (lv[r.level || ""] || 0) + 1;
+    const c = r.confirm_status || "";
+    cf[c] = (cf[c] || 0) + 1;
+  }
+  hitChips("#sf-level", "level", lv);
+  hitChips("#sf-confirm", "confirm", cf);
+}
+
+function renderHits() {
+  const rows = lastHits.filter((r) =>
+    (!hitFilter.level || (r.level || "") === hitFilter.level) &&
+    (!hitFilter.confirm || (r.confirm_status || "") === hitFilter.confirm));
+  $("#search-info").textContent = `命中 ${num(lastHits.length)} 条（全文检索，未重排序）` +
+    (rows.length === lastHits.length ? "" : ` · 按当前筛选显示 ${num(rows.length)} 条`);
+  $("#search-list").innerHTML = rows.map((r) => `
+    <div class="item" data-doc="${escapeHTML(r.doc_id)}" data-no="${escapeHTML(r.article_no)}" data-law="${escapeHTML(r.law_name)}">
+      <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
+      <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
+      <div class="m">${escapeHTML(r.snippet)}</div>
+    </div>`).join("") || '<p class="muted">当前筛选下没有命中，再点一次已选中的条件即可取消。</p>';
+  document.querySelectorAll("#search-list .item").forEach((el) =>
+    el.addEventListener("click", () => showSearchPreview(el.dataset.doc, el.dataset.no, el.dataset.law)));
+}
+
 async function doSearch() {
   const q = $("#q").value.trim();
   if (!q) return;
   $("#search-info").textContent = "检索中…";
+  hitFilter.level = hitFilter.confirm = ""; // 换关键词即换样本，旧筛选不得跨样本沿用
   try {
-    let rows = (await app().SearchArticles(q, 50)) || [];
-    const lv = $("#s-level").value;
-    if (lv) rows = rows.filter((r) => r.level === lv);
-    if ($("#s-confirmed").checked) rows = rows.filter((r) => r.confirm_status === "confirmed");
-    $("#search-info").textContent = `命中 ${rows.length} 条（全文检索，未重排序）`;
-    $("#search-list").innerHTML = rows.map((r) => `
-      <div class="item" data-doc="${escapeHTML(r.doc_id)}" data-no="${escapeHTML(r.article_no)}" data-law="${escapeHTML(r.law_name)}">
-        <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
-        <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
-        <div class="m">${escapeHTML(r.snippet)}</div>
-      </div>`).join("") || '<p class="muted">无命中。</p>';
-    document.querySelectorAll("#search-list .item").forEach((el) =>
-      el.addEventListener("click", () => showSearchPreview(el.dataset.doc, el.dataset.no, el.dataset.law)));
+    lastHits = (await app().SearchArticles(q, 50)) || [];
+    renderHitFacets();
+    renderHits();
   } catch (e) {
+    lastHits = [];
+    renderHitFacets();
     $("#search-info").textContent = "检索失败：" + (e.message || e);
+    $("#search-list").innerHTML = '<p class="bad">检索失败：' + escapeHTML(e.message || e) + "</p>";
   }
 }
 async function showSearchPreview(docID, articleNo, lawName) {

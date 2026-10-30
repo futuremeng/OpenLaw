@@ -55,6 +55,12 @@ const document = {
     return [];
   },
 };
+// 浏览用的小语料：列表与分面计数都由同一条件函数产出（与 Go 侧 browseWhere 同构）。
+const laws = [
+  { law_id: 'L1', name: '工伤保险条例', level: '行政法规', status: 'pending', region_source: 'none', region: '北京市', issuer: '国务院', effective_date: '2004-01-01' },
+  { law_id: 'L2', name: '北京市生活垃圾管理条例', level: '地方性法规', status: 'confirmed', region_source: 'auto', region: '北京市', issuer: '北京市人大常委会', effective_date: '1996-06-01' },
+];
+const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) && (!a.kw || r.name.includes(a.kw)));
 const data = {
   Status: () => ({ laws: 28952, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', pending: 30859, confirmed: 4, rejected: 1 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '4', schema_min: '3', schema_max: '4', producer_version: 'v0.1.0', open_err: '' }),
   QueueStats: () => ({ pending: 36109, confirmed: 12, rejected: 1, risk: { inferred_date: 5 } }),
@@ -66,15 +72,30 @@ const data = {
   RegionReviewList: () => [{ law_id: 'L1', name: '北京市某规定', state: 'suggest', region_source: 'auto', region_path: '北京市' }],
   RegionOptions: () => [{ code: '110000', name: '北京市', level: 1, parent: '' }],
   CurrentRegion: () => ({ code: '', path: '', source: '', at: '', note: '' }),
+  // 浏览：一份小语料，列表与分面计数都按同一条件计算——冒烟里也要能看出「筛选变了、计数跟着变」。
+  BrowseLawList: (a) => matchLaws(a),
+  BrowseFacets: (a) => {
+    const sub = matchLaws(a);
+    const group = (key) => {
+      const m = {};
+      for (const r of sub) { const v = key(r) || ''; m[v] = (m[v] || 0) + 1; }
+      return Object.entries(m).map(([v, c]) => ({ value: v, label: v || '未标注', count: c }));
+    };
+    return {
+      total: sub.length,
+      unlabeled: sub.filter((r) => r.region_source === 'none').length,
+      levels: group((r) => r.level), confirms: group((r) => r.status),
+      sources: group(() => 'gov.cn 国家规章库'), years: group(() => '2000'),
+      regions: group((r) => (r.region_source === 'none' ? '' : '11')),
+    };
+  },
   TaskList: () => [{ id: 7, kind: 'govcn-import', state: 'running', progress: '已获取 5 条', started_at: '2026-10-29T02:00:00Z' }],
   BrowserStatus: () => ({ enabled: false, guidance: '请打开辅助浏览工具后重试。', technical: 'endpoint http://127.0.0.1:9211/mcp' }),
   GovcnLists: () => [],
   ManifestStatus: () => ({ exists: false }),
-  BrowseLaws: () => [{ law_id: 'L1', name: '工伤保险条例', status: 'pending', level: '行政法规', region_source: 'none', region: '北京市' }],
-  BrowseStats: () => [1, 0],
   SearchArticles: () => [{ doc_id: 'D1', law_name: '工伤保险条例', level: '行政法规', confirm_status: 'pending', snippet: '…工伤…', article_no: '第一条' }],
 };
-const App = new Proxy({}, { get: (t, k) => async () => (k in data ? data[k]() : []) });
+const App = new Proxy({}, { get: (t, k) => async (...args) => (k in data ? data[k](...args) : []) });
 const storage = { _m: new Map(), getItem(k) { return this._m.get(k) ?? null; }, setItem(k, v) { this._m.set(k, v); } };
 const window = { go: { main: { App } }, localStorage: storage };
 const ctx = vm.createContext({ document, window, localStorage: storage, navigator: { clipboard: { writeText: async () => {} }, geolocation: null }, setTimeout, clearTimeout, setInterval, clearInterval, console });
@@ -87,9 +108,18 @@ const g = (id) => byId.get(id);
     ctx.showPanel(p);
     await new Promise((r) => setTimeout(r, 30));
   }
+  g('q').value = '工伤'; g('hq').value = '工伤';
   ctx.homeSearch(); ctx.doSearch(); ctx.loadLaws(); ctx.loadTasks();
   ctx.cycleTheme(); ctx.cycleTheme();
   await new Promise((r) => setTimeout(r, 80));
+  // 浏览页筛选与计数同源联动：默认条件下 2 部，改一个维度后必须跟着变。
+  const totalAll = g('f-total').textContent;
+  const levelChips = g('f-levels').innerHTML;
+  const unlabeledNote = g('f-region-note').textContent;
+  vm.runInContext('browseFilter.level = "行政法规"; loadLaws();', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+  const totalFiltered = g('f-total').textContent;
+  const statsLine = g('b-stats').textContent;
   const cntConfirm = g('cnt-confirm').textContent, cntConfirmTitle = g('cnt-confirm').title;
   // 待复核确实为 0 时不得留「0」徽标（无需提醒），面板内另有如实说明。
   ctx.setSideFoot({ laws: 1, pending: 0 });
@@ -109,6 +139,12 @@ const g = (id) => byId.get(id);
     '任务卡 class 含 running': g('task-list').innerHTML.includes('task running'),
     '端点等技术细节仍可得（供折叠展示）': g('browser-tech').innerHTML.includes('127.0.0.1'),
     '清单缺失给出下一步': g('g-list-hint').textContent.includes('没有目录清单'),
+    '浏览分面给出计数': levelChips.includes('fcount'),
+    '筛选前后总数联动': totalAll === '2' && totalFiltered === '1',
+    '筛选回显为白话': statsLine.includes('当前筛选：类别 行政法规'),
+    '未标注地区如实说明': unlabeledNote.includes('未标注'),
+    '检索命中可就地收窄': g('sf-level').innerHTML.includes('fcount'),
+    '首页类别卡带筛选入口': g('h-cards').innerHTML.includes('data-level'),
   };
   console.log(JSON.stringify(report, null, 1));
   console.log('SMOKE_OK');

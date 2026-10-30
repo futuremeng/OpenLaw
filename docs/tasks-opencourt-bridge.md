@@ -475,6 +475,18 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   `desktop/frontend/wiring_smoke.mjs`（`TestFrontendWiringSmoke` 调用）；`id` 与绑定调用未变（117 个 id 仍全部核对）。
   `docs/design-ui-language.md` 新增「界面结构基线」节。**下一步**：打包 `.app` 内逐页手工冒烟
   （深浅主题、占比条、侧栏计数），以及多法域（美国数据）设计文档。
+- **筛选归位（2026-10-30，地区从侧栏挪回筛选层）**：侧栏地区控件被指出「莫名其妙」——
+  地区是定位法规的筛选维度，且只服务公众便利，专业用户需要的是多维度指标。据此：
+  ① 侧栏不再放筛选控件，只留一行状态；② 「按目录浏览」→「按条件筛选」，两模式共用；
+  ③ Go 层新增 `LawFilter` + `BrowseLawList`/`BrowseFacets`（分面计数走 SQL，口径「其余维度
+  已生效、本维度不限」，列表与计数共用 `browseWhere`），旧签名委托新方法；④ 前端筛选栏
+  芯片挂计数、0 计数禁点、当前筛选回显白话、关键词即时联动；地区作为其中一个维度
+  （芯片选省、下拉到地级、「按我的位置」直接套用）；⑤ 检索页对命中就地收窄
+  （等级/复核状态，计数按命中统计并声明不重排序）；首页类别卡成为带筛选的入口。
+  新增测试 `TestBrowseFacetsLinkage`/`TestBrowseFacetsRegionAndSource`，门禁新增
+  `TestBrowseFilterRailIsPrimary`，接线冒烟加 5 项联动断言并修掉「绑定桩丢弃实参」这一
+  使联动从未真正被验证的桩缺陷。**下一步**：打包 `.app` 内对筛选栏逐维度手工冒烟
+  （窄窗口下三栏布局是否需改为筛选栏可折叠），以及多法域（美国数据）设计文档。
 
 
 ---

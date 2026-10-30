@@ -18,9 +18,9 @@
       <button id="mode-pro" class="mode">专业模式</button>
     </div>
     <nav id="nav">
-      <div class="nav-group" data-mode="public">查法规</div>
+      <div class="nav-group">查法规</div>
       <button class="nav active" data-panel="home" data-mode="public">关键词检索</button>
-      <button class="nav" data-panel="browse" data-mode="public">按目录浏览</button>
+      <button class="nav" data-panel="browse">按条件筛选</button>
       <div class="nav-group" data-mode="pro">维护法规库</div>
       <button class="nav" data-panel="overview" data-mode="pro" hidden>库总览</button>
       <button class="nav" data-panel="search" data-mode="pro" hidden>法规检索</button>
@@ -28,21 +28,9 @@
       <button class="nav" data-panel="region" data-mode="pro" hidden>地域标引<span class="cnt" id="cnt-region"></span></button>
       <button class="nav" data-panel="collect" data-mode="pro" hidden>获取最新法规<span class="dot" id="dot-collect" hidden></span></button>
     </nav>
-    <div id="region-bar">
-      <div id="region-text" class="muted">正在读取地区…</div>
-      <div id="region-note" class="muted small"></div>
-      <select id="region-prov"></select>
-      <select id="region-city"></select>
-      <div class="rowbtns">
-        <button id="btn-region-apply">应用地区</button>
-        <button id="btn-region-clear">不限地区</button>
-      </div>
-      <button id="btn-locate">获取我的位置</button>
-      <button id="btn-region-trial">按选定地点试判定</button>
-      <div id="region-help" class="muted small">坐标由系统定位服务给出（macOS 可能经由其 Wi-Fi 定位数据库）；把坐标判定成地区这一步全部在本机离线完成，本应用不上传数据、不做 IP 定位。定位不可用时：先在上方选省/市，再点「按选定地点试判定」——它把该地点的中心点当作位置，用于验证判定与显示链路，界面会标明「试判定 · 非真实定位」。</div>
-    </div>
     <div id="side-foot">
       <span id="schema-badge"></span>
+      <span id="side-region" class="chip-line" hidden></span>
       <button id="btn-theme" title="浅色 / 深色 / 跟随系统">界面外观</button>
     </div>
   </aside>
@@ -68,25 +56,62 @@
       </details>
     </section>
 
-    <!-- 公众 · 按目录浏览 -->
+    <!-- 两模式共用 · 按条件筛选（多维 + 分面计数，地区是其中一个维度） -->
     <section id="panel-browse" class="panel hidden">
       <header class="page-head">
-        <h1>按目录浏览</h1>
-        <p class="lead">先选类别，再点法规名称看它的条款与修订沿革；也可以直接按名称过滤。</p>
+        <h1>按条件筛选</h1>
+        <p class="lead">用维度组合定位法规：类别、复核状态、来源、公布年代、地区。每选一项，条目与各项计数同时更新。</p>
       </header>
       <div class="toolbar">
-        <select id="b-level">
-          <option value="">全部类别</option>
-          <option>行政法规</option><option>部门规章</option>
-          <option>地方政府规章</option><option>法律</option><option>司法解释</option>
-        </select>
         <input id="b-kw" placeholder="按法规名称过滤，如「工伤保险」"/>
-        <label class="chk"><input id="b-local" type="checkbox"/> 仅本机地区</label>
         <button id="btn-browse">浏览</button>
+        <span id="b-stats" class="muted"></span>
       </div>
-      <p id="b-stats" class="muted"></p>
-      <div class="split">
-        <div id="law-list" class="list"><p class="muted">先选类别或直接浏览，共收录法规将列于此处。</p></div>
+      <div class="split browse-split">
+        <aside class="filters">
+          <div class="fsum">
+            <span><b id="f-total" class="num">—</b> 部法规符合当前条件</span>
+            <button id="btn-filter-clear">清空筛选</button>
+          </div>
+          <div class="fgrp">
+            <h3>效力等级</h3>
+            <div id="f-levels" class="fchips"></div>
+          </div>
+          <div class="fgrp">
+            <h3>复核状态</h3>
+            <div id="f-confirms" class="fchips"></div>
+          </div>
+          <div class="fgrp">
+            <h3>公布年代</h3>
+            <div id="f-years" class="fchips"></div>
+          </div>
+          <div class="fgrp">
+            <h3>来源</h3>
+            <div id="f-sources" class="fchips"></div>
+          </div>
+          <div class="fgrp">
+            <h3>地区 <button id="btn-locate" title="用系统定位确定所在地区，只用于筛选，不上传任何数据">按我的位置</button></h3>
+            <p id="region-text" class="muted">正在读取地区…</p>
+            <div id="f-regions" class="fchips"></div>
+            <p id="region-note" class="muted small"></p>
+            <p id="f-region-note" class="muted small"></p>
+            <div class="rowbtns">
+              <select id="region-prov"></select>
+              <select id="region-city"></select>
+            </div>
+            <div class="rowbtns">
+              <button id="btn-region-apply">应用所选地区</button>
+              <button id="btn-region-clear">不限地区</button>
+            </div>
+            <details class="disclose">
+              <summary>地区怎么判定、如何核对</summary>
+              <p id="region-help" class="muted small">地区取自法规名称中的地名或库中已标注的行政区划；本机地区可由系统定位给出（macOS 可能经由其 Wi-Fi 定位数据库），判定全部在本机离线完成，不上传数据、不做 IP 定位。定位不可用时：先在上方选省/市，再点「按选定地点试判定」——它把该地点的中心点当作位置，用于验证判定与显示链路，界面会标明「试判定 · 非真实定位」。</p>
+              <button id="btn-region-trial">按选定地点试判定</button>
+            </details>
+          </div>
+          <p class="fnote">计数按其余条件统计（不含本项自身），选中后仍可改选；效力等级、来源未记录的条目不参与该维度筛选，仍会出现在结果中。</p>
+        </aside>
+        <div id="law-list" class="list"><p class="muted">全部条目将列于此处；用左侧维度收窄。</p></div>
         <div id="law-detail" class="preview"><p class="muted">点选左侧法规，查看其条款与修订沿革。</p></div>
       </div>
     </section>
@@ -132,10 +157,19 @@
       </header>
       <div class="toolbar">
         <input id="q" placeholder="全文检索（FTS5 语法亦支持）"/>
-        <select id="s-level"><option value="">全部等级</option><option>行政法规</option><option>部门规章</option><option>地方政府规章</option></select>
-        <label class="chk"><input id="s-confirmed" type="checkbox"/> 仅显示已复核</label>
         <button id="btn-search">检索</button>
         <span id="search-info" class="muted"></span>
+      </div>
+      <div class="hitfilters">
+        <div class="fgrp">
+          <h3>效力等级</h3>
+          <div id="sf-level" class="fchips"></div>
+        </div>
+        <div class="fgrp">
+          <h3>复核状态</h3>
+          <div id="sf-confirm" class="fchips"></div>
+        </div>
+        <p class="fnote">这里的计数按本次检索命中的条文统计（全文检索结果不重排序）；点选即筛选，再点取消。</p>
       </div>
       <div class="split">
         <div id="search-list" class="list"></div>
