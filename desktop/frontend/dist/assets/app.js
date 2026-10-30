@@ -7,6 +7,29 @@
 
 const $ = (s) => document.querySelector(s);
 const num = (n) => (n == null ? "0" : Number(n).toLocaleString("zh-CN"));
+// compact：侧栏计数徽标用的紧凑写法（3.6 万）。精确值一律挂在 title 里，
+// 徽标只做「这里需要你」的定位线索，不作为结论展示（诚实展示纪律）。
+function compact(n) {
+  n = Number(n) || 0;
+  if (n < 10000) return num(n);
+  const w = n / 10000;
+  return (w >= 100 ? Math.round(w) : Math.round(w * 10) / 10) + " 万";
+}
+// 外观：跟随系统 / 浅色 / 深色。手动选择写入 html[data-theme]，样式层据此覆盖
+// prefers-color-scheme（docs/design-ui-language.md：安静克制，深色与浅色同一套语义令牌）。
+let theme = localStorage.getItem("ol-theme") || "system";
+const THEME_TEXT = { system: "外观 · 跟随系统", light: "外观 · 浅色", dark: "外观 · 深色" };
+function applyTheme() {
+  if (theme === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  const b = $("#btn-theme");
+  if (b) b.textContent = THEME_TEXT[theme] || THEME_TEXT.system;
+}
+function cycleTheme() {
+  theme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+  localStorage.setItem("ol-theme", theme);
+  applyTheme();
+}
 // fmtWhen：ISO UTC → 本机时间「YYYY-MM-DD HH:mm」。界面一律显示本机时间
 // （docs/design-ui-language.md：主视图禁止 ISO UTC 时间戳）；原始串留在 title 里供核对，
 // 不做任何美化或改写。
@@ -52,6 +75,8 @@ function reloadViewing() {
 }
 function applyMode() {
   document.querySelectorAll(".nav").forEach((b) => (b.hidden = b.dataset.mode !== mode));
+  // 分组标题随模式收起：公众模式下不得出现只剩标题的空分组。
+  document.querySelectorAll(".nav-group").forEach((g) => (g.hidden = !!g.dataset.mode && g.dataset.mode !== mode));
   $("#mode-public").classList.toggle("active", mode === "public");
   $("#mode-pro").classList.toggle("active", mode === "pro");
   showPanel(mode === "public" ? "home" : "overview");
@@ -59,6 +84,20 @@ function applyMode() {
 document.querySelectorAll(".nav").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.panel)));
 $("#mode-public").addEventListener("click", () => { mode = "public"; localStorage.setItem("ol-mode", mode); applyMode(); });
 $("#mode-pro").addEventListener("click", () => { mode = "pro"; localStorage.setItem("ol-mode", mode); applyMode(); });
+$("#btn-theme").addEventListener("click", cycleTheme);
+
+// setNavCount：侧栏导航挂实时计数（侧栏不只做导航，还要显示「哪里需要你」）。
+// 计数读不到时清空徽标而不是留旧值；精确条数挂在 title 里供核对。
+function setNavCount(id, n, warn) {
+  const el = $(id);
+  if (!el) return;
+  // 读不到（null/NaN）与确实为 0 都不显示徽标：前者是未知，后者是无需提醒；
+  // 两种情况面板内都如实说明（「均已人工复核」/读取失败原因），不靠徽标传达。
+  if (n == null || !isFinite(n) || Number(n) === 0) { el.textContent = ""; el.removeAttribute("title"); return; }
+  el.textContent = compact(n);
+  el.title = num(n) + " 条";
+  el.classList.toggle("warn", !!warn);
+}
 
 /* ---------- 共享组件：徽章 / 法规要素 / 预览 / 引用格式 ---------- */
 const FLAG_TEXT = { inferred_date: "公布日期由文本推断", whole_text: "全文未分条", no_publish_date: "缺少公布日期" };
@@ -346,6 +385,25 @@ $("#b-level").addEventListener("change", loadLaws);
 $("#b-local").addEventListener("change", loadLaws);
 $("#b-kw").addEventListener("keydown", (e) => { if (e.key === "Enter") loadLaws(); });
 
+// renderBars：法规构成给出「形状」而不只是数字——每级一条堆叠条，段长按条目数比例，
+// 条长之间按最大等级归一（哪一级占多少一眼可辨）。精确值仍在「各等级的精确数字」折叠里。
+function renderBars(rows) {
+  const el = $("#ov-bars");
+  if (!el) return;
+  const data = (rows || []).filter((r) => r && ((r.pending || 0) + (r.confirmed || 0) + (r.rejected || 0) > 0));
+  if (!data.length) {
+    el.innerHTML = '<p class="muted">法规库中还没有条文。可在「获取最新法规」中从官方渠道获取。</p>';
+    return;
+  }
+  const totalOf = (r) => (r.pending || 0) + (r.confirmed || 0) + (r.rejected || 0);
+  const max = data.reduce((m, r) => Math.max(m, totalOf(r)), 0) || 1;
+  const seg = (cls, n) => (n ? `<i class="${cls}" style="width:${((n / max) * 100).toFixed(2)}%"></i>` : "");
+  el.innerHTML = data.map((r) => `<div class="bar-row" title="已复核确认 ${num(r.confirmed)} · 待复核 ${num(r.pending)} · 已驳回 ${num(r.rejected)}">` +
+    `<span class="nm">${escapeHTML(r.level || "效力等级未标注")}</span>` +
+    `<span class="bar">${seg("ok", r.confirmed)}${seg("pend", r.pending)}${seg("no", r.rejected)}</span>` +
+    `<span class="num">${num(totalOf(r))} 条</span></div>`).join("");
+}
+
 /* ---------- 专业 · 库总览（数字 → 处境 → 下一步；技术信息折叠在页尾） ---------- */
 async function loadOverview() {
   try {
@@ -355,6 +413,7 @@ async function loadOverview() {
     $("#ov-datadir").textContent = "本机法规库：" + num(v.laws) + " 部法规、" + num(v.articles) + " 条条文" +
       (lf ? "；最近一次获取 " + fmtWhen(lf) + "（本机时间）" : "；本机尚未记录任何获取时间");
     setSideFoot(v);
+    setNavCount("#cnt-confirm", v.pending, true);
     $("#ov-hero").innerHTML = `
       <div class="card big"><b>${num(v.laws)}</b><span>收录法规</span></div>
       <div class="card big"><b>${num(v.confirmed)}</b><span>已复核可用</span></div>
@@ -373,6 +432,7 @@ async function loadOverview() {
     document.querySelectorAll("#ov-actions [data-go]").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.go)));
     $("#level-table tbody").innerHTML = (v.by_level || []).map((r) =>
       `<tr><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
+    renderBars(v.by_level);
     const reps = (await app().RecentReports(5)) || [];
     // 失败如实说：ok=0 不得渲染成中性数字（诚实展示纪律）。
     $("#reports").innerHTML = reps.map((r) => `<div class="rep"><b>${escapeHTML(SRC_TEXT[r.source] || r.source)}</b> ${fmtWhen(r.modified_at)}<span class="muted">（本机时间）</span><br><span class="muted"${utcTitle(r.modified_at)}>${r.ok > 0 ? "获取到 " + num(r.ok) + " 条" : "本轮没有新增内容"} · 失败 ${num(r.failed)} 条${r.pages ? " · 翻页 " + num(r.pages) + " 页" : ""}</span></div>`).join("") ||
@@ -390,8 +450,12 @@ async function loadOverview() {
 }
 
 // setSideFoot 侧栏底部一行白话状态。原先显示「数据库版本 4」——schema 版本号属
-// 技术信息，按规范只能在「技术信息」折叠里出现。
-function setSideFoot(v) { $("#schema-badge").textContent = "本机法规库 · " + num(v.laws) + " 部"; }
+// 技术信息，按规范只能在「技术信息」折叠里出现。顺带刷新侧栏待复核计数，
+// 使「哪里需要你」不必进面板就能看到。
+function setSideFoot(v) {
+  $("#schema-badge").textContent = "本机法规库 · " + num(v.laws) + " 部";
+  setNavCount("#cnt-confirm", v.pending, true);
+}
 async function loadSideFoot() {
   try { setSideFoot(await app().Status()); } catch (e) { /* 绑定未就绪时略过，进面板会再取 */ }
 }
@@ -468,6 +532,7 @@ async function loadStats() {
     const st = await app().QueueStats();
     const risk = Object.entries(st.risk || {}).map(([k, n]) => `<span class="pill">${escapeHTML(FLAG_TEXT[k] || k)} ${num(n)}</span>`).join("");
     $("#qstats").innerHTML = `<span>待复核 <b>${num(st.pending)}</b></span><span>已复核确认 <b>${num(st.confirmed)}</b></span><span>已驳回 <b>${num(st.rejected)}</b></span><span class="muted">需要留意的来源情况：</span>${risk || '<span class="muted">无</span>'}`;
+    setNavCount("#cnt-confirm", st.pending, true);
   } catch (e) { $("#qstats").textContent = "统计读取失败：" + (e.message || e); }
 }
 async function loadQueue() {
@@ -601,6 +666,7 @@ async function loadRegionStats() {
       `<span>已人工确认 <b>${num(st.confirmed)}</b></span>` +
       `<span>已人工驳回/清除 <b>${num(st.left_blank)}</b></span>` +
       `<span>地域未标注 <b>${num(st.unmarked)}</b></span>`;
+    setNavCount("#cnt-region", st.suggest_pending, false);
   } catch (e) { $("#rg-stats").textContent = "统计读取失败：" + (e.message || e); }
 }
 
@@ -713,6 +779,9 @@ function renderTasks(tasks) {
     <div class="task ${escapeHTML(t.state)}"${t.params ? ' title="参数：' + escapeHTML(t.params) + '"' : ""}><b>${escapeHTML(KIND_TEXT[t.kind] || t.kind)} #${t.id}</b><span class="state">${st[t.state] || escapeHTML(t.state)}</span>
     <div class="m">${escapeHTML(t.progress || t.detail || "")}</div>
     <div class="m">${fmtWhen(t.started_at)}（本机时间）开始${t.ended_at ? " · " + fmtWhen(t.ended_at) + " 结束" : ""}</div></div>`).join("") || '<p class="muted">暂无任务记录。</p>';
+  // 侧栏「获取最新法规」旁的指示灯：有任务在跑才亮，空闲时不占位。
+  const dot = $("#dot-collect");
+  if (dot) dot.hidden = !(tasks || []).some((t) => t.state === "running");
 }
 async function loadTasks() { try { renderTasks(await app().TaskList()); } catch (e) { /* 绑定未就绪 */ } }
 function loadTasksTick() {
@@ -785,7 +854,8 @@ async function loadSettings() {
 
 /* ---------- 启动 ---------- */
 document.addEventListener("DOMContentLoaded", () => {
+  applyTheme();
   loadManifest(); loadSettings();
-  waitBindings(() => { applyMode(); loadRegion(); loadSideFoot(); });
+  waitBindings(() => { applyMode(); loadRegion(); loadSideFoot(); loadRegionStats(); });
 });
 

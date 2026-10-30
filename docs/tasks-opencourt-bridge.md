@@ -466,6 +466,15 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   窗口标题与打包显示名统一为「开源法律法规数据库」（开发期旧称退场，新增 `desktop/title_test.go`
   门禁断言两者一致且用户可见文件无旧称），`store`/`sdk`/CLI 提示里的「语料」改
   「法规库数据 / 数据包」，`docs/design-ui-language.md` 新增「产品自称」条。
+- **界面重构（2026-10-30，按 `docs/design-ui-language.md` 重做视觉与结构）**：样式层重写为
+  设计系统（语义令牌 + 深浅两套主题 + 手动外观切换）；每个面板加页头（处境一句话 + 主行动）；
+  侧栏导航挂实时计数（待复核 `#cnt-confirm`、机器建议 `#cnt-region`、运行任务 `#dot-collect`）；
+  库总览法规构成改堆叠占比条（精确数字进折叠）；地域标引页按「先选条目 → 再署名结论」重排，
+  批量处理进折叠。新增 `desktop/ui_contract_test.go` 四条门禁（类名有样式、面板有页头、
+  技术字样只在 `<details>` 内、深色令牌存在）与无浏览器接线冒烟
+  `desktop/frontend/wiring_smoke.mjs`（`TestFrontendWiringSmoke` 调用）；`id` 与绑定调用未变（117 个 id 仍全部核对）。
+  `docs/design-ui-language.md` 新增「界面结构基线」节。**下一步**：打包 `.app` 内逐页手工冒烟
+  （深浅主题、占比条、侧栏计数），以及多法域（美国数据）设计文档。
 
 
 ---

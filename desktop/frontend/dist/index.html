@@ -9,19 +9,24 @@
 <body>
 <div id="layout">
   <aside id="side">
-    <div class="brand">OpenLaw<br><b>开源法律法规数据库</b></div>
+    <div class="brand">
+      <span class="mark">法</span>
+      <span class="txt"><b>法律法规库</b><span>开源 · 本机运行</span></span>
+    </div>
     <div class="modes">
       <button id="mode-public" class="mode active">公众模式</button>
       <button id="mode-pro" class="mode">专业模式</button>
     </div>
     <nav id="nav">
-      <button class="nav active" data-panel="home" data-mode="public">查法规</button>
+      <div class="nav-group" data-mode="public">查法规</div>
+      <button class="nav active" data-panel="home" data-mode="public">关键词检索</button>
       <button class="nav" data-panel="browse" data-mode="public">按目录浏览</button>
+      <div class="nav-group" data-mode="pro">维护法规库</div>
       <button class="nav" data-panel="overview" data-mode="pro" hidden>库总览</button>
       <button class="nav" data-panel="search" data-mode="pro" hidden>法规检索</button>
-      <button class="nav" data-panel="confirm" data-mode="pro" hidden>人工复核</button>
-      <button class="nav" data-panel="region" data-mode="pro" hidden>地域标引</button>
-      <button class="nav" data-panel="collect" data-mode="pro" hidden>获取最新法规</button>
+      <button class="nav" data-panel="confirm" data-mode="pro" hidden>人工复核<span class="cnt warn" id="cnt-confirm"></span></button>
+      <button class="nav" data-panel="region" data-mode="pro" hidden>地域标引<span class="cnt" id="cnt-region"></span></button>
+      <button class="nav" data-panel="collect" data-mode="pro" hidden>获取最新法规<span class="dot" id="dot-collect" hidden></span></button>
     </nav>
     <div id="region-bar">
       <div id="region-text" class="muted">正在读取地区…</div>
@@ -36,11 +41,14 @@
       <button id="btn-region-trial">按选定地点试判定</button>
       <div id="region-help" class="muted small">坐标由系统定位服务给出（macOS 可能经由其 Wi-Fi 定位数据库）；把坐标判定成地区这一步全部在本机离线完成，本应用不上传数据、不做 IP 定位。定位不可用时：先在上方选省/市，再点「按选定地点试判定」——它把该地点的中心点当作位置，用于验证判定与显示链路，界面会标明「试判定 · 非真实定位」。</div>
     </div>
-    <div id="side-foot"><span id="schema-badge"></span></div>
+    <div id="side-foot">
+      <span id="schema-badge"></span>
+      <button id="btn-theme" title="浅色 / 深色 / 跟随系统">界面外观</button>
+    </div>
   </aside>
 
   <main>
-    <!-- 公众 · 查法规（搜索为中心） -->
+    <!-- 公众 · 关键词检索（一屏一个主行动：搜索） -->
     <section id="panel-home" class="panel">
       <div class="hero">
         <h1>查法规，认准官方原文</h1>
@@ -62,6 +70,10 @@
 
     <!-- 公众 · 按目录浏览 -->
     <section id="panel-browse" class="panel hidden">
+      <header class="page-head">
+        <h1>按目录浏览</h1>
+        <p class="lead">先选类别，再点法规名称看它的条款与修订沿革；也可以直接按名称过滤。</p>
+      </header>
       <div class="toolbar">
         <select id="b-level">
           <option value="">全部类别</option>
@@ -79,35 +91,45 @@
       </div>
     </section>
 
-    <!-- 专业 · 库总览：数字 → 处境 → 下一步动作；技术信息折叠在页尾（docs/design-ui-language.md） -->
+    <!-- 专业 · 库总览：处境 → 下一步 → 法规构成（占比 + 精确数字折叠）· 技术信息在页尾 -->
     <section id="panel-overview" class="panel hidden">
+      <header class="page-head">
+        <h1>库总览</h1>
+        <p class="lead">本机法规库现在有多少内容、哪些还未经人工复核、下一步该做什么。</p>
+      </header>
       <div id="status-err" class="err"></div>
       <p id="ov-datadir" class="muted small"></p>
       <div id="ov-hero" class="hero-cards"></div>
       <div id="ov-actions" class="actions"></div>
-      <h2>法规构成（按效力等级）</h2>
-      <table id="level-table"><thead><tr><th>效力等级</th><th>待复核</th><th>已复核确认</th><th>已驳回</th></tr></thead><tbody></tbody></table>
+      <h2>法规构成<span class="sub">按效力等级；色块长短表示各等级占多少</span></h2>
+      <div id="ov-bars" class="bars"></div>
+      <div class="legend"><span><i class="ok"></i>已复核确认</span><span><i class="pend"></i>待复核</span><span><i class="no"></i>已驳回</span></div>
       <div class="cols">
         <div>
-          <h2>最近获取记录</h2>
-          <p class="muted small">显示为本机时间；鼠标悬停可查看原始 UTC 时间。</p>
+          <h2>最近获取记录<span class="sub">本机时间</span></h2>
           <div id="reports" class="reports"></div>
         </div>
         <div>
-          <h2>最近复核记录</h2>
-          <p class="muted small">谁在什么时候确认或驳回了哪一条。</p>
+          <h2>最近复核记录<span class="sub">谁在什么时候确认或驳回了哪一条</span></h2>
           <div id="reviews" class="reviews"></div>
         </div>
       </div>
+      <details class="disclose">
+        <summary>各等级的精确数字</summary>
+        <table id="level-table"><thead><tr><th>效力等级</th><th>待复核</th><th>已复核确认</th><th>已驳回</th></tr></thead><tbody></tbody></table>
+      </details>
       <details class="disclose">
         <summary>技术信息（数据存放位置 · 数据格式版本）</summary>
         <div id="ov-tech" class="kv"></div>
       </details>
     </section>
 
-
-    <!-- 专业 · 法规检索 -->
+    <!-- 专业 · 法规检索（FTS5 结果不重排序，保持可复现） -->
     <section id="panel-search" class="panel hidden">
+      <header class="page-head">
+        <h1>法规检索</h1>
+        <p class="lead">在全库条文中找条文，并与官方留证原文逐字核对。检索结果按语料原样给出，不做重排序。</p>
+      </header>
       <div class="toolbar">
         <input id="q" placeholder="全文检索（FTS5 语法亦支持）"/>
         <select id="s-level"><option value="">全部等级</option><option>行政法规</option><option>部门规章</option><option>地方政府规章</option></select>
@@ -131,10 +153,14 @@
       </div>
     </section>
 
-    <!-- 专业 · 人工复核：① 找到条目 → ② 看原文与复核记录 → ③ 署名落判（docs/design-ui-language.md） -->
+    <!-- 专业 · 人工复核：① 找到条目 → ② 看原文与复核记录 → ③ 署名并确认或驳回 -->
     <section id="panel-confirm" class="panel hidden">
+      <header class="page-head">
+        <h1>人工复核</h1>
+        <p class="lead">机器不会替你确认：每条都要人工与官方原文比对，再由复核人署名给出结论。复核记录长期保留。</p>
+      </header>
       <div id="qstats" class="qstats"></div>
-      <h2 class="step">第一步 · 找到要复核的条目</h2>
+      <h2 class="step"><span class="n">1</span>找到要复核的条目</h2>
       <div class="toolbar">
         <input id="filter" placeholder="按法规名称、条目编号或来源查找"/>
         <button id="btn-load">载入待复核条目</button>
@@ -144,7 +170,7 @@
         <div id="queue-list" class="list"></div>
         <div id="preview" class="preview"><p class="muted">点选左侧条目，这里显示条文原文、原文出处与复核记录。<br>机器不会替你确认：每条都要人工与官方原文比对之后再定。</p></div>
       </div>
-      <h2 class="step">第二步 · 写下结论并署名</h2>
+      <h2 class="step"><span class="n">2</span>写下结论并署名</h2>
       <div class="toolbar">
         <label>复核人 <input id="reviewer" placeholder="你的名字或工号（必填）"/></label>
         <label>结论依据 <input id="reason" placeholder="例如：已与官网原文逐字比对（必填）"/></label>
@@ -152,7 +178,7 @@
         <button id="btn-reject" class="warn">驳回这条</button>
         <button id="btn-reset">退回重新复核</button>
       </div>
-      <p class="muted small">先点左侧条目，再填复核人与结论依据，最后点「确认这条」或「驳回这条」。复核记录会长期保留，写明依据比只写「已看过」更有用。</p>
+      <p class="muted small">先点左侧条目，再填复核人与结论依据，最后点「确认这条」或「驳回这条」。写明依据比只写「已看过」更有用。</p>
       <details class="disclose">
         <summary>批量复核（一次处理一批 · 须先看范围再执行）</summary>
         <div class="form">
@@ -169,8 +195,14 @@
       </details>
     </section>
 
-    <!-- 专业 · 地域标引（机器建议 → 人工落判；写 law.region_* 与 region_log） -->
+
+
+    <!-- 专业 · 地域标引（机器建议 → 人工确认；机器建议未经确认不算已复核） -->
     <section id="panel-region" class="panel hidden">
+      <header class="page-head">
+        <h1>地域标引</h1>
+        <p class="lead">机器只给建议、不替你决定：确认、驳回或清除都必须由复核人署名并写明依据。</p>
+      </header>
       <div id="rg-stats" class="qstats"></div>
       <div class="toolbar">
         <input id="rg-filter" placeholder="按法规名称、条目编号或制定机关查找"/>
@@ -182,46 +214,56 @@
         </select>
         <button id="rg-load">载入待复核条目</button>
         <span id="rg-info"></span>
-        <span class="spacer"></span>
-        <input id="rg-reviewer" placeholder="复核人（必填）"/>
-        <input id="rg-reason" placeholder="结论依据（必填）"/>
-        <select id="rg-region"></select>
-        <button id="rg-confirm" class="ok">确认（或改选地区）</button>
-        <button id="rg-reject" class="warn">驳回</button>
-        <button id="rg-clear">清除标注</button>
-      </div>
-      <div class="bulk">
-        批量处理（按省）：
-        <select id="rg-b-prov"></select>
-        <select id="rg-b-verdict">
-          <option value="confirm">确认机器建议</option>
-          <option value="reject">驳回（留空但记复核）</option>
-          <option value="clear">清除标注</option>
-        </select>
-        <button id="rg-b-preview">先看看会影响多少条</button>
-        <span id="rg-b-info" class="muted"></span>
-        <button id="rg-b-apply" class="ok">执行批量处理</button>
-        <span class="muted">一次最多处理 500 条；预览与执行之间条目有变动即中止，请重新预览。</span>
       </div>
       <div class="split">
         <div id="rg-list" class="list"></div>
         <div id="rg-preview" class="preview"><p class="muted">点选左侧条目查看当前标注、机器判定依据与复核记录。确认/驳回/清除均须复核人与结论依据；机器建议未经人工确认前不算已复核。</p></div>
       </div>
+      <h2 class="step"><span class="n">1</span>对这一条给出结论</h2>
+      <div class="toolbar">
+        <label>复核人 <input id="rg-reviewer" placeholder="必填"/></label>
+        <label>结论依据 <input id="rg-reason" placeholder="必填"/></label>
+        <select id="rg-region"></select>
+        <button id="rg-confirm" class="ok">确认（或改选地区）</button>
+        <button id="rg-reject" class="warn">驳回</button>
+        <button id="rg-clear">清除标注</button>
+      </div>
+      <details class="disclose">
+        <summary>批量处理（按省份 · 须先看范围再执行）</summary>
+        <div class="form">
+          <label>省份 <select id="rg-b-prov"></select></label>
+          <label>结论 <select id="rg-b-verdict">
+            <option value="confirm">确认机器建议</option>
+            <option value="reject">驳回（留空但记复核）</option>
+            <option value="clear">清除标注</option>
+          </select></label>
+          <div class="rowbtns">
+            <button id="rg-b-preview">先看看会影响多少条</button>
+            <button id="rg-b-apply" class="ok">执行批量处理</button>
+          </div>
+          <span id="rg-b-info" class="muted"></span>
+          <p class="muted small">一次最多处理 500 条；预览与执行之间条目有变动即中止，请重新预览。</p>
+        </div>
+      </details>
     </section>
 
-    <!-- 专业 · 获取最新法规：状态 → 常用参数 → 高级参数 → 高级设置（docs/design-ui-language.md） -->
+    <!-- 专业 · 获取最新法规：来源状态 → 常用参数 → 高级参数（护栏下限写明）→ 高级设置 -->
     <section id="panel-collect" class="panel hidden">
+      <header class="page-head">
+        <h1>获取最新法规</h1>
+        <p class="lead">从官方渠道获取原文与目录。默认不联网，只有你点开始才获取；中断时已获取的部分会如实保留。</p>
+      </header>
       <h2>官方来源状态</h2>
       <div id="src-cards" class="cards"></div>
-      <h2>进行中的任务</h2>
+      <h2>进行中的任务<span class="sub">同一时间只运行一个获取任务</span></h2>
       <div class="toolbar">
         <button id="btn-cancel-task" class="warn">取消当前任务</button>
-        <span class="muted">同一时间只运行一个获取任务；中断时已获取的部分会如实保留。</span>
+        <span class="muted">中断时已获取的部分会如实保留，并产出「部分完成」记录。</span>
       </div>
       <div id="task-list" class="tasks"></div>
       <div class="cols">
         <div>
-          <h2>获取官方原文（按已导出的目录逐条获取）</h2>
+          <h2>获取官方原文<span class="sub">按已导出的目录逐条获取</span></h2>
           <div class="form">
             <label>获取来源 <select id="g-source"><option value="xzfgk">国家行政法规库</option><option value="gzk">国家规章库</option></select></label>
             <label>目录清单 <select id="g-list"></select></label>
@@ -240,7 +282,7 @@
           </details>
         </div>
         <div>
-          <h2>获取官方规章目录（需辅助浏览工具）</h2>
+          <h2>获取官方规章目录<span class="sub">需辅助浏览工具</span></h2>
           <div class="form">
             <label>类别 <select id="l-cat"><option value="">全部（部门+地方政府）</option><option>部门规章</option><option>地方政府规章</option></select></label>
             <label>获取页数（不超过 200 页） <input id="l-pages" type="number" value="10" min="1" max="200"/></label>
@@ -302,3 +344,4 @@
 <script src="./assets/app.js"></script>
 </body>
 </html>
+
