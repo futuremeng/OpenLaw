@@ -124,7 +124,7 @@ func main() {
 			fmt.Printf("  标记为地方效力但未标地域 %d | 效力等级属地方级但 is_local 未标记 %d | 已标地域但无地方效力依据 %d\n",
 				audit.FlagLocalNoRegion, audit.FlagLevelLocalNoFlag, audit.FlagCodeNoBasis)
 			fmt.Printf("报告: %s（矛盾项 %d 条逐条列出）\n", *checkReport, len(audit.Rows))
-			fmt.Println("提示：is_local 在语料中不可靠，只作线索不作结论；矛盾项一律交人工在桌面「地域标引」面板落判，机器不自动改。")
+			fmt.Println("提示：is_local 在现有数据中不可靠，只作线索不作结论；矛盾项一律交人工在桌面「地域标引」面板确认或驳回，机器不自动改。")
 		}
 		return
 	}

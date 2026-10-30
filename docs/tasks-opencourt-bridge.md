@@ -462,6 +462,10 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   测试：`browser.TestGuidancePlainLanguage`（指引不得含端点地址/参数名/环境变量名）、
   `ingest.TestConfirmBulkSourceExact`（来源名精确匹配、通配符按字面命中 0）、
   `desktop.TestBrowserStatusAndGovcnLists` 增断言 `technical` 非空。
+  ④ 收尾：地域标引页措辞同步（「批量落判」→「批量处理」等）；产品自称与内部说法清理——
+  窗口标题与打包显示名统一为「开源法律法规数据库」（开发期旧称退场，新增 `desktop/title_test.go`
+  门禁断言两者一致且用户可见文件无旧称），`store`/`sdk`/CLI 提示里的「语料」改
+  「法规库数据 / 数据包」，`docs/design-ui-language.md` 新增「产品自称」条。
 
 
 ---

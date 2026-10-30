@@ -1,7 +1,7 @@
-// dataresolve.go 语料目录解析。
+// dataresolve.go 数据目录解析。
 //
 // 为什么必须有：.app 经 Finder/open 启动时工作目录是 "/"，默认相对路径 "data"
-// 会指向不存在的位置，而 App.Open() 会 MkdirAll——结果是静默打开一个空语料库，
+// 会指向不存在的位置，而 App.Open() 会 MkdirAll——结果是静默打开一个空数据库，
 // 用户以为在看真实数据。这违反诚实展示纪律，所以目录必须解析，且来源必须如实展示。
 package main
 
@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 )
 
-// envDataDir 桌面端语料目录的显式覆盖口（与 -data 同义，便于 .app 场景配置）。
+// envDataDir 桌面端数据目录的显式覆盖口（与 -data 同义，便于 .app 场景配置）。
 const envDataDir = "OPENLAW_DATA"
 
-// resolveDataDir 决定语料目录，同时返回来源说明（来源要能展示给用户，不能含糊）。
+// resolveDataDir 决定数据目录，同时返回来源说明（来源要能展示给用户，不能含糊）。
 //
 // 优先级：命令行显式 -data > 环境变量 OPENLAW_DATA > 可执行文件相邻（.app 从
 // Finder 启动时唯一可靠的线索）> 当前目录默认值（既有开发流程，保持不破坏）。

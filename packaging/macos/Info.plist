@@ -15,7 +15,7 @@
 	<key>CFBundleName</key>
 	<string>OpenLaw</string>
 	<key>CFBundleDisplayName</key>
-	<string>OpenLaw 语料台</string>
+	<string>开源法律法规数据库</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.github.futuremeng.openlaw</string>
 	<key>CFBundleExecutable</key>

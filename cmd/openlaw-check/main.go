@@ -18,8 +18,8 @@ func main() {
 		keyPath       = flag.String("key", "", "manifest 签名私钥路径（-build-manifest 时必填）")
 		buildManifest = flag.Bool("build-manifest", false, "重算哈希并生成/更新 manifest 与签名")
 		genKey        = flag.Bool("gen-key", false, "生成新的 Ed25519 签名私钥（配合 -key）")
-		license       = flag.String("license", "", "语料许可声明（空 = 默认：官方文本公有领域 + 再分发署出处）")
-		attribution   = flag.String("attribution", "", "语料来源署名（空 = 默认：官方渠道，见各 provenance）")
+		license       = flag.String("license", "", "数据许可声明（空 = 默认：官方文本公有领域 + 再分发署出处）")
+		attribution   = flag.String("attribution", "", "数据来源署名（空 = 默认：官方渠道，见各 provenance）")
 	)
 	flag.Parse()
 

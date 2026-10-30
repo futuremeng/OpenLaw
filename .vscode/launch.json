@@ -5,11 +5,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      // OL-10 桌面端「OpenLaw 语料台」。必须带 wails 构建标签——无标签会链入
+      // OL-10 桌面端「开源法律法规数据库」。必须带 wails 构建标签——无标签会链入
       // stub（日志打「will not build without the correct build tags」且无窗口）。
       // devtools 标签开右键 Inspect Element；断点可打在 desktop/ store/ ingest/
       // validate/ browser/ pack/（同包同进程全部命中）。
-      "name": "桌面端: 语料台（含 webview devtools）",
+      "name": "桌面端: 法律法规库（含 webview devtools）",
       "type": "go",
       "request": "launch",
       "mode": "auto",

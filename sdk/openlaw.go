@@ -296,7 +296,7 @@ func (o *OpenLaw) Search(query string, topK int) Result {
 	}
 	res := ok(map[string]any{"query": query, "hits": items}, nil)
 	if len(items) == 0 {
-		res.Warnings = append(res.Warnings, "无命中：核对检索词，或确认语料范围（无结果不是错误）")
+		res.Warnings = append(res.Warnings, "无命中：核对检索词，或确认法规库收录范围（无结果不是错误）")
 	}
 	if pending > 0 {
 		res.Warnings = append(res.Warnings,

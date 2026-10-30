@@ -36,8 +36,10 @@ const (
 )
 
 // VersionGuidance schema 不匹配时统一给出的两条出路（升级消费方应用 / 换兼容
-// 语料包；生产者侧则升级 OpenLaw），错误文案必须可行动。
-const VersionGuidance = "两条出路：① 升级本应用至支持该 schema 的版本；② 使用 OpenLaw 生成的兼容语料包（openlaw-pack build）。生产者请用新版 OpenLaw CLI 升级语料。"
+// 数据包；生产者侧则升级 OpenLaw），错误文案必须可行动。
+// 文案遵守 docs/design-ui-language.md：不得出现「语料」这类内部说法（列名
+// schema_version 属技术标识，保留）。
+const VersionGuidance = "两条出路：① 升级本应用至支持该数据格式的版本；② 使用 OpenLaw 生成的兼容数据包（openlaw-pack build）。数据生产者请用新版 OpenLaw CLI 升级法规库数据后重新分发。"
 
 // DB OpenLaw 数据库句柄，内嵌 *sql.DB 供上层在事务内复用。
 type DB struct {
@@ -63,7 +65,7 @@ func Open(path string) (*DB, error) {
 	}
 	if ver > SchemaMax {
 		sqlDB.Close()
-		return nil, fmt.Errorf("语料 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不迁移、不回写标记）。%s", ver, SchemaMax, VersionGuidance)
+		return nil, fmt.Errorf("法规库数据格式版本 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不迁移、不回写标记）。%s", ver, SchemaMax, VersionGuidance)
 	}
 	// 结构迁移前自动备份（release-process.md §4 承诺的机制；store/backup.go 实现）。
 	// ver=="" 是空库/未初始化，无数据可失，不备份；版本一致不备份（避免每次启动产文件）。
@@ -101,13 +103,13 @@ func OpenReadOnly(path string) (*DB, error) {
 	switch {
 	case ver == "":
 		sqlDB.Close()
-		return nil, fmt.Errorf("语料无 schema_version 标记（空库或未初始化）——只读入口不代跑迁移。%s", VersionGuidance)
+		return nil, fmt.Errorf("法规库数据缺少 schema_version 标记（空库或未初始化）——只读入口不代跑迁移。%s", VersionGuidance)
 	case ver > SchemaMax:
 		sqlDB.Close()
-		return nil, fmt.Errorf("语料 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不部分读、不猜）。%s", ver, SchemaMax, VersionGuidance)
+		return nil, fmt.Errorf("法规库数据格式版本 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不部分读、不猜）。%s", ver, SchemaMax, VersionGuidance)
 	case ver < SchemaMin:
 		sqlDB.Close()
-		return nil, fmt.Errorf("语料 schema_version=%s 低于本版本只读下限 %s——语料过旧，请用 OpenLaw 升级语料后重试（消费方不代跑迁移）", ver, SchemaMin)
+		return nil, fmt.Errorf("法规库数据格式版本 schema_version=%s 低于本版本只读下限 %s——数据过旧，请用新版 OpenLaw 升级法规库数据后重试（消费方不代跑迁移）", ver, SchemaMin)
 	}
 	return &DB{sqlDB}, nil
 }

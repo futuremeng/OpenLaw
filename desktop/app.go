@@ -1,4 +1,4 @@
-// app.go 语料台应用层：全部走与 CLI 相同的 store/ingest/validate 代码路径。
+// app.go 桌面端应用层：全部走与 CLI 相同的 store/ingest/validate 代码路径。
 // 桌面端属于 OpenLaw 自身的写入路径（生产者 UI，store.Open）；消费方（OpenCourt
 // 等）必须用 sdk.OpenReadOnly——两者边界见 docs/tasks-opencourt-bridge.md OL-7。
 package main
@@ -29,7 +29,7 @@ import (
 type App struct {
 	ctx     context.Context
 	dataDir string
-	dataSrc string // 语料目录来源（命令行/环境变量/随程序位置/当前目录），必须可展示
+	dataSrc string // 数据目录来源（命令行/环境变量/随程序位置/当前目录），必须可展示
 	db      *store.DB
 	openErr string
 
@@ -75,7 +75,7 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
-// ---- 语料状态面板 ----
+// ---- 法规库状态面板 ----
 
 type LevelCount struct {
 	Level     string `json:"level"`
@@ -118,7 +118,7 @@ func (a *App) count(q string, args ...any) int {
 	return n
 }
 
-// Status 语料状态汇总（计数/来源版本/schema/许可）。
+// Status 法规库状态汇总（计数/来源版本/schema/许可）。
 func (a *App) Status() (StatusView, error) {
 	v := StatusView{DataDir: a.dataDir, DataSrc: a.dataSrc, OpenErr: a.openErr, SchemaMin: store.SchemaMin, SchemaMax: store.SchemaMax}
 	if a.db == nil {
@@ -151,7 +151,7 @@ func (a *App) Status() (StatusView, error) {
 	if m, _, err := validate.LoadManifest(a.dataDir); err == nil {
 		v.ProducerVersion = m.ProducerVersion
 		if v.ProducerVersion == "" {
-			v.ProducerVersion = "来源未知（旧语料包无 producer_version）"
+			v.ProducerVersion = "来源未知（较早的数据包未记录来源版本）"
 		}
 		v.License = m.License
 		v.ManifestAt = m.GeneratedAt

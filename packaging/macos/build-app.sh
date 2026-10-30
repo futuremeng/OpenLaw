@@ -51,6 +51,6 @@ codesign --verify --verbose=2 "$OUT"
 echo
 echo "已产出：${OUT}"
 echo "启动：open \"${OUT}\""
-echo "语料目录：.app 位于仓库 dist/ 下时自动使用仓库 data/（见 desktop/dataresolve.go）；"
+echo "数据目录：.app 位于仓库 dist/ 下时自动使用仓库 data/（见 desktop/dataresolve.go）；"
 echo "         放到别处时用环境变量 OPENLAW_DATA=/path/to/data，或："
 echo "         open \"${OUT}\" --args -data /path/to/data"

@@ -1,5 +1,5 @@
-// openlaw-desktop（OL-10）：OpenLaw 语料台桌面客户端（Wails v2，技术栈对齐
-// OpenCourt）。它是 CLI 的 UI 壳：语料状态、人工确认闸口、采集任务都走与
+// openlaw-desktop（OL-10）：开源法律法规数据库桌面客户端（Wails v2，技术栈对齐
+// OpenCourt）。它是 CLI 的 UI 壳：法规库状态、人工确认闸口、获取任务都走与
 // cmd/openlaw-* 完全相同的代码路径（store/ingest/validate），不新增任何写入
 // 逻辑，也不绕过 pending 人工闸口纪律。
 //
@@ -37,6 +37,11 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// AppTitle 窗口标题（并须与 packaging/macos/Info.plist 的 CFBundleDisplayName 一致，
+// 由 desktop/title_test.go 门禁）。产品自称一律用产品名，不用内部旧称——
+// 见 docs/design-ui-language.md「产品自称」条。
+const AppTitle = "开源法律法规数据库"
+
 func main() {
 	dataDir := flag.String("data", "data", "数据目录（db/、md/、incoming/、manifest/）")
 	flag.Parse()
@@ -47,21 +52,21 @@ func main() {
 		}
 	})
 
-	// .app 经 Finder 启动时工作目录是 "/"：按程序位置回退找语料目录，并把来源如实
-	// 打印（界面「库总览」同步展示）。绝不静默 MkdirAll 出一个空语料库。
+	// .app 经 Finder 启动时工作目录是 "/"：按程序位置回退找数据目录，并把来源如实
+	// 打印（界面「库总览 · 技术信息」同步展示）。绝不静默 MkdirAll 出一个空数据库。
 	exe, _ := os.Executable()
 	dir, src := resolveDataDir(*dataDir, flagSet, exe, fileIsDir, os.Getenv)
-	log.Printf("语料目录：%s（来源：%s）", dir, src)
+	log.Printf("法规库数据位置：%s（来源：%s）", dir, src)
 
 	app := NewApp(dir)
 	app.dataSrc = src
 	if err := app.Open(); err != nil {
 		// 启动失败也开窗：错误在界面内如实显示（fail-visible，不静默）
-		log.Printf("打开语料失败: %v", err)
+		log.Printf("打开法规库失败: %v", err)
 	}
 
 	err := wails.Run(&options.App{
-		Title:     "OpenLaw 语料台",
+		Title:     AppTitle,
 		Width:     1280,
 		Height:    860,
 		MinWidth:  960,
