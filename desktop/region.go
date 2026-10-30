@@ -31,6 +31,15 @@ const (
 // 与 auto（真实坐标）必须可区分，UI 上要显示成「试判定 · 非真实定位」。
 const regionSourceTrial = "trial"
 
+// regionSourceAuto / regionSourceManual 地域来源标记：auto=机器判定（含地域标引的
+// 机器建议，见 ingest.RegionMarker，界面须显示「机器建议 · 待复核」）；
+// manual=人工落判。pack=随更新包携带（本库未复核）。
+const (
+	regionSourceAuto   = "auto"
+	regionSourceManual = "manual"
+	regionSourcePack   = "pack"
+)
+
 // RegionOption 地区下拉一项。
 type RegionOption struct {
 	Code   string `json:"code"`
@@ -245,23 +254,89 @@ func escapeLike(s string) string {
 	return s
 }
 
-// regionClause 构造地域过滤子句与参数（patterns 空 = 不过滤）。
-func regionClause(patterns []string) (string, []any) {
-	if len(patterns) == 0 {
+// regionCodePrefix 选定区划码 → 区划码前缀（对已标注行按码过滤）。
+// 省级取前 2 位（130000→"13"，天然覆盖下辖全部地级），地级取前 4 位
+// （130100→"1301"）。内置表只有省/地两级（geo.LevelProvince/LevelCity），
+// 不存在更细的前缀，故不必处理县级码。
+func regionCodePrefix(code string) string {
+	c := strings.TrimSpace(code)
+	r, ok := geo.ByCode(c)
+	if !ok {
+		return ""
+	}
+	if r.Level == geo.LevelProvince && len(r.Code) >= 2 {
+		return r.Code[:2]
+	}
+	if len(r.Code) >= 4 {
+		return r.Code[:4]
+	}
+	return r.Code
+}
+
+// regionFilter 地域过滤的两条依据：已标注行按区划码前缀，未标注行回退名称前缀。
+//
+// 为什么必须两条并存（真实语料实测，不是推测）：region_code 只覆盖 24,032/28,952
+// （83.0%），只按码过滤会把「未落码但标题写明地区」的 4,920 条无声漏掉；只按标题过滤
+// 则丢掉了已写入的区划码判定，也违背第 5 步切码的目标。
+//
+// 已标注行一律以库中的码为准，**不再回退标题**：否则人工落判（或机器已落码）的结论
+// 会被名称前缀推翻——名称里的地名不等于法规的地域归属（见 ingest.nationalEffectLevels
+// 的实测反例）。代价如实记录：标题写「石家庄市…」但被标成省级 130000 的条目，
+// 按「石家庄市」过滤时不再命中（码说它是全省适用的地方性法规）。
+type regionFilter struct {
+	CodePrefix string
+	Patterns   []string
+}
+
+// newRegionFilter 由地区码构造过滤依据；无效区划码 → 两条皆空 = 不过滤（与既有口径一致）。
+func newRegionFilter(code string) regionFilter {
+	return regionFilter{CodePrefix: regionCodePrefix(code), Patterns: regionPatterns(code)}
+}
+
+// regionClause 构造地域过滤子句与参数（两条依据皆空 = 不过滤）。
+func regionClause(f regionFilter) (string, []any) {
+	var terms []string
+	var args []any
+	if f.CodePrefix != "" {
+		terms = append(terms, `(l.region_code IS NOT NULL AND l.region_code<>'' AND l.region_code LIKE ? ESCAPE '\')`)
+		args = append(args, escapeLike(f.CodePrefix)+"%")
+	}
+	if len(f.Patterns) > 0 {
+		sub := make([]string, 0, len(f.Patterns))
+		for _, p := range f.Patterns {
+			sub = append(sub, `l.name LIKE ? ESCAPE '\'`)
+			args = append(args, escapeLike(p)+"%")
+		}
+		terms = append(terms, `((l.region_code IS NULL OR l.region_code='') AND (`+strings.Join(sub, " OR ")+`))`)
+	}
+	if len(terms) == 0 {
 		return "", nil
 	}
-	var sb strings.Builder
-	args := make([]any, 0, len(patterns))
-	sb.WriteString(" AND (")
-	for i, p := range patterns {
-		if i > 0 {
-			sb.WriteString(" OR ")
-		}
-		sb.WriteString("l.name LIKE ? ESCAPE '\\'")
-		args = append(args, escapeLike(p)+"%")
+	return " AND (" + strings.Join(terms, " OR ") + ")", args
+}
+
+// 显示用来源标记：none = 库里未标注（界面显示的是名称推定值）；
+// unknown = 库里有码但码不在内置区划表（数据异常，如实分开，不静默回退）。
+const (
+	regionSrcNone    = "none"
+	regionSrcUnknown = "unknown"
+)
+
+// displayRegion 列表显示用地域与其来源：已标注取库中区划码（人工与机器都以码为准），
+// 未标注回退名称推定并标 none——推定值不得冒充已标注，前端必须区别显示。
+// 有码但 region_source 为空属数据异常：按机器建议处理（不得当作已人工复核）。
+func displayRegion(code, source, name string) (string, string) {
+	if code == "" {
+		return lawRegion(name), regionSrcNone
 	}
-	sb.WriteString(")")
-	return sb.String(), args
+	rr, ok := geo.ByCode(code)
+	if !ok {
+		return lawRegion(name), regionSrcUnknown
+	}
+	if source == "" {
+		source = regionSourceAuto
+	}
+	return rr.Name, source
 }
 
 // lawRegion 单条法规的推导地域（UI 显示；空串 = 地域未标注）。

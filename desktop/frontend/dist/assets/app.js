@@ -275,6 +275,21 @@ $("#btn-hsearch").addEventListener("click", homeSearch);
 $("#hq").addEventListener("keydown", (e) => { if (e.key === "Enter") homeSearch(); });
 
 /* ---------- 公众 · 按目录浏览 ---------- */
+// regionCell 地域显示：库里已标注（auto/manual/pack）与未标注（名称推定）必须区别显示——
+// 机器建议不得看起来像已复核，名称推定不得看起来像已标注（诚实展示纪律）。
+function regionCell(r) {
+  if (r.region_source === "unknown") {
+    return '<span class="unlabeled">区划码 ' + escapeHTML(r.region_code) + "（不在内置区划表，无法显示地名）</span>";
+  }
+  if (r.region_source === "none" || !r.region_source) {
+    return r.region
+      ? '<span class="unlabeled">地域未标注（名称推定：' + escapeHTML(r.region) + "）</span>"
+      : '<span class="unlabeled">地域未标注</span>';
+  }
+  const tag = r.region_source === "manual" ? "已人工复核"
+    : r.region_source === "pack" ? "随更新包携带 · 待复核" : "机器建议 · 待复核";
+  return '<span class="region">' + escapeHTML(r.region || "区划码 " + r.region_code) + "（" + tag + "）</span>";
+}
 async function loadLaws() {
   const level = $("#b-level").value, kw = $("#b-kw").value.trim(), region = browseRegionArg();
   try {
@@ -282,9 +297,9 @@ async function loadLaws() {
     $("#law-list").innerHTML = rows.length ? rows.map((r) => `
       <div class="item" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
         <div class="t">${escapeHTML(r.name)} ${statusBadge(r.status)} ${validBadge(r.effective_date, r.expire_date)}</div>
-        <div class="m">${escapeHTML(r.level)} · <span class="${r.region ? "" : "unlabeled"}">${escapeHTML(r.region || "地域未标注")}</span> · ${escapeHTML(r.issuer || "发布机关未标注")}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
+        <div class="m">${escapeHTML(r.level)} · ${regionCell(r)} · ${escapeHTML(r.issuer || "发布机关未标注")}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
       </div>`).join("") :
-      '<p class="muted">' + (region ? "当前地区下没有符合条件的法规（地域按名称判定，判定不出的条目不会出现在此列表中）。" : "该类别下暂无收录法规。") + "</p>";
+      '<p class="muted">' + (region ? "当前地区下没有符合条件的法规（已标注的按区划码匹配，未标注的按标题前缀匹配；两者都判不出的条目不会出现在此列表中）。" : "该类别下暂无收录法规。") + "</p>";
     document.querySelectorAll("#law-list .item").forEach((el) =>
       el.addEventListener("click", () => openLaw(el.dataset.law, el.dataset.name)));
   } catch (e) {
@@ -294,7 +309,7 @@ async function loadLaws() {
     const st = await app().BrowseStats(level, kw, region);
     const total = Array.isArray(st) ? st[0] : 0, unlabeled = Array.isArray(st) ? st[1] : 0;
     $("#b-stats").textContent = `共 ${num(total)} 部` + (region ? "（已按当前地区过滤）" : "") +
-      `；其中 ${num(unlabeled)} 部地域未标注（按名称判定不出，不参与地区过滤）`;
+      `；其中 ${num(unlabeled)} 部未标地域码（这些按标题前缀匹配，其余按区划码匹配）`;
   } catch (e) {
     $("#b-stats").textContent = "统计读取失败：" + (e.message || e);
   }

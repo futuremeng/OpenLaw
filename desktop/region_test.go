@@ -1,11 +1,13 @@
 package main
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
 
-// newRegionApp 临时语料 + 地域相关种子法规（省名开头 / 市名开头 / 无地域）。
+// newRegionApp 临时语料 + 地域相关种子法规（省名开头 / 市名开头 / 无地域 /
+// 已落码但标题无地区名 / 未落码但标题有地区名 / 人工落判 / 码名不一致 / 码不在表内）。
 func newRegionApp(t *testing.T) *App {
 	t.Helper()
 	a := newTestApp(t)
@@ -14,6 +16,16 @@ func newRegionApp(t *testing.T) *App {
 		`INSERT INTO law(law_id,name,effect_level) VALUES('LR2','石家庄市物业管理办法','地方政府规章')`,
 		`INSERT INTO law(law_id,name,effect_level) VALUES('LR3','中华人民共和国劳动法','法律')`,
 		`INSERT INTO law(law_id,name,effect_level) VALUES('LR4','义乌市某项规定','地方性法规')`, // 县级市：判不出地域
+		// 已落码但标题不含地区名：只有按区划码过滤才命中（第 5 步切码的意义所在）。
+		`INSERT INTO law(law_id,name,effect_level,region_code,region_source) VALUES('LR5','徐州开发区若干规定','地方性法规','320300','auto')`,
+		// 未落码但标题写明地区：必须靠标题前缀回退命中（真实语料仅 83% 落码，不能只按码过滤）。
+		`INSERT INTO law(law_id,name,effect_level) VALUES('LR6','河北省某项未标注办法','地方性法规')`,
+		// 人工落判为省级：按市过滤不再命中——码优先于名称，代价如实记录在测试里。
+		`INSERT INTO law(law_id,name,effect_level,region_code,region_source,region_reviewer) VALUES('LR7','石家庄市园区管理办法','地方性法规','130000','manual','复核人甲')`,
+		// 码与名称指向不同省市：以码为准，名称不得推翻已落码的结论。
+		`INSERT INTO law(law_id,name,effect_level,region_code,region_source) VALUES('LR8','上海市某项办法','地方性法规','110000','auto')`,
+		// 码不在内置区划表：显示为数据异常（unknown），不静默回退名称。
+		`INSERT INTO law(law_id,name,effect_level,region_code,region_source) VALUES('LR9','某项异常码办法','地方性法规','999999','auto')`,
 	}
 	for _, s := range seed {
 		if _, err := a.db.Exec(s); err != nil {
@@ -196,44 +208,108 @@ func TestRegionPatternsAndBrowseFilter(t *testing.T) {
 		t.Error("广东省过滤应包含下辖特区别名")
 	}
 
-	ids := func(rows []LawRow) string {
+	set := func(rows []LawRow) string {
 		var s []string
 		for _, r := range rows {
 			s = append(s, r.LawID)
 		}
+		sort.Strings(s)
 		return strings.Join(s, ",")
 	}
-	all, err := a.BrowseLaws("", "", "", 500, 0)
+	browse := func(code string) string {
+		t.Helper()
+		rows, err := a.BrowseLaws("", "", code, 500, 0)
+		if err != nil {
+			t.Fatalf("浏览失败(%s): %v", code, err)
+		}
+		return set(rows)
+	}
+	all := browse("")
+	for _, id := range []string{"LR1", "LR2", "LR5", "LR6", "LR7", "LR8"} {
+		if !strings.Contains(all, id) {
+			t.Errorf("不限地区应全部命中，缺 %s: %s", id, all)
+		}
+	}
+	// 省级过滤：已落码的按码命中（LR7），未落码的按标题回退（LR1/LR2/LR6）。
+	if got := browse("130000"); got != "LR1,LR2,LR6,LR7" {
+		t.Errorf("河北省应命中省名回退三条 + 已落码一条，实际: %s", got)
+	}
+	// 地级过滤：只命中本市。LR7 标题写「石家庄市」但人工落判为省级 130000，
+	// 按市不再命中——码优先于名称，这是有意为之的代价（见 regionFilter 注释）。
+	if got := browse("130100"); got != "LR2" {
+		t.Errorf("石家庄市只应命中本市法规，实际: %s", got)
+	}
+	// 已落码但标题不含地区名：按市与按省都必须命中（切码的意义）。
+	if got := browse("320300"); got != "LR5" {
+		t.Errorf("徐州市应按区划码命中 LR5，实际: %s", got)
+	}
+	if got := browse("320000"); got != "LR5" {
+		t.Errorf("江苏省应按码前缀命中下辖地级 LR5，实际: %s", got)
+	}
+	// 码与名称不一致：以码为准。LR8 标题写「上海市」但码是 110000（北京）。
+	if got := browse("110000"); got != "LR8" {
+		t.Errorf("北京市应按码命中 LR8，实际: %s", got)
+	}
+	if strings.Contains(browse("310000"), "LR8") {
+		t.Errorf("上海市不得按名称推翻已落码的结论: %s", browse("310000"))
+	}
+	// 码不在内置表：任何有效地区过滤都不命中（不静默回退名称，界面按 unknown 显示）。
+	for _, code := range []string{"130000", "110000", "310000", "320000"} {
+		if got := browse(code); strings.Contains(got, "LR9") {
+			t.Errorf("异常码条目不应被地区过滤命中(%s): %s", code, got)
+		}
+	}
+
+	// Region/RegionSource：已标注取库中码（auto/manual 可区分，机器建议不得显示成已复核）；
+	// 未标注回退名称推定并标 none；码不在表内标 unknown。
+	rows, err := a.BrowseLaws("", "", "", 500, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(ids(all), "LR1") || !strings.Contains(ids(all), "LR2") || !strings.Contains(ids(all), "LR3") {
-		t.Errorf("不限地区应全部命中: %s", ids(all))
+	got := map[string]LawRow{}
+	for _, r := range rows {
+		got[r.LawID] = r
 	}
-	hb, err := a.BrowseLaws("", "", "130000", 500, 0)
-	if err != nil {
-		t.Fatal(err)
+	if r := got["LR5"]; r.Region != "徐州市" || r.RegionSource != "auto" || r.RegionCode != "320300" {
+		t.Errorf("已落码机器建议应显示码与 auto: %+v", r)
 	}
-	if ids(hb) != "LR1,LR2" { // 按 effect_level,name 排序（二进制序：地方性法规 先于 地方政府规章）
-		t.Errorf("河北省应命中省与市两部，实际: %s", ids(hb))
+	if r := got["LR7"]; r.Region != "河北省" || r.RegionSource != "manual" {
+		t.Errorf("人工落判必须显示码对应地名与 manual（不得显示成名称推定）: %+v", r)
 	}
-	sjz, err := a.BrowseLaws("", "", "130100", 500, 0)
-	if err != nil {
-		t.Fatal(err)
+	if r := got["LR6"]; r.Region != "河北省" || r.RegionSource != "none" || r.RegionCode != "" {
+		t.Errorf("未落码必须标 none（前端据此显示名称推定），不得冒充已标注: %+v", r)
 	}
-	if ids(sjz) != "LR2" {
-		t.Errorf("石家庄市只应命中本市法规，实际: %s", ids(sjz))
+	if r := got["LR1"]; r.Region != "河北省" || r.RegionSource != "none" {
+		t.Errorf("未落码的省名条目同样必须标 none: %+v", r)
 	}
-	// Region 字段：推得出的给出地域名，推不出的留空由前端显示「地域未标注」。
-	reg := map[string]string{}
-	for _, r := range all {
-		reg[r.LawID] = r.Region
+	if r := got["LR3"]; r.Region != "" || r.RegionSource != "none" {
+		t.Errorf("国家层面条目不得假装推导出地域: %+v", r)
 	}
-	if reg["LR1"] != "河北省" || reg["LR2"] != "石家庄市" {
-		t.Errorf("推导地域错: %+v", reg)
+	if r := got["LR4"]; r.Region != "" || r.RegionSource != "none" {
+		t.Errorf("县级市不得假装推导出地域: %+v", r)
 	}
-	if reg["LR3"] != "" || reg["LR4"] != "" {
-		t.Errorf("国家层面/县级市不得假装推导出地域: %+v", reg)
+	if r := got["LR9"]; r.RegionSource != "unknown" {
+		t.Errorf("码不在内置区划表必须标 unknown: %+v", r)
+	}
+}
+
+// TestRegionCodePrefix 码前缀口径：省级取 2 位（含下辖全部地级），地级取 4 位；
+// 无效码无前缀（与「未知区划码按不过滤处理」的既有口径一致）。
+func TestRegionCodePrefix(t *testing.T) {
+	if got := regionCodePrefix("130000"); got != "13" {
+		t.Errorf("省级前缀应 2 位: %q", got)
+	}
+	if got := regionCodePrefix("130100"); got != "1301" {
+		t.Errorf("地级前缀应 4 位: %q", got)
+	}
+	if got := regionCodePrefix("999999"); got != "" {
+		t.Errorf("无效码应无前缀: %q", got)
+	}
+	if f := newRegionFilter("999999"); f.CodePrefix != "" || f.Patterns != nil {
+		t.Errorf("无效码两条依据都应为空: %+v", f)
+	}
+	if clause, args := regionClause(newRegionFilter("")); clause != "" || args != nil {
+		t.Errorf("未选地区不得构造过滤子句: %q", clause)
 	}
 }
 
@@ -243,12 +319,21 @@ func TestBrowseStatsReportsUnlabeled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total < 5 { // 种子 L1 + LR1..LR4
+	if total < 5 { // 种子 L1 + LR1..LR9
 		t.Errorf("总数异常: %d", total)
 	}
-	// 未标注数必须如实反映（LR3/LR4 与种子工伤保险条例均无地域）。
-	if unlabeled < 3 {
-		t.Errorf("未标注地域的数量应如实统计，实际 %d", unlabeled)
+	// 未标注 = 库中无区划码。种子只有 LR5/LR7/LR8/LR9 落码，其余一律如实计入未标注——
+	// 这个数决定「按区划码过滤」覆盖多少，不得隐藏，也不得用名称推定顶替。
+	if unlabeled != total-4 {
+		t.Errorf("未标注数应按区划码统计: total=%d unlabeled=%d", total, unlabeled)
+	}
+	// 按地区过滤时同样如实给出未标注数：河北省命中 4 条，其中 3 条未落码（按标题回退）。
+	ftotal, funlabeled, err := a.BrowseStats("", "", "130000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ftotal != 4 || funlabeled != 3 {
+		t.Errorf("按地区过滤的未标注数应如实给出: total=%d unlabeled=%d", ftotal, funlabeled)
 	}
 	if _, _, err := a.BrowseStats("", "", "999999"); err != nil {
 		t.Errorf("未知区划码按不过滤处理，不应报错: %v", err)

@@ -72,8 +72,9 @@ OpenLaw/
                 #   人工复核/地域标引/数据采集与更新；「地域标引」面板把机器建议落判为
                 #   人工结论（确认/改选地区/驳回/清除，一律署名+结论依据，批量先干跑计数）；
                 #   地点定位为离线就近判定 + 手动选择 +
-                #   试判定，真实定位需打包 .app（见 packaging/），法规按名称判定地域、
-                #   判不出如实显示「地域未标注」；与 CLI 同一代码路径；仅此壳需 CGO，
+                #   试判定，真实定位需打包 .app（见 packaging/），法规按库中区划码过滤与显示
+                #   （未标注的按名称推定并如实显示「地域未标注（名称推定…）」）；
+                #   与 CLI 同一代码路径；仅此壳需 CGO，
                 #   核心库仍纯 Go。
                 #   go build -tags desktop,production -o dist/openlaw-desktop ./desktop）
   packaging/    # macOS .app 打包：Info.plist（定位用途声明等）+ build-app.sh
