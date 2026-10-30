@@ -15,20 +15,90 @@ function compact(n) {
   const w = n / 10000;
   return (w >= 100 ? Math.round(w) : Math.round(w * 10) / 10) + " 万";
 }
+/* ---------- 图标：16px 线性、跟随文字色 ----------
+   图标只承载识别（这是导航、这是分面、这是原文），结论一律仍是文字与数字——
+   诚实展示纪律不因引入图标而松动。HTML 里写 data-icon，SVG 在此集中注入，
+   界面文件不堆图标源码，也保证深浅色下自动跟随前景色。 */
+const ICON_PATHS = {
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  filter: '<path d="M4 7h16M7 12h10M10 17h4"/>',
+  list: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
+  file: '<path d="M6.5 3H15l3.5 3.5V21h-12z"/><path d="M14.5 3v4.5H19"/>',
+  shield: '<path d="M12 3l7 3v6c0 4.4-2.9 7.4-7 9-4.1-1.6-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/>',
+  pin: '<path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/>',
+  download: '<path d="M12 4v10M8 10.5l4 4 4-4"/><path d="M4.5 19h15"/>',
+  wrench: '<path d="M14.5 4.5a4.5 4.5 0 0 0 5 5l-9 9a3.5 3.5 0 0 1-5-5z"/><path d="M18 4.5l1.5 1.5"/>',
+  db: '<ellipse cx="12" cy="6.5" rx="7" ry="3"/><path d="M5 6.5v11c0 1.7 3.1 3 7 3s7-1.3 7-3v-11"/>',
+  alert: '<path d="M12 4l8.5 16h-17z"/><path d="M12 10v4M12 17h.01"/>',
+  refresh: '<path d="M20 12a8 8 0 1 1-2.9-6.2"/><path d="M20 4.5V9h-4.5"/>',
+  chevron: '<path d="M6 9.5l6 6 6-6"/>',
+  rows: '<path d="M4 6.5h16M4 12h16M4 17.5h16"/>',
+  wide: '<path d="M4 5v14M20 5v14M8 12h8"/><path d="M11 9l-3 3 3 3M13 9l3 3-3 3"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>',
+  auto: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z"/>',
+};
+function icon(name, cls) {
+  const d = ICON_PATHS[name];
+  return d ? '<svg class="ic ' + (cls || "") + '" viewBox="0 0 24 24" aria-hidden="true">' + d + "</svg>" : "";
+}
+// applyIcons：把 data-icon 声明换成 SVG。已注入过的元素跳过（分面重渲染时会被清掉重建）。
+function applyIcons(root) {
+  (root || document).querySelectorAll("[data-icon]").forEach((el) => {
+    if (el.firstElementChild && el.firstElementChild.classList.contains("ic")) return;
+    el.insertAdjacentHTML("afterbegin", icon(el.dataset.icon));
+  });
+}
 // 外观：跟随系统 / 浅色 / 深色。手动选择写入 html[data-theme]，样式层据此覆盖
 // prefers-color-scheme（docs/design-ui-language.md：安静克制，深色与浅色同一套语义令牌）。
+// 顶栏只放一个图标按钮：图标随当前外观，白话说明挂在 title 里。
 let theme = localStorage.getItem("ol-theme") || "system";
 const THEME_TEXT = { system: "外观 · 跟随系统", light: "外观 · 浅色", dark: "外观 · 深色" };
 function applyTheme() {
   if (theme === "system") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
-  const b = $("#btn-theme");
-  if (b) b.textContent = THEME_TEXT[theme] || THEME_TEXT.system;
+  const b = $("#theme-toggle");
+  if (b) {
+    b.title = THEME_TEXT[theme] || THEME_TEXT.system;
+    b.innerHTML = icon(theme === "light" ? "sun" : theme === "dark" ? "moon" : "auto");
+  }
 }
 function cycleTheme() {
   theme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
   localStorage.setItem("ol-theme", theme);
   applyTheme();
+}
+// 密度与阅读：一屏能看多少条目、原文读起来多大字号，都由用户定，选择持久化。
+// 这是显示层的事，绝不影响数据口径（列表取列条件与分面计数都不因此变化）。
+let density = localStorage.getItem("ol-density") || "comfortable";
+function applyDensity() {
+  if (density === "compact") document.documentElement.dataset.density = "compact";
+  else delete document.documentElement.dataset.density;
+  const b = $("#t-density");
+  if (!b) return;
+  b.setAttribute("aria-pressed", density === "compact" ? "true" : "false");
+  b.title = density === "compact" ? "紧凑模式已开启：点击恢复常规密度" : "紧凑模式：收小行高与间距，一屏看更多条目";
+}
+const FS_STEPS = [13.5, 14.5, 15.5, 17, 18.5, 20];
+// 未记录过就用默认档（15.5px）；记录过但不在档位表里（旧版本遗留）同样回落到默认档。
+let fsIdx = FS_STEPS.indexOf(parseFloat(localStorage.getItem("ol-read-size")));
+if (fsIdx < 0) fsIdx = 2;
+let wideRead = localStorage.getItem("ol-read-wide") !== "0";
+function applyReading() {
+  document.documentElement.style.setProperty("--read-size", FS_STEPS[fsIdx] + "px");
+  document.querySelectorAll(".law, .preview").forEach((el) => el.classList.toggle("narrow", !wideRead));
+  const b = $("#b-wide");
+  if (b) {
+    b.setAttribute("aria-pressed", wideRead ? "true" : "false");
+    b.title = wideRead ? "阅读行宽：宽行（点击收窄，逐条读更省力）" : "阅读行宽：窄行（点击加宽）";
+  }
+}
+function stepFontSize(dir) {
+  fsIdx = Math.min(FS_STEPS.length - 1, Math.max(0, fsIdx + dir));
+  localStorage.setItem("ol-read-size", String(FS_STEPS[fsIdx]));
+  applyReading();
 }
 // fmtWhen：ISO UTC → 本机时间「YYYY-MM-DD HH:mm」。界面一律显示本机时间
 // （docs/design-ui-language.md：主视图禁止 ISO UTC 时间戳）；原始串留在 title 里供核对，
@@ -58,9 +128,21 @@ function toast(msg) {
 
 /* ---------- 模式与导航 ---------- */
 let mode = localStorage.getItem("ol-mode") || "public";
+// 顶栏面包屑：当前位置 + 当前生效的筛选摘要。用户随时能看到「自己在哪、看的是不是筛过的」。
+const PANEL_TITLE = {
+  home: "关键词检索", browse: "按条件筛选", overview: "库总览", search: "法规检索",
+  confirm: "人工复核", region: "地域标引", collect: "获取最新法规", settings: "设置",
+};
+function setCrumb(p) {
+  const cur = $("#crumb-cur");
+  if (cur) cur.textContent = PANEL_TITLE[p] || "";
+  const ctx = $("#crumb-ctx");
+  if (ctx) ctx.textContent = p === "browse" ? "· " + activeFilterText() : "";
+}
 function showPanel(p) {
   document.querySelectorAll(".nav").forEach((x) => x.classList.toggle("active", x.dataset.panel === p));
   document.querySelectorAll("main section").forEach((s) => s.classList.toggle("hidden", s.id !== "panel-" + p));
+  setCrumb(p);
   if (p === "home") loadHome();
   if (p === "browse") loadLaws();
   if (p === "overview") loadOverview();
@@ -84,7 +166,22 @@ function applyMode() {
 document.querySelectorAll(".nav").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.panel)));
 $("#mode-public").addEventListener("click", () => { mode = "public"; localStorage.setItem("ol-mode", mode); applyMode(); });
 $("#mode-pro").addEventListener("click", () => { mode = "pro"; localStorage.setItem("ol-mode", mode); applyMode(); });
-$("#btn-theme").addEventListener("click", cycleTheme);
+$("#theme-toggle").addEventListener("click", cycleTheme);
+$("#t-density").addEventListener("click", () => {
+  density = density === "compact" ? "comfortable" : "compact";
+  localStorage.setItem("ol-density", density);
+  applyDensity();
+});
+// 阅读控制只改显示层：字号档位与行宽持久化，取列条件与分面计数不受影响。
+$("#b-fs-down").addEventListener("click", () => stepFontSize(-1));
+$("#b-fs-up").addEventListener("click", () => stepFontSize(1));
+$("#s-fs-down").addEventListener("click", () => stepFontSize(-1));
+$("#s-fs-up").addEventListener("click", () => stepFontSize(1));
+$("#b-wide").addEventListener("click", () => {
+  wideRead = !wideRead;
+  localStorage.setItem("ol-read-wide", wideRead ? "1" : "0");
+  applyReading();
+});
 
 // setNavCount：侧栏导航挂实时计数（侧栏不只做导航，还要显示「哪里需要你」）。
 // 计数读不到时清空徽标而不是留旧值；精确条数挂在 title 里供核对。
@@ -197,9 +294,14 @@ function renderRegion(st) {
   $("#region-text").textContent = st.path ? "当前地区：" + st.path : "未设置地区（按全部地区浏览）";
   const src = { auto: "按位置就近判定", manual: "手动选择", trial: "试判定 · 非真实定位" }[st.source] || "";
   $("#region-note").textContent = [st.at ? String(st.at).slice(0, 10) : "", src, st.note || ""].filter(Boolean).join(" · ");
-  // 侧栏只留一行状态，不再放整套地区控件——地区是筛选维度，控件在「按条件筛选」里。
-  const chip = $("#side-region");
-  if (chip) { chip.hidden = !st.path; chip.textContent = st.path ? "地区：" + st.path : ""; }
+  // 地区状态只在顶栏报一行结果，控件在「按条件筛选」的分面里——
+  // 地区是一个筛选维度，不是全局开关，侧栏也不再挂整套地区控件。
+  const chip = $("#t-region");
+  if (chip) {
+    chip.classList.toggle("hidden", !st.path);
+    const txt = $("#t-region-txt");
+    if (txt) txt.textContent = st.path || "";
+  }
 }
 async function applyRegion(code) {
   const msg = await app().SetRegion(code || "");
@@ -310,17 +412,40 @@ function browseArgs(limit, offset) {
   };
 }
 
+// 分面组：可折叠。组头给出「本维度已选什么 / 共有多少可选值」，折叠状态记住——
+// 年代、来源这类长维度默认收起，公众常用的类别与地区默认展开（筛选栏不必长成一条竖河）。
+const GROUP_DEFAULT = { level: true, confirm: true, year: false, source: false, region: true };
+let groupOpen = {};
+try { groupOpen = JSON.parse(localStorage.getItem("ol-fgrp") || "{}") || {}; } catch (e) { groupOpen = {}; }
+const groupExpanded = {}; // 「显示全部」只在本次会话内展开，下次进来仍按默认收起
+let lastFacets = {};      // 最近一次分面结果：展开/折叠时就地重绘，不再查库
+function isGroupOpen(dim) { return dim in groupOpen ? !!groupOpen[dim] : GROUP_DEFAULT[dim] !== false; }
+function setGroupOpen(dim, open) { groupOpen[dim] = open; localStorage.setItem("ol-fgrp", JSON.stringify(groupOpen)); }
+function facetGroup(dim) {
+  const g = $("#g-" + dim);
+  if (!g) return;
+  const open = isGroupOpen(dim);
+  g.dataset.open = open ? "true" : "false";
+  const hd = g.querySelector(".fhd");
+  if (!hd) return;
+  hd.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!hd.dataset.wired) {
+    hd.dataset.wired = "1";
+    hd.addEventListener("click", () => { setGroupOpen(dim, !isGroupOpen(dim)); facetGroup(dim); });
+  }
+}
+
 // facetChips 渲染一个维度的可选值与计数。计数按「其余条件已生效、本维度不限」给出
 // （Go 侧 skip 自身维度），所以选中某项后仍可改选；计数为 0 的选项禁点，
-// 免得用户点了换来一个空列表。地区维度只列条目最多的前 8 个省份，
+// 免得用户点了换来一个空列表。地区维度只列条目最多的前几个省份，
 // 其余省市用下方下拉（下拉能选到地级，比芯片更细）。
 function facetChips(box, dim, opts, max, isOn) {
   const el = $(box);
   if (!el) return;
   const usable = (opts || []).filter((o) => o.value !== "");
-  const shown = max ? usable.slice(0, max) : usable;
-  if (!shown.length) { el.innerHTML = '<span class="fempty">该维度暂无可选值</span>'; return; }
-  el.innerHTML = shown.map((o) => {
+  const openAll = groupExpanded[dim] || !max;
+  const shown = openAll ? usable : usable.slice(0, max);
+  let html = shown.map((o) => {
     const on = isOn ? isOn(o.value) : browseFilter[dim] === o.value;
     const off = o.count === 0 && !on;
     const cls = on ? "on" : ""; // 选中态单独成类，class 属性里保留 fchip 字面量供样式门禁核对
@@ -328,7 +453,14 @@ function facetChips(box, dim, opts, max, isOn) {
       (off ? " disabled" : "") + ` title="${escapeHTML(o.label)}：${num(o.count)} 部">${escapeHTML(o.label)}` +
       `<span class="fcount num">${num(o.count)}</span></button>`;
   }).join("");
+  if (!shown.length) html = '<span class="fempty">该维度暂无可选值</span>';
+  if (!openAll && usable.length > shown.length) {
+    html += `<button class="fchip more" data-more="${dim}" title="其余 ${num(usable.length - shown.length)} 项同样可筛">显示全部 ${num(usable.length)} 项</button>`;
+  }
+  el.innerHTML = html;
   el.querySelectorAll(".fchip").forEach((b) => b.addEventListener("click", () => {
+    const more = b.dataset.more;
+    if (more) { groupExpanded[more] = true; renderFacets(lastFacets); return; }
     const d = b.dataset.dim, val = b.dataset.val;
     if (d === "region") {
       // 芯片按已标注的区划码前两位分组，选省即按整省筛选（含下辖地级）。
@@ -338,14 +470,35 @@ function facetChips(box, dim, opts, max, isOn) {
     browseFilter[d] = browseFilter[d] === val ? "" : val;
     loadLaws();
   }));
+  facetAdorn(dim, usable, isOn);
+}
+
+// facetAdorn：组头右侧给出「已选什么」或「共几项可选」——折叠状态下也能看出
+// 这个维度现在有没有参与筛选、筛的是哪一项。
+function facetAdorn(dim, usable, isOn) {
+  const ad = $("#ad-" + dim);
+  if (!ad) return;
+  const sel = browseFilter[dim];
+  if (dim === "region" && browseFilter.region) {
+    const chip = (usable || []).find((o) => (browseFilter.region || "").slice(0, 2) === o.value);
+    ad.textContent = "已选 " + ((chip && chip.label) || regionPathOf(browseFilter.region) || browseFilter.region);
+    ad.classList.add("sel");
+    return;
+  }
+  if (!sel) { ad.textContent = (usable || []).length + " 项"; ad.classList.remove("sel"); return; }
+  const hit = (usable || []).find((o) => o.value === sel);
+  ad.textContent = "已选 " + ((hit && hit.label) || sel);
+  ad.classList.add("sel");
 }
 
 function renderFacets(v) {
+  lastFacets = v || {};
   facetChips("#f-levels", "level", v.levels);
   facetChips("#f-confirms", "confirm", v.confirms);
-  facetChips("#f-years", "year", v.years);
-  facetChips("#f-sources", "source", v.sources);
-  facetChips("#f-regions", "region", v.regions, 8, (val) => (browseFilter.region || "").slice(0, 2) === val);
+  facetChips("#f-years", "year", v.years, 6);
+  facetChips("#f-sources", "source", v.sources, 5);
+  facetChips("#f-regions", "region", v.regions, 6, (val) => (browseFilter.region || "").slice(0, 2) === val);
+  ["level", "confirm", "year", "source", "region"].forEach(facetGroup);
   const note = $("#f-region-note");
   if (note) {
     note.textContent = v.unlabeled
@@ -354,6 +507,7 @@ function renderFacets(v) {
   }
   $("#f-total").textContent = num(v.total);
   $("#b-stats").textContent = activeFilterText();
+  setCrumb("browse");
 }
 
 // activeFilterText 把当前生效的筛选回显成一句白话——用户必须能看到
@@ -380,13 +534,19 @@ async function loadLaws() {
     const [rows, v] = await Promise.all([app().BrowseLawList(args), app().BrowseFacets(args)]);
     renderFacets(v || {});
     const list = rows || [];
+    // 面板头如实报「列出多少 / 共多少」：取列有上限，不能让用户以为屏上就是全部。
+    const pc = $("#b-pane-cnt");
+    if (pc) {
+      pc.innerHTML = `显示 <b>${num(list.length)}</b> / 共 <b>${num((v || {}).total)}</b> 部`;
+      pc.title = list.length >= 300 ? "本次列出前 300 部，其余请用条件收窄" : "已列出当前条件下的全部条目";
+    }
     $("#law-list").innerHTML = list.length ? list.map((r) => `
-      <div class="item" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
+      <div class="item${r.status === "confirmed" ? "" : " pend"}" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
         <div class="t">${escapeHTML(r.name)} ${statusBadge(r.status)} ${validBadge(r.effective_date, r.expire_date)}</div>
-        <div class="m">${escapeHTML(r.level)} · ${regionCell(r)} · ${escapeHTML(r.issuer || "发布机关未标注")}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
+        <div class="m">${rowMeta(r)}</div>
       </div>`).join("") :
       '<p class="muted">' + (browseFilter.region
-        ? "当前条件下没有法规。已标注地区的按区划码匹配、未标注的按名称中的地名匹配；两者都判不出地区的条目不会出现在按地区筛选的结果中——可点「清空筛选」或改用上方下拉。"
+        ? "当前条件下没有法规。已标注地区的按区划码匹配、未标注的按名称中的地名匹配；两者都判不出地区的条目不会出现在按地区筛选的结果中——可点「清空筛选」，或改用上方下拉。"
         : "当前条件下没有法规。可点「清空筛选」，或放宽名称关键词。") + "</p>";
     document.querySelectorAll("#law-list .item").forEach((el) =>
       el.addEventListener("click", () => openLaw(el.dataset.law, el.dataset.name)));
@@ -436,21 +596,49 @@ async function homeSearch() {
 $("#btn-hsearch").addEventListener("click", homeSearch);
 $("#hq").addEventListener("keydown", (e) => { if (e.key === "Enter") homeSearch(); });
 
-/* ---------- 按条件筛选 · 地域显示 ---------- */
-// regionCell 地域显示：库里已标注（auto/manual/pack）与未标注（名称推定）必须区别显示——
+/* ---------- 按条件筛选 · 条目行的元信息 ---------- */
+// LEVEL_UNLABELED：Go 侧对空效力等级给出诚实默认值（desktop/browse.go 的 SQL 默认值），
+// 因此前端拿到的是这个字面量而不是空串。判定「缺不缺」必须按它来，否则缺失会被
+// 当成已知值排进元信息行（旧版每行三遍「未标注」就是这么来的）。
+const LEVEL_UNLABELED = "效力等级未标注";
+function levelOf(r) {
+  const v = r.level || "";
+  return v === LEVEL_UNLABELED ? "" : v;
+}
+// rowRegion 地域显示：库里已标注（auto/manual/pack）与未标注（名称推定）必须区别显示——
 // 机器建议不得看起来像已复核，名称推定不得看起来像已标注（诚实展示纪律）。
-function regionCell(r) {
+// 行内只用最短标注（已复核 / 待复核 / 名称推定），完整说明在条目详情里。
+function rowRegion(r) {
   if (r.region_source === "unknown") {
     return '<span class="unlabeled">区划码 ' + escapeHTML(r.region_code) + "（不在内置区划表，无法显示地名）</span>";
   }
-  if (r.region_source === "none" || !r.region_source) {
-    return r.region
-      ? '<span class="unlabeled">地域未标注（名称推定：' + escapeHTML(r.region) + "）</span>"
-      : '<span class="unlabeled">地域未标注</span>';
+  if (!r.region_source) {
+    return r.region ? '<span class="unlabeled">' + escapeHTML(r.region) + "（名称推定）</span>" : "";
   }
-  const tag = r.region_source === "manual" ? "已人工复核"
+  const tag = r.region_source === "manual" ? "已复核"
     : r.region_source === "pack" ? "随更新包携带 · 待复核" : "机器建议 · 待复核";
   return '<span class="region">' + escapeHTML(r.region || "区划码 " + r.region_code) + "（" + tag + "）</span>";
+}
+// rowMeta 一行只列已知值；缺失项合并成一个安静标记（「未标注 N 项」），具体缺什么
+// 挂在 title 里并给出补救去处。原先每行重复「效力等级未标注 · 地域未标注 ·
+// 发布机关未标注」三遍，既吵又让人误以为信息很多——缺失仍如实显示，只是不刷屏。
+function rowMeta(r) {
+  const parts = [];
+  const lv = levelOf(r);
+  if (lv) parts.push(escapeHTML(lv));
+  const reg = rowRegion(r);
+  if (reg) parts.push(reg);
+  if (r.issuer) parts.push(escapeHTML(r.issuer));
+  if (r.effective_date) parts.push(escapeHTML(r.effective_date) + " 起施行");
+  const miss = [];
+  if (!lv) miss.push("效力等级");
+  if (!r.issuer) miss.push("发布机关");
+  if (!r.region) miss.push("地域");
+  if (miss.length) {
+    parts.push('<span class="miss" title="未标注：' + miss.join("、") +
+      "——可在「人工复核」核对效力等级，在「地域标引」补地区\">未标注 " + miss.length + " 项</span>");
+  }
+  return parts.join(" · ");
 }
 // openLaw 右侧详情：修订沿革 + 条款列表（点条款看留证原文）。
 async function openLaw(lawID, name) {
@@ -465,7 +653,7 @@ async function openLaw(lawID, name) {
   document.querySelectorAll("#law-detail .art").forEach((el) =>
     el.addEventListener("click", async () => openModal(await app().Preview(el.dataset.doc), el.dataset.no)));
 }
-$("#btn-browse").addEventListener("click", loadLaws);
+$("#b-refresh").addEventListener("click", loadLaws);
 // 清空筛选：维度一律复位；地区是全局偏好，一并取消，避免下一次浏览又被悄悄筛掉。
 $("#btn-filter-clear").addEventListener("click", () => {
   browseFilter.level = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
@@ -541,12 +729,31 @@ async function loadOverview() {
   }
 }
 
-// setSideFoot 侧栏底部一行白话状态。原先显示「数据库版本 4」——schema 版本号属
-// 技术信息，按规范只能在「技术信息」折叠里出现。顺带刷新侧栏待复核计数，
-// 使「哪里需要你」不必进面板就能看到。
+// setSideFoot 侧栏底部一行白话状态（不放技术版本号，那属折叠里的技术信息）。
+// 顶栏同时给出本机法规库总数与待复核提醒：状态在「看数据的地方」常驻，
+// 而不是只在某个面板里出现一次。
 function setSideFoot(v) {
-  $("#schema-badge").textContent = "本机法规库 · " + num(v.laws) + " 部";
+  const lf = Object.values(v.last_fetch || {}).sort().reverse()[0];
+  $("#schema-badge").textContent = lf ? "数据最近更新 " + fmtWhen(lf).slice(0, 10) + "（本机时间）" : "本机尚未记录获取时间";
   setNavCount("#cnt-confirm", v.pending, true);
+  setTopStatus(v);
+}
+// setTopStatus 顶栏状态徽标：读不到就不显示（未知不等于 0），面板内另有如实说明。
+function setTopStatus(v) {
+  const lib = $("#t-lib-n");
+  if (lib) {
+    lib.textContent = v.laws == null ? "—" : num(v.laws);
+    $("#t-lib").title = v.laws == null ? "本机法规库条目数读取失败" : "本机法规库共 " + num(v.laws) + " 部";
+  }
+  const pend = $("#t-pending");
+  if (pend) {
+    const show = v.pending != null && Number(v.pending) > 0;
+    pend.classList.toggle("hidden", !show);
+    if (show) {
+      $("#t-pending-n").textContent = num(v.pending);
+      pend.title = num(v.pending) + " 条尚未经人工复核，引用前请以官方原文为准";
+    }
+  }
 }
 async function loadSideFoot() {
   try { setSideFoot(await app().Status()); } catch (e) { /* 绑定未就绪时略过，进面板会再取 */ }
@@ -577,6 +784,17 @@ function hitChips(box, dim, counts) {
     hitFilter[d] = hitFilter[d] === val ? "" : val;
     renderHits();
   }));
+  // 组头 adornment：折叠/未折叠都能看出这一维现在筛的是哪一项。
+  const ad = $("#sad-" + dim);
+  if (ad) {
+    const sel = hitFilter[dim];
+    if (!sel) { ad.textContent = entries.length + " 项"; ad.classList.remove("sel"); }
+    else {
+      const hit = entries.find(([v]) => v === sel);
+      ad.textContent = "已选 " + ((hit && (dim === "confirm" ? (CONFIRM_LABEL[sel] || sel) : (sel || "效力等级未标注"))) || sel);
+      ad.classList.add("sel");
+    }
+  }
 }
 
 function renderHitFacets() {
@@ -596,9 +814,14 @@ function renderHits() {
     (!hitFilter.confirm || (r.confirm_status || "") === hitFilter.confirm));
   $("#search-info").textContent = `命中 ${num(lastHits.length)} 条（全文检索，未重排序）` +
     (rows.length === lastHits.length ? "" : ` · 按当前筛选显示 ${num(rows.length)} 条`);
+  const pc = $("#s-pane-cnt");
+  if (pc) {
+    pc.innerHTML = `显示 <b>${num(rows.length)}</b> / 命中 <b>${num(lastHits.length)}</b> 条`;
+    pc.title = "全文检索按语料原样给出，不重排序；就地收窄只筛本次命中，不重新查库";
+  }
   $("#search-list").innerHTML = rows.map((r) => `
-    <div class="item" data-doc="${escapeHTML(r.doc_id)}" data-no="${escapeHTML(r.article_no)}" data-law="${escapeHTML(r.law_name)}">
-      <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
+    <div class="item${r.confirm_status === "confirmed" ? "" : " pend"}" data-doc="${escapeHTML(r.doc_id)}" data-no="${escapeHTML(r.article_no)}" data-law="${escapeHTML(r.law_name)}">
+      <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level || "等级未标注")}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
       <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
       <div class="m">${escapeHTML(r.snippet)}</div>
     </div>`).join("") || '<p class="muted">当前筛选下没有命中，再点一次已选中的条件即可取消。</p>';
@@ -918,7 +1141,12 @@ function renderTasks(tasks) {
     <div class="m">${fmtWhen(t.started_at)}（本机时间）开始${t.ended_at ? " · " + fmtWhen(t.ended_at) + " 结束" : ""}</div></div>`).join("") || '<p class="muted">暂无任务记录。</p>';
   // 侧栏「获取最新法规」旁的指示灯：有任务在跑才亮，空闲时不占位。
   const dot = $("#dot-collect");
-  if (dot) dot.hidden = !(tasks || []).some((t) => t.state === "running");
+  const running = (tasks || []).some((t) => t.state === "running");
+  if (dot) dot.hidden = !running;
+  // 顶栏同步给出「正在获取」：获取任务在跑时，无论用户在哪个面板都能看见，
+  // 不会误以为界面卡住或数据没变。
+  const chip = $("#t-task");
+  if (chip) chip.classList.toggle("hidden", !running);
 }
 async function loadTasks() { try { renderTasks(await app().TaskList()); } catch (e) { /* 绑定未就绪 */ } }
 function loadTasksTick() {
@@ -991,7 +1219,7 @@ async function loadSettings() {
 
 /* ---------- 启动 ---------- */
 document.addEventListener("DOMContentLoaded", () => {
-  applyTheme();
+  applyTheme(); applyDensity(); applyReading(); applyIcons();
   loadManifest(); loadSettings();
   waitBindings(() => { applyMode(); loadRegion(); loadSideFoot(); loadRegionStats(); });
 });

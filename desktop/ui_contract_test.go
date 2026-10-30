@@ -184,3 +184,115 @@ func TestDarkThemeTokens(t *testing.T) {
 		t.Errorf("前端未提供外观切换（data-theme），深色只能依赖系统偏好")
 	}
 }
+
+// TestTopbarCarriesContextAndStatus 顶栏承载「当前位置 + 本机状态 + 外观/密度工具」：
+// 状态必须在任何面板都看得见（不是进某个面板才出现一次），侧栏退回纯导航职责。
+func TestTopbarCarriesContextAndStatus(t *testing.T) {
+	html := readFrontend(t, "index.html")
+	main := strings.Split(html, `<main>`)[1]
+	bar := strings.Index(main, `<header id="topbar">`)
+	panels := strings.Index(main, `<div id="panels">`)
+	if bar < 0 || panels < 0 || bar > panels {
+		t.Errorf("顶栏未先于面板出现（topbar=%d, panels=%d）——当前位置与本机状态应常驻顶栏，不随面板切换消失", bar, panels)
+	}
+	for _, want := range []string{`id="crumb-cur"`, `id="crumb-ctx"`, `id="t-lib"`,
+		`id="t-pending"`, `id="t-task"`, `id="t-region"`, `id="t-density"`, `id="theme-toggle"`} {
+		if !strings.Contains(main, want) {
+			t.Errorf("顶栏缺少 %s——当前位置、法规库总数、待复核提醒、进行中的获取任务与外观/密度工具都在顶栏", want)
+		}
+	}
+	start := strings.Index(html, `<aside id="side">`)
+	end := strings.Index(html, `</aside>`)
+	side := html[start:end]
+	for _, banned := range []string{"btn-theme", "theme-toggle", "t-lib", "t-pending"} {
+		if strings.Contains(side, banned) {
+			t.Errorf("侧栏出现 %q——状态与外观工具已上移顶栏，侧栏只留导航，不得两处各一套", banned)
+		}
+	}
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	for _, want := range []string{`$("#theme-toggle")`, `$("#t-density")`, "setTopStatus(", `$("#t-region")`, "setCrumb("} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——顶栏的状态与工具必须由脚本接上，不能只是静态标记", want)
+		}
+	}
+}
+
+// TestNavAndPanesUseIconChrome 导航项与面板头要有图标承载识别，且图标由脚本集中注入
+// （界面文件不堆 SVG 源码）。图标只承载识别：结论仍是文字与数字。
+func TestNavAndPanesUseIconChrome(t *testing.T) {
+	html := readFrontend(t, "index.html")
+	nav := strings.Split(strings.Split(html, `<nav id="nav">`)[1], `</nav>`)[1]
+	for _, p := range strings.Split(nav, `class="nav`)[1:] {
+		if !strings.Contains(p, "data-icon=") {
+			t.Errorf("导航项缺少 data-icon：图标承载识别，缺图标即导航层级塌陷")
+			break
+		}
+	}
+	browse := strings.Split(html, `<section id="panel-browse"`)[1]
+	browse = browse[:strings.Index(browse, `<section id="`)]
+	for _, want := range []string{`class="pane"`, `class="panehd"`, `id="b-pane-cnt"`,
+		`id="b-fs-down"`, `id="b-fs-up"`, `id="b-wide"`} {
+		if !strings.Contains(browse, want) {
+			t.Errorf("浏览面板缺少 %s——列表列与原文列各有面板头，阅读控制挂在原文列头", want)
+		}
+	}
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	for _, want := range []string{"ICON_PATHS", "applyIcons(", "applyIcons();"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——图标集中在脚本注入，缺失即界面图标整体消失", want)
+		}
+	}
+	css := readFrontend(t, filepath.Join("assets", "style.css"))
+	if !strings.Contains(css, ".ic {") {
+		t.Errorf("样式缺少 .ic 图标规则")
+	}
+}
+
+// TestFacetGroupsAreCollapsible 分面组必须可折叠并自带组头（chevron + 微标题 +
+// 已选/计数 adornment），折叠状态记住；长维度默认收起并给出「显示全部」。
+func TestFacetGroupsAreCollapsible(t *testing.T) {
+	html := readFrontend(t, "index.html")
+	browse := strings.Split(html, `<section id="panel-browse"`)[1]
+	browse = browse[:strings.Index(browse, `<section id="`)]
+	for _, dim := range []string{"level", "confirm", "year", "source", "region"} {
+		if !strings.Contains(browse, `id="g-`+dim+`"`) || !strings.Contains(browse, `id="ad-`+dim+`"`) {
+			t.Errorf("分面组 %s 缺少组头或计数 adornment——折叠状态下也要能看出该维度筛的是哪一项", dim)
+		}
+	}
+	if !strings.Contains(browse, `aria-controls="f-`) {
+		t.Errorf("分面组头缺少 aria-controls——折叠控件必须可被辅助技术定位")
+	}
+	if got := strings.Count(browse, `class="fhd"`); got < 5 {
+		t.Errorf("分面组头只有 %d 处，应为 5 个维度各有其主", got)
+	}
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	for _, want := range []string{"GROUP_DEFAULT", "setGroupOpen(", `"ol-fgrp"`, "data-more="} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——折叠状态需持久化，长维度需给出「显示全部」", want)
+		}
+	}
+}
+
+// TestRowMetaMergesMissing 条目行的缺失必须如实但只说一次：不得逐字段重复「未标注」
+// 刷屏（同一行三遍未标注是噪声，不是信息），也不得把缺失藏起来。
+func TestRowMetaMergesMissing(t *testing.T) {
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	if !strings.Contains(js, "rowMeta(") {
+		t.Fatalf("前端缺少 rowMeta——条目元信息必须集中产出，便于核对其诚实与克制")
+	}
+	if !strings.Contains(js, `未标注 " + miss.length`) {
+		t.Errorf("缺失项未合并成一个标记：应给出「未标注 N 项」并在 title 里列明缺什么、去哪补")
+	}
+	// Go 侧对空效力等级返回诚实默认值「效力等级未标注」（非空串）：前端必须按它判定缺失，
+	// 否则缺失会被当成已知值排进元信息行，合并标记永远不出现。
+	if !strings.Contains(js, `LEVEL_UNLABELED = "效力等级未标注"`) {
+		t.Errorf("前端未按 Go 侧的诚实默认值判定效力等级缺失——缺失标记会失效")
+	}
+	if strings.Contains(js, `escapeHTML(r.issuer || "发布机关未标注")`) {
+		t.Errorf("条目行仍在逐字段重复「未标注」——同一行三遍未标注属设计缺陷")
+	}
+	css := readFrontend(t, filepath.Join("assets", "style.css"))
+	if !strings.Contains(css, ".item .miss") || !strings.Contains(css, ".item.pend") {
+		t.Errorf("样式缺少缺失标记或待复核强调条规则")
+	}
+}

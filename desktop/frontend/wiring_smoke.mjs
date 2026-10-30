@@ -35,7 +35,8 @@ function mk(cls) {
 const byId = new Map(); ids.forEach((i) => byId.set(i, mk()));
 const byClass = new Map(); classes.forEach((c) => byClass.set(c, [mk(c)]));
 const listeners = {};
-const documentElement = { dataset: {} };
+// documentElement 带 dataset 与 style.setProperty：外观、密度与原文字号都落在这两处。
+const documentElement = { dataset: {}, style: { _p: {}, setProperty(k, v) { this._p[k] = v; } } };
 const document = {
   documentElement,
   addEventListener(t, f) { (listeners[t] = listeners[t] || []).push(f); },
@@ -56,9 +57,12 @@ const document = {
   },
 };
 // 浏览用的小语料：列表与分面计数都由同一条件函数产出（与 Go 侧 browseWhere 同构）。
+// L3 故意缺等级/机关/地域：条目行的缺失标记要在冒烟里可见。
+// 缺失的效力等级按 Go 侧真实形状给出（SQL 默认值「效力等级未标注」，不是空串）。
 const laws = [
   { law_id: 'L1', name: '工伤保险条例', level: '行政法规', status: 'pending', region_source: 'none', region: '北京市', issuer: '国务院', effective_date: '2004-01-01' },
   { law_id: 'L2', name: '北京市生活垃圾管理条例', level: '地方性法规', status: 'confirmed', region_source: 'auto', region: '北京市', issuer: '北京市人大常委会', effective_date: '1996-06-01' },
+  { law_id: 'L3', name: '某市养犬管理办法', level: '效力等级未标注', status: 'pending', region_source: '', region: '', issuer: '', effective_date: '' },
 ];
 const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) && (!a.kw || r.name.includes(a.kw)));
 const data = {
@@ -84,7 +88,10 @@ const data = {
     return {
       total: sub.length,
       unlabeled: sub.filter((r) => r.region_source === 'none').length,
-      levels: group((r) => r.level), confirms: group((r) => r.status),
+      // 分面口径与 Go 侧一致：缺失项按 COALESCE(...,'') 归入空值桶（前端不列空值桶，
+      // 由脚注说明「未记录的条目不参与该维度筛选」）。
+      levels: group((r) => (r.level === '效力等级未标注' ? '' : r.level)),
+      confirms: group((r) => r.status),
       sources: group(() => 'gov.cn 国家规章库'), years: group(() => '2000'),
       regions: group((r) => (r.region_source === 'none' ? '' : '11')),
     };
@@ -112,41 +119,82 @@ const g = (id) => byId.get(id);
   ctx.homeSearch(); ctx.doSearch(); ctx.loadLaws(); ctx.loadTasks();
   ctx.cycleTheme(); ctx.cycleTheme();
   await new Promise((r) => setTimeout(r, 80));
-  // 浏览页筛选与计数同源联动：默认条件下 2 部，改一个维度后必须跟着变。
+  // 浏览页筛选与计数同源联动：默认条件下 3 部，改一个维度后必须跟着变。
   const totalAll = g('f-total').textContent;
   const levelChips = g('f-levels').innerHTML;
   const unlabeledNote = g('f-region-note').textContent;
+  const rowHTML = g('law-list').innerHTML;
+  const paneCnt = g('b-pane-cnt').innerHTML;
+  const yearClosed = g('g-year').dataset.open;
+  const adornAll = g('ad-level').textContent;
   vm.runInContext('browseFilter.level = "行政法规"; loadLaws();', ctx);
   await new Promise((r) => setTimeout(r, 60));
   const totalFiltered = g('f-total').textContent;
   const statsLine = g('b-stats').textContent;
+  const adornSel = g('ad-level').textContent;
+  const crumb = g('crumb-cur').textContent + ' | ' + g('crumb-ctx').textContent;
   const cntConfirm = g('cnt-confirm').textContent, cntConfirmTitle = g('cnt-confirm').title;
   // 待复核确实为 0 时不得留「0」徽标（无需提醒），面板内另有如实说明。
   ctx.setSideFoot({ laws: 1, pending: 0 });
+  const topLib = g('t-lib-n').textContent;
+  const topPendHidden = g('t-pending').classList.contains('hidden');
+  const topTaskHidden = g('t-task').classList.contains('hidden');
+  // 长维度默认只列前若干项，其余用「显示全部」展开（筛选栏不必长成一条竖河）。
+  vm.runInContext(`facetChips('#f-years','year',` +
+    `[{value:'2020',label:'2020 年代',count:9},{value:'2010',label:'2010 年代',count:8},` +
+    `{value:'2000',label:'2000 年代',count:7},{value:'1990',label:'1990 年代',count:6},` +
+    `{value:'1980',label:'1980 年代',count:5},{value:'1970',label:'1970 年代',count:4},` +
+    `{value:'1960',label:'1960 年代',count:3},{value:'none',label:'公布日期缺失',count:2}], 6)`, ctx);
+  const moreChip = g('f-years').innerHTML.includes('data-more="year"');
+  vm.runInContext('setGroupOpen("year", true); facetGroup("year");', ctx);
+  const yearOpen = g('g-year').dataset.open;
+  // 密度与字号属显示层偏好：落到 html 属性与 CSS 变量，不得改动取列条件。
+  const argsBefore = JSON.stringify(vm.runInContext('browseArgs(300,0)', ctx));
+  vm.runInContext('density = "compact"; applyDensity(); stepFontSize(1);', ctx);
+  const densityOn = documentElement.dataset.density === 'compact';
+  const readSize = documentElement.style._p['--read-size'];
+  const argsAfter = JSON.stringify(vm.runInContext('browseArgs(300,0)', ctx));
   const report = {
     '侧栏待复核计数': cntConfirm + ' (title: ' + cntConfirmTitle + ')',
     '待复核为 0 时清空徽标': g('cnt-confirm').textContent === '' && !g('cnt-confirm').title,
     '侧栏地域计数': g('cnt-region').textContent,
-    '获取任务指示灯 hidden': g('dot-collect').hidden,
+    '获取任务指示灯随任务显示': g('dot-collect').hidden === false,
+    '顶栏法规库总数常驻': topLib === '1',
+    '顶栏待复核提醒随计数收起': topPendHidden === true,
+    '顶栏获取任务徽标随任务显示': topTaskHidden === false,
     '总览占比条含 bar-row': g('ov-bars').innerHTML.includes('bar-row'),
     '占比条段长按比例归一': /style="width:[\d.]+%"/.test(g('ov-bars').innerHTML),
     '等级精确表行数': (g('level-table').innerHTML.match(/<tr>/g) || []).length,
     '获取记录如实（本轮没有新增内容）': g('reports').innerHTML.includes('本轮没有新增内容'),
     '复核记录本机时间': /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(g('reviews').innerHTML),
     '批量来源为真实来源名': g('b-source').innerHTML.includes('flk 批量下载'),
-    '外观切换文案': g('btn-theme').textContent,
-    'html data-theme': JSON.stringify(documentElement.dataset),
+    '外观切换（顶栏图标按钮）': g('theme-toggle').title,
+    'html data-theme': JSON.stringify(documentElement.dataset.theme || ''),
     '任务卡 class 含 running': g('task-list').innerHTML.includes('task running'),
     '端点等技术细节仍可得（供折叠展示）': g('browser-tech').innerHTML.includes('127.0.0.1'),
     '清单缺失给出下一步': g('g-list-hint').textContent.includes('没有目录清单'),
     '浏览分面给出计数': levelChips.includes('fcount'),
-    '筛选前后总数联动': totalAll === '2' && totalFiltered === '1',
+    '筛选前后总数联动': totalAll === '3' && totalFiltered === '1',
     '筛选回显为白话': statsLine.includes('当前筛选：类别 行政法规'),
+    '面包屑给出当前位置与筛选摘要': crumb.includes('按条件筛选') && crumb.includes('类别 行政法规'),
+    '分面组头报已选项': adornAll === '2 项' && adornSel === '已选 行政法规',
+    '长维度默认收起': yearClosed === 'false' && yearOpen === 'true',
+    '长维度给出显示全部': moreChip,
+    '面板头如实报列出/共计': paneCnt.includes('显示') && paneCnt.includes('共'),
+    '缺失合并成一个标记': rowHTML.includes('未标注 3 项') && !rowHTML.includes('效力等级未标注 · 地域未标注'),
+    '缺失不被当作已知值回显': !rowHTML.includes('效力等级未标注'),
+    '待复核条目行有强调类': rowHTML.includes('item pend'),
     '未标注地区如实说明': unlabeledNote.includes('未标注'),
     '检索命中可就地收窄': g('sf-level').innerHTML.includes('fcount'),
+    '检索面板头报显示/命中': g('s-pane-cnt').innerHTML.includes('命中'),
     '首页类别卡带筛选入口': g('h-cards').innerHTML.includes('data-level'),
+    '紧凑模式落到 html 属性': densityOn,
+    '原文字号可调': readSize === '17px',
+    '显示偏好不改取列条件': argsBefore === argsAfter,
   };
+  const failed = Object.entries(report).filter(([, v]) => v === false).map(([k]) => k);
   console.log(JSON.stringify(report, null, 1));
+  if (failed.length) { console.error('SMOKE_FAIL 未通过项：' + failed.join('、')); process.exit(1); }
   console.log('SMOKE_OK');
   // 面板轮询（任务刷新的 setInterval）会让进程常驻，核对完成即退出。
   process.exit(0);

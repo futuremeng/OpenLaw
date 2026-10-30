@@ -51,6 +51,12 @@ const browseFrom = `FROM law l
 	LEFT JOIN document d ON d.doc_id=v.doc_id
 	`
 
+// browseOrder 默认取列顺序：按效力等级分组、名称字典序，**未标注效力等级的条目排在最后**。
+// SQLite 中 NULL 排在最前，直接 ORDER BY effect_level 会让「什么都没标注」的条目占满第一页
+// （实测本机语料前 300 条全部未标注）——那是显示缺陷而不是诚实：缺失仍在行内如实标出，
+// 只是不占用第一眼。该规则同时写进筛选栏脚注，不得悄悄发生。
+const browseOrder = `ORDER BY (l.effect_level IS NULL), l.effect_level, l.name`
+
 // yearBucketExpr 公布年代桶（十年一档）；公布日期缺失单独成桶，不静默并入任何年代。
 const yearBucketExpr = `CASE WHEN COALESCE(d.publish_date,'')='' THEN 'none'
 		ELSE CAST((CAST(substr(d.publish_date,1,4) AS INTEGER)/10)*10 AS TEXT) END`
@@ -105,7 +111,7 @@ func (a *App) BrowseLawList(f LawFilter) ([]LawRow, error) {
 		COALESCE(v.effective_date,''), COALESCE(v.expire_date,''),
 		COALESCE(d.publish_date,''), COALESCE(d.confirm_status,'')
 		`+browseFrom+where+`
-		ORDER BY l.effect_level, l.name LIMIT ? OFFSET ?`, args...)
+		`+browseOrder+` LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, err
 	}

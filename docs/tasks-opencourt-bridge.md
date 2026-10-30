@@ -487,6 +487,29 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   `TestBrowseFilterRailIsPrimary`，接线冒烟加 5 项联动断言并修掉「绑定桩丢弃实参」这一
   使联动从未真正被验证的桩缺陷。**下一步**：打包 `.app` 内对筛选栏逐维度手工冒烟
   （窄窗口下三栏布局是否需改为筛选栏可折叠），以及多法域（美国数据）设计文档。
+- **桌面端范式对齐（2026-10-30，对照 Oleafly 的桌面端结构）**：筛选归位后界面仍被指出
+  「不够到位」。对照 `/Users/futuremeng/github/Oleafly`（shadcn/oklch 中性令牌、1.75rem
+  图标工具条 + 发丝分隔、大写微标题分区、可折叠 section、面板头、空态组件）拆出六处差距并补齐：
+  ① **顶栏** `#topbar`（面包屑 + 当前筛选摘要 + 法规库总数/待复核/进行中的获取任务/当前地区
+  状态徽标 + 外观与密度图标工具）——状态从侧栏上移，任何面板都可见；侧栏改浅色 + 发丝分隔 +
+  分组微标题 + 计数徽标 + 选中强调条，移除 `#side-region` 与「界面外观」按钮；
+  ② **图标系统**（`app.js` 的 `ICON_PATHS` + `applyIcons()`，HTML 只写 `data-icon`）；
+  ③ **面板头** `.pane`/`.panehd`（浏览与检索的列表列、原文列各有其主，如实报「显示 300 /
+  共 28,952 部」——取列上限此前不可见）；④ **可折叠分面组**（组头 chevron + 微标题 +
+  `已选 X`／`N 项` adornment，`ol-fgrp` 持久化；年代/来源默认收起 + 「显示全部 N 项」）；
+  ⑤ **条目行降噪**（缺失合并成一个「未标注 N 项」标记，`title` 给补救去处；待复核左侧强调条）；
+  ⑥ **阅读控制与窄窗口**（字号六档、行宽、紧凑密度均持久化且不改数据口径；1180px/860px
+  两栏→单列，筛选栏不回流侧栏）。顺带修一处缺陷：字号档位回退用 `Math.max(0, indexOf())`
+  把「未记录」压成最小档。新增门禁 `TestTopbarCarriesContextAndStatus`、
+  `TestNavAndPanesUseIconChrome`、`TestFacetGroupsAreCollapsible`、`TestRowMetaMergesMissing`；
+  接线冒烟报告扩到 36 项（31 项断言 + 5 项观察值），并改为任一断言为 false 即以 `SMOKE_FAIL`
+  退出（此前只打印不判负）。
+  核对真实语料时发现并修掉一处显示缺陷：`ORDER BY effect_level` 把 NULL 排最前，默认首页
+  300 条全是未标注条目（28,952 部中 1,123 部未标注等级、23,738 部未标注发布机关）；改为
+  `browseOrder` 把未标注排到最后并在脚注声明，新增 `TestBrowseLawListOrdersUnlabeledLast`。
+  **下一步**：打包 `.app` 内逐面板手工冒烟（顶栏状态随获取任务变化、分面折叠记忆、阅读控制
+  记忆、浅色/深色两套下的图标与发丝分隔），以及多法域（美国数据）设计文档。
+
 
 
 ---

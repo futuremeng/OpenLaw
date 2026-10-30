@@ -203,3 +203,35 @@ func TestPreviewLegalFields(t *testing.T) {
 		t.Errorf("检索信任层字段缺失: %+v", rows)
 	}
 }
+
+// TestBrowseLawListOrdersUnlabeledLast 未标注效力等级的条目必须排在已标注之后。
+// SQLite 把 NULL 排最前，实测本机语料（28,952 部）前 300 条因此全部未标注等级——
+// 第一眼全是缺失属显示缺陷，不是诚实：缺失仍在行内如实标出（前端合并成「未标注 N 项」），
+// 只是不占用第一眼。该规则同时写进界面脚注，不得悄悄发生。
+func TestBrowseLawListOrdersUnlabeledLast(t *testing.T) {
+	a := newTestApp(t)
+	seedFacetLaws(t, a)
+	if _, err := a.db.Exec(`INSERT INTO law(law_id,name,effect_level,region_code,region_source) VALUES('L5','应排在最后的未标注条目',NULL,'','')`); err != nil {
+		t.Fatalf("种子失败: %v", err)
+	}
+	rows, err := a.BrowseLawList(LawFilter{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 5 {
+		t.Fatalf("应列出 5 部: %d", len(rows))
+	}
+	if last := rows[len(rows)-1]; last.LawID != "L5" || last.Level != "效力等级未标注" {
+		t.Errorf("未标注等级的条目应排在最后且保留诚实默认值，实测末位=%+v", last)
+	}
+	for _, r := range rows[:len(rows)-1] {
+		if r.Level == "效力等级未标注" {
+			t.Errorf("已标注条目与未标注条目顺序混淆: %+v", rows)
+			break
+		}
+	}
+	// 筛选到具体等级时，排序规则不得影响过滤结果。
+	if got, _ := a.BrowseLawList(LawFilter{Level: "部门规章", Limit: 50}); len(got) != 1 || got[0].LawID != "L2" {
+		t.Errorf("等级过滤在新排序下失效: %+v", got)
+	}
+}
