@@ -418,7 +418,23 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
 - 测试：`ingest.TestImportRegionCarried`（署名留空、审计内容、无地域导入不动列、
   人工结论不被包顶掉）、`pack.TestImportPackRegion`（往返 + 来源改写 + 审计）、
   `pack.TestReadChangesLegacyHeaders`（v0–v3 四代表头 + 陌生表头拒绝）。
-  **下一步**：§6 一致性自检报告（只报告、不自动改）。
+  **第 5 步之三已落地（2026-10-30）· §6 一致性自检报告**：
+- 库层 `ingest.RegionMarker.Audit()`（`ingest/regionaudit.go`）只读扫描全库矛盾项，逐项计数 +
+  逐条列出；CLI `openlaw-region -check [-check-report <csv>] [-json]` 出报告，绝不写库、
+  绝不自动改数——矛盾项交人工在桌面「地域标引」面板落判。
+- 真实语料实测（只读；跑完 `region_log` 仍 72,098 条、库文件未变）：28,952 部中地方类未标地域
+  **979**（地方性法规 877 + 地方政府规章 102）、国家级效力却标地域 **0**（R0 护栏有效）、
+  效力等级未标注却标地域 **2**（两条「台湾省出席全国人大代表协商选举方案」）、`is_local=1`
+  未标地域 877、效力等级属地方级但 `is_local` 未标记 3,711、已标地域但无地方效力依据 2；
+  共 4,590 条逐条出 CSV。
+- 口径按实测修正（如实记录）：设计稿原写的「`is_local=0` 却有地域」命中 3,611 条，其中 3,609 条
+  是地方政府规章——它们本就是地方级，只是 `is_local` 从未置位；照原口径报等于把 `is_local`
+  自己的毛病算成地域的毛病，故拆成「效力等级属地方级但 is_local 未标记」与「已标地域但无地方
+  效力依据」两条。`is_local` 只作线索，绝不据此改数。
+- 测试：`ingest/regionaudit_test.go`（逐项计数、地方政府规章不得虚报为「无地方效力依据」、
+  自检前后数据指纹一致 = 只读）。
+  **第 5 步三块全部完成。下一步**：面板在打包 `.app` 里的手工冒烟；`cmd/openlaw-region`
+  与复核层动作对齐（confirm/reject/clear 走同一 `RegionMarker`）；多法域（美国数据）设计文档。
 
 
 ---

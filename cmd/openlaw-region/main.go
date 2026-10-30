@@ -5,6 +5,8 @@
 // 中置信（发布机关）与冲突一律不写库（docs/design-region-write.md §9.2 拍板）。
 // -undo <batch_id>：按批次撤销机器建议；默认同样只计数，须加 -apply 才执行；
 // 已被人工落判的行不会被回滚。
+// -check：一致性自检（§6）——只报告矛盾项（地方性法规未标地域、国家级效力却标地域、
+// 效力等级未标注却标地域、is_local 与地域矛盾），逐条出 CSV，绝不写库、绝不自动改数。
 package main
 
 import (
@@ -15,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/futuremeng/OpenLaw/ingest"
 	"github.com/futuremeng/OpenLaw/store"
@@ -22,11 +25,13 @@ import (
 
 func main() {
 	var (
-		dataDir = flag.String("data", "data", "数据目录")
-		report  = flag.String("report", "region_report.csv", "CSV 报告输出路径")
-		apply   = flag.Bool("apply", false, "写入数据库（缺省仅 dry-run 报告）")
-		undo    = flag.String("undo", "", "撤销指定批次的机器建议（加 -apply 才真正执行）")
-		asJSON  = flag.Bool("json", false, "统计以 JSON 输出")
+		dataDir     = flag.String("data", "data", "数据目录")
+		report      = flag.String("report", "region_report.csv", "CSV 报告输出路径")
+		apply       = flag.Bool("apply", false, "写入数据库（缺省仅 dry-run 报告）")
+		undo        = flag.String("undo", "", "撤销指定批次的机器建议（加 -apply 才真正执行）")
+		check       = flag.Bool("check", false, "一致性自检：只报告矛盾项，不写库、不自动改")
+		checkReport = flag.String("check-report", "region_audit.csv", "一致性自检 CSV 报告路径")
+		asJSON      = flag.Bool("json", false, "统计以 JSON 输出")
 	)
 	flag.Parse()
 
@@ -49,6 +54,38 @@ func main() {
 			fmt.Printf("已撤销批次 %s：%d 条回到未标注（人工落判过的行未被回滚）\n", *undo, n)
 		} else {
 			fmt.Printf("批次 %s 可撤销 %d 条。dry-run：未改库，确认后加 -apply 执行\n", *undo, n)
+		}
+		return
+	}
+
+	if *check {
+		audit, err := m.Audit()
+		if err != nil {
+			fatal(err)
+		}
+		if err := writeAuditReport(*checkReport, audit); err != nil {
+			fatal(err)
+		}
+		if *asJSON {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"total":                    audit.Total,
+				"local_no_region":          audit.LocalNoRegion,
+				"national_with_region":     audit.NationalWithRegion,
+				"level_blank_with_region":  audit.LevelBlankWithRegion,
+				"flag_local_no_region":     audit.FlagLocalNoRegion,
+				"flag_level_local_no_flag": audit.FlagLevelLocalNoFlag,
+				"flag_code_no_basis":       audit.FlagCodeNoBasis,
+				"rows":                     len(audit.Rows),
+				"report":                   *checkReport,
+			})
+		} else {
+			fmt.Printf("一致性自检（只报告、不自动改）：法规 %d 部\n", audit.Total)
+			fmt.Printf("  地方性法规/地方政府规章未标地域 %d | 国家级效力却标地域 %d | 效力等级未标注却标地域 %d\n",
+				audit.LocalNoRegion, audit.NationalWithRegion, audit.LevelBlankWithRegion)
+			fmt.Printf("  标记为地方效力但未标地域 %d | 效力等级属地方级但 is_local 未标记 %d | 已标地域但无地方效力依据 %d\n",
+				audit.FlagLocalNoRegion, audit.FlagLevelLocalNoFlag, audit.FlagCodeNoBasis)
+			fmt.Printf("报告: %s（矛盾项 %d 条逐条列出）\n", *checkReport, len(audit.Rows))
+			fmt.Println("提示：is_local 在语料中不可靠，只作线索不作结论；矛盾项一律交人工在桌面「地域标引」面板落判，机器不自动改。")
 		}
 		return
 	}
@@ -104,6 +141,29 @@ func writeReport(path string, cands []ingest.RegionCandidate) error {
 		if err := w.Write([]string{
 			c.LawID, c.Name, c.Issuer, c.EffectLevel, c.Confidence,
 			c.Code, c.RegionPath, strconv.Itoa(c.Rule), c.Note,
+		}); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
+}
+
+// writeAuditReport 一致性自检报告：逐条列出矛盾项与问题描述。只出报告，不改数据。
+func writeAuditReport(path string, sum *ingest.RegionAuditSummary) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	if err := w.Write([]string{"law_id", "name", "effect_level", "is_local", "region_code", "issues"}); err != nil {
+		return err
+	}
+	for _, it := range sum.Rows {
+		if err := w.Write([]string{
+			it.LawID, it.Name, it.EffectLevel, strconv.Itoa(it.IsLocal),
+			it.RegionCode, strings.Join(it.Issues, "; "),
 		}); err != nil {
 			return err
 		}
