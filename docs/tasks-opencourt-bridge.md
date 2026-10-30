@@ -446,6 +446,22 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   `cmd/openlaw-region/review_test.go`、`ingest.TestRegionReviewBlankReviewerIsNotReviewed`、
   `desktop.TestRegionReviewBlankReviewerNotReviewed`。
   **下一步**：面板在打包 `.app` 里的手工冒烟；多法域（美国数据）设计文档。
+- **界面语言与渐进披露（2026-10-30，规范成文 + 三页重做）**：新增 `docs/design-ui-language.md`——
+  三条硬规则（目标语言、渐进披露、诚实展示）、主视图禁止清单（LIKE 通配符、命令行参数与环境变量名、
+  URL/端口、ISO UTC 时间戳、schema 版本号与数据目录路径）、术语替换表与三个页面的信息层级；
+  AGENTS.md 引用该规范（违反属设计缺陷）。据此重做三页：
+  ① 库总览：行动条改「查看待复核条目」「获取最新法规」，语料目录/启动参数/schema 版本收进
+  「技术信息」折叠，获取记录显示本机时间并把 `成功 0` 如实写成「本轮没有新增内容」；
+  ② 人工复核：三步层级（找到条目 → 看原文与复核记录 → 署名落判），批量条件改真实来源名下拉
+  （新增读侧 `main.App.ConfirmSources()`；`ingest.BulkFilter` 新增 `Source` 精确匹配，
+  桌面端不再走 LIKE），未先干跑不得执行、干跑 0 条不得执行；
+  ③ 获取最新法规（原「数据采集与更新」）：导航与标题改目标语言，常用参数在前，
+  限速/翻页/续接参数进折叠并写明护栏下限（≥2 秒、≥2000 毫秒不得调低），
+  BrowserOS 指引拆成白话 `browser.Guidance` 与技术写法 `browser.GuidanceTech`
+  （后者只在「技术细节」折叠显示，`BrowserStatus` 新增 `technical` 字段）。
+  测试：`browser.TestGuidancePlainLanguage`（指引不得含端点地址/参数名/环境变量名）、
+  `ingest.TestConfirmBulkSourceExact`（来源名精确匹配、通配符按字面命中 0）、
+  `desktop.TestBrowserStatusAndGovcnLists` 增断言 `technical` 非空。
 
 
 ---

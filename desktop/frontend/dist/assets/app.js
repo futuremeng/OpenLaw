@@ -1,7 +1,8 @@
 // app.js 「开源法律法规数据库」前端逻辑：
 //   公众模式（默认）：查法规（搜索为中心）+ 按目录浏览（类别→法规→条款）；
-//   专业模式：库总览 / 法规检索 / 人工复核 / 数据采集与更新。
+//   专业模式：库总览 / 法规检索 / 人工复核 / 获取最新法规 / 地域标引。
 // 全部数据经 api.js → Go 只读/受控写路径，前端不做任何裁决。
+// 用户可见文案遵守 docs/design-ui-language.md（目标语言、渐进披露、诚实展示）。
 "use strict";
 
 const $ = (s) => document.querySelector(s);
@@ -61,7 +62,7 @@ $("#mode-pro").addEventListener("click", () => { mode = "pro"; localStorage.setI
 
 /* ---------- 共享组件：徽章 / 法规要素 / 预览 / 引用格式 ---------- */
 const FLAG_TEXT = { inferred_date: "公布日期由文本推断", whole_text: "全文未分条", no_publish_date: "缺少公布日期" };
-const KIND_TEXT = { "govcn-import": "官方原文获取", "govlist-browse": "官方规章目录抓取", "pack-build": "生成数据包", "pack-verify": "校验数据包", "pack-import": "导入数据包" };
+const KIND_TEXT = { "govcn-import": "获取官方原文", "govlist-browse": "获取官方规章目录", "pack-build": "生成数据包", "pack-verify": "校验数据包", "pack-import": "导入数据包" };
 const SRC_TEXT = { govcn: "国家行政法规库", govgz: "国家规章库", govlocal: "地方规章", govlist: "规章目录", batch: "批量导入" };
 
 function statusBadge(s) {
@@ -90,7 +91,7 @@ function citationOf(p, articleNo) {
   if (p.expire_date) n.push(p.expire_date + " 失效");
   if (p.version_no) n.push("版本：" + p.version_no);
   if (n.length) s += "（" + n.join("，") + "）";
-  return s + "。摘自开源法律法规数据库（官方渠道抓取留证），引用前请核对官方原文。";
+  return s + "。摘自开源法律法规数据库（官方渠道获取留证），引用前请核对官方原文。";
 }
 function legalHTML(p, articleNo) {
   return `<div class="pv">
@@ -683,26 +684,33 @@ async function rgBulkApply() {
 $("#rg-b-preview").addEventListener("click", rgBulkPreview);
 $("#rg-b-apply").addEventListener("click", rgBulkApply);
 
-/* ---------- 专业 · 数据采集与更新 ---------- */
+/* ---------- 专业 · 获取最新法规（状态 → 常用参数 → 高级参数 → 高级设置） ---------- */
 async function loadSources() {
   try {
     const v = await app().Status();
     const lf = v.last_fetch || {};
     const srcs = [["govcn", "国家行政法规库"], ["govgz", "国家规章库"], ["govlocal", "地方规章"]];
-    $("#src-cards").innerHTML = srcs.map((s) => `<div class="card"><b>${escapeHTML(lf[s[0]] ? lf[s[0]].slice(0, 10) : "尚未抓取")}</b><span>${s[1]}</span></div>`).join("");
+    // 缺失如实说「尚未获取」并说明这意味着什么（不渲染占位数字）。
+    $("#src-cards").innerHTML = srcs.map((s) => `<div class="card"><b>${escapeHTML(lf[s[0]] ? fmtWhen(lf[s[0]]).slice(0, 10) : "尚未获取")}</b><span>${s[1]}</span><span>${lf[s[0]] ? "最近获取 " + fmtWhen(lf[s[0]]) + "（本机时间）" : "本机还没有这个来源的法规"}</span></div>`).join("");
     const bs = await app().BrowserStatus();
-    $("#browser-hint").textContent = bs.enabled ? "BrowserOS 已连接，可抓取官方规章目录。" : (bs.guidance || "BrowserOS 未配置，目录抓取不可用。");
+    $("#browser-hint").textContent = bs.enabled
+      ? "已连上辅助浏览工具，可以获取官方规章目录。"
+      : (bs.guidance || "尚未连上辅助浏览工具，暂时不能获取官方规章目录。");
+    $("#browser-tech").innerHTML = bs.technical ? `<span>${escapeHTML(bs.technical)}</span>` : "";
     const lists = (await app().GovcnLists()) || [];
-    $("#g-list").innerHTML = lists.map((l) => `<option value="${escapeHTML(l.path)}">${escapeHTML(l.name || l.path)}</option>`).join("") || '<option value="">（未找到已导出清单文件）</option>';
+    $("#g-list").innerHTML = lists.map((l) => `<option value="${escapeHTML(l.path)}">${escapeHTML(l.name || l.path)}</option>`).join("") || '<option value="">（本机还没有已导出的目录清单）</option>';
+    $("#g-list-hint").textContent = lists.length ? "" :
+      "没有目录清单就无法逐条获取：先在右侧「获取官方规章目录」拿到目录，或用随附的浏览器导出脚本把清单放进本机数据目录。";
   } catch (e) { $("#src-cards").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
 }
 let taskTimer = null;
 function renderTasks(tasks) {
   const st = { running: "进行中", done: "完成", failed: "失败", cancelled: "已取消" };
+  // 参数回显串属技术细节：只挂在 title 里，不在正文铺开（时间显示本机时间）。
   $("#task-list").innerHTML = (tasks || []).map((t) => `
-    <div class="task ${escapeHTML(t.state)}"><b>${escapeHTML(KIND_TEXT[t.kind] || t.kind)} #${t.id}</b><span class="state">${st[t.state] || escapeHTML(t.state)}</span>
+    <div class="task ${escapeHTML(t.state)}"${t.params ? ' title="参数：' + escapeHTML(t.params) + '"' : ""}><b>${escapeHTML(KIND_TEXT[t.kind] || t.kind)} #${t.id}</b><span class="state">${st[t.state] || escapeHTML(t.state)}</span>
     <div class="m">${escapeHTML(t.progress || t.detail || "")}</div>
-    <div class="m">${escapeHTML(t.started_at)}${t.ended_at ? " → " + escapeHTML(t.ended_at) : ""} · ${escapeHTML(t.params)}</div></div>`).join("") || '<p class="muted">暂无任务记录。</p>';
+    <div class="m">${fmtWhen(t.started_at)}（本机时间）开始${t.ended_at ? " · " + fmtWhen(t.ended_at) + " 结束" : ""}</div></div>`).join("") || '<p class="muted">暂无任务记录。</p>';
 }
 async function loadTasks() { try { renderTasks(await app().TaskList()); } catch (e) { /* 绑定未就绪 */ } }
 function loadTasksTick() {
@@ -739,7 +747,7 @@ async function loadManifest() {
     $("#manifest-box").innerHTML = m.exists
       ? `<span>完整性档案：${m.verify_err ? "校验未通过 — " + escapeHTML(m.verify_err) : "校验通过 ✓"}</span>
          <span>生成时间 ${escapeHTML(m.generated_at)} · 文件 ${num(m.files)} 个</span>
-         <span>来源版本 ${escapeHTML(m.producer_version || "未知")} · 数据库版本 ${escapeHTML(m.schema_version || "?")} · 许可 ${escapeHTML(m.license || "—")}</span>`
+         <span>来源版本 ${escapeHTML(m.producer_version || "未知")} · 数据格式版本 ${escapeHTML(m.schema_version || "?")} · 许可 ${escapeHTML(m.license || "—")}</span>`
       : '<span class="bad">完整性档案缺失</span><span>尚未生成离线数据包（CLI：openlaw-pack build），数据自检仅做留证完整性扫描。</span>';
   } catch (e) { $("#manifest-box").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
 }
@@ -767,8 +775,8 @@ $("#btn-risk-reload").addEventListener("click", async () => { await app().Reload
 async function loadSettings() {
   try {
     const v = await app().Status();
-    $("#settings-box").innerHTML = `<span>数据目录：${escapeHTML(v.data_dir)}</span>
-      <span>数据库版本 ${escapeHTML(v.schema_version || "?")}（本程序支持 ${escapeHTML(v.schema_min)}–${escapeHTML(v.schema_max)}）</span>
+    $("#settings-box").innerHTML = `<span>数据存放位置：${escapeHTML(v.data_dir)}</span>
+      <span>数据格式版本 ${escapeHTML(v.schema_version || "?")}（本程序支持 ${escapeHTML(v.schema_min)}–${escapeHTML(v.schema_max)}）</span>
       <span>数据来源版本：${escapeHTML(v.producer_version || "未知")}</span>`;
   } catch (e) { /* 已在别处报错 */ }
 }

@@ -27,6 +27,10 @@ func TestBrowserStatusAndGovcnLists(t *testing.T) {
 	if st["enabled"] != false || st["guidance"] == "" {
 		t.Fatalf("端点未配置应如实报告不可用+指引: %v", st)
 	}
+	// 指引与写法分开：guidance 是白话下一步，technical 是端点/参数写法（界面只放「技术细节」）。
+	if st["technical"] == nil || st["technical"].(string) == "" {
+		t.Errorf("BrowserStatus 应给出 technical 技术写法供「技术细节」显示: %v", st)
+	}
 	if _, err := a.StartGovListTask(GovListTaskOptions{}); err == nil {
 		t.Fatal("BrowserOS 端点未配置必须拒绝（默认离线纪律，绝不降级抓取）")
 	}

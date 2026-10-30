@@ -15,8 +15,13 @@ import (
 	"time"
 )
 
-// Guidance 连接失败/未启用时统一给出的修复指引（面向用户文案）。
-const Guidance = "BrowserOS neo 不可用：① 启动 BrowserOS neo；② 新标签页 → 侧栏 MCP → 复制顶部端点 URL（本机回环地址，端口随构建变化，如 http://127.0.0.1:9211/mcp）；③ 经 -endpoint 参数或环境变量 OPENLAW_BROWSEROS_ENDPOINT 传入。禁止回退到其他抓取方式。"
+// Guidance 连接失败/未启用时统一给出的修复指引：面向用户，只给可照做的步骤，
+// 不含端点形态、参数名与环境变量名（那些进 GuidanceTech，界面只放「技术细节」折叠）。
+const Guidance = "本机还没有连上辅助浏览工具，暂时不能获取官方规章目录。可以这样做：① 启动 BrowserOS neo；② 在它里面新建标签页，打开侧栏的 MCP 面板，复制顶端显示的地址；③ 把这个地址交给本程序（由启动时的技术设置传入，界面「技术细节」里有写法）。连上后回到本页重试。本程序不会改用其他获取方式。"
+
+// GuidanceTech 技术细节：端点形态、参数名与环境变量名。按 docs/design-ui-language.md，
+// 这类内容只允许出现在界面「技术细节 / 高级设置」折叠内。
+const GuidanceTech = "端点是本机回环地址，端口随构建变化（例如 http://127.0.0.1:9211/mcp）；可用 -endpoint 参数或环境变量 OPENLAW_BROWSEROS_ENDPOINT 传入。"
 
 // requiredTools 能力依赖的最小工具面（实测 neo 0.0.80；清单浏览所需）。
 var requiredTools = []string{"tabs", "read", "grep", "evaluate"}

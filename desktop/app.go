@@ -534,14 +534,15 @@ func (a *App) TaskList() []TaskInfo { return a.tm.Tasks() }
 // CancelTask 请求取消当前采集任务。
 func (a *App) CancelTask() bool { return a.tm.Cancel() }
 
-// BrowserStatus BrowserOS 代理浏览通道状态（只读环境配置，不主动联网探测）。
+// BrowserStatus 辅助浏览通道状态（只读环境配置，不主动联网探测）。
+// guidance 是白话下一步做法；technical 是端点形态与参数名，界面只放「技术细节」折叠。
 func (a *App) BrowserStatus() map[string]any {
 	b := browser.NewBrowserOS(os.Getenv("OPENLAW_BROWSEROS_ENDPOINT"))
 	guide := ""
 	if !b.Enabled() {
 		guide = browser.Guidance
 	}
-	return map[string]any{"enabled": b.Enabled(), "guidance": guide}
+	return map[string]any{"enabled": b.Enabled(), "guidance": guide, "technical": browser.GuidanceTech}
 }
 
 // GovcnLists 可选的已导出清单（incoming/*/list*.json，最近在前）。

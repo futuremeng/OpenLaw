@@ -21,7 +21,7 @@
       <button class="nav" data-panel="search" data-mode="pro" hidden>法规检索</button>
       <button class="nav" data-panel="confirm" data-mode="pro" hidden>人工复核</button>
       <button class="nav" data-panel="region" data-mode="pro" hidden>地域标引</button>
-      <button class="nav" data-panel="collect" data-mode="pro" hidden>数据采集与更新</button>
+      <button class="nav" data-panel="collect" data-mode="pro" hidden>获取最新法规</button>
     </nav>
     <div id="region-bar">
       <div id="region-text" class="muted">正在读取地区…</div>
@@ -54,7 +54,7 @@
       <div id="h-results" class="cards results"></div>
       <details class="disclose">
         <summary>数据来源与使用说明</summary>
-        <p class="muted">本库法规原文抓取自国务院「国家行政法规库」「国家规章库」等官方网站，并保留抓取时间与原文链接供核对。
+        <p class="muted">本库法规原文获取自国务院「国家行政法规库」「国家规章库」等官方网站，并保留获取时间与原文链接供核对。
         标注「尚未复核」的条目尚未经人工与官方原文逐条比对，引用前请以官网文本为准。
         本工具为开源辅助工具，不构成法律意见。</p>
       </details>
@@ -209,40 +209,57 @@
       </div>
     </section>
 
-    <!-- 专业 · 数据采集与更新 -->
+    <!-- 专业 · 获取最新法规：状态 → 常用参数 → 高级参数 → 高级设置（docs/design-ui-language.md） -->
     <section id="panel-collect" class="panel hidden">
-      <h2>官方渠道状态</h2>
+      <h2>官方来源状态</h2>
       <div id="src-cards" class="cards"></div>
       <h2>进行中的任务</h2>
       <div class="toolbar">
         <button id="btn-cancel-task" class="warn">取消当前任务</button>
-        <span class="muted">同一时间只运行一个采集任务；中断时已获取部分如实保留。</span>
+        <span class="muted">同一时间只运行一个获取任务；中断时已获取的部分会如实保留。</span>
       </div>
       <div id="task-list" class="tasks"></div>
       <div class="cols">
         <div>
-          <h2>官方原文获取（已导出目录 → 抓取全文）</h2>
+          <h2>获取官方原文（按已导出的目录逐条获取）</h2>
           <div class="form">
-            <label>抓取通道 <select id="g-source"><option value="xzfgk">国家行政法规库</option><option value="gzk">国家规章库</option></select></label>
+            <label>获取来源 <select id="g-source"><option value="xzfgk">国家行政法规库</option><option value="gzk">国家规章库</option></select></label>
             <label>目录清单 <select id="g-list"></select></label>
-            <label>抓取间隔（秒，≥2） <input id="g-delay" type="number" value="2" min="2"/></label>
-            <label>本次上限（0=全部） <input id="g-limit" type="number" value="20" min="0"/></label>
-            <label class="chk"><input id="g-dry" type="checkbox" checked/> 试采（只留存原文，不写入数据库）</label>
-            <label class="chk"><input id="g-local" type="checkbox"/> 含地方政府站点</label>
+            <label>本次获取条数（0 = 不限） <input id="g-limit" type="number" value="20" min="0"/></label>
+            <label class="chk"><input id="g-dry" type="checkbox" checked/> 先试取（只保存原文，不写入法规库）</label>
+            <p id="g-list-hint" class="muted small"></p>
             <button id="btn-govcn" class="ok">开始获取</button>
           </div>
+          <details class="disclose">
+            <summary>获取速度等参数（默认已按官方可接受的速度设好）</summary>
+            <div class="form">
+              <label>每条之间间隔（秒，不少于 2） <input id="g-delay" type="number" value="2" min="2"/></label>
+              <label class="chk"><input id="g-local" type="checkbox"/> 同时获取地方政府网站</label>
+              <p class="muted small">间隔不得低于 2 秒：这是不打扰官方网站的护栏，不能调低。</p>
+            </div>
+          </details>
         </div>
         <div>
-          <h2>官方规章目录抓取（需 BrowserOS 辅助浏览）</h2>
+          <h2>获取官方规章目录（需辅助浏览工具）</h2>
           <div class="form">
             <label>类别 <select id="l-cat"><option value="">全部（部门+地方政府）</option><option>部门规章</option><option>地方政府规章</option></select></label>
-            <label>页数上限（≤200） <input id="l-pages" type="number" value="10" min="1" max="200"/></label>
-            <label>起始页（续接上次） <input id="l-start" type="number" value="1" min="1"/></label>
-            <label>翻页间隔 ms（≥2000） <input id="l-delay" type="number" value="2500" min="2000"/></label>
-            <label>连续空白页停止 <input id="l-empty" type="number" value="10" min="1"/></label>
-            <button id="btn-govlist" class="ok">开始抓取目录</button>
+            <label>获取页数（不超过 200 页） <input id="l-pages" type="number" value="10" min="1" max="200"/></label>
+            <button id="btn-govlist" class="ok">开始获取目录</button>
           </div>
           <p id="browser-hint" class="muted"></p>
+          <details class="disclose">
+            <summary>翻页与续接参数</summary>
+            <div class="form">
+              <label>从第几页继续 <input id="l-start" type="number" value="1" min="1"/></label>
+              <label>每页之间间隔（毫秒，不少于 2000） <input id="l-delay" type="number" value="2500" min="2000"/></label>
+              <label>连续空白页达到几页后停止 <input id="l-empty" type="number" value="10" min="1"/></label>
+              <p class="muted small">每页间隔不得低于 2000 毫秒：这是不打扰官方网站的护栏，不能调低。</p>
+            </div>
+          </details>
+          <details class="disclose">
+            <summary>技术细节（辅助浏览工具的地址与参数写法）</summary>
+            <div id="browser-tech" class="kv"></div>
+          </details>
         </div>
       </div>
       <details class="disclose adv">
@@ -272,7 +289,7 @@
         <h3>关于</h3>
         <div id="about-box" class="kv">
           <span><b>开源法律法规数据库</b>（OpenLaw）：收录国家行政法规库、国家规章库等官方渠道法规原文的开源辅助工具。</span>
-          <span>法规原文均保留官方链接与抓取留证，供逐字核对；「尚未复核」条目未经人工比对，引用前请以官网文本为准。</span>
+          <span>法规原文均保留官方链接与获取留证，供逐字核对；「尚未复核」条目未经人工比对，引用前请以官网文本为准。</span>
           <span class="muted">本工具为开源软件，不构成法律意见；数据许可与来源署名见完整性档案（manifest）。</span>
         </div>
       </details>
