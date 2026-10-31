@@ -539,7 +539,10 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   `#panel-pack`（唯一落点；`packWatch` 跟踪导入任务到终态如实回显并刷新计数）。门禁同步：
   `TestThreeColumnAgentReviewUI` 新增工作区 / setup / pack 唯一落点断言与模式控件禁用；
   `wiring_smoke.mjs` 桩元素补 id（面板显隐断言此前在桩内恒失效——桩缺陷而非前端缺陷）、
-  新增空库开关与 6 条工作区/初始化断言。
+  新增空库开关与 6 条工作区/初始化断言。**同日修复**：`.nav`/`.nav-group` 自带
+  `display:flex` 盖过 UA 的 `[hidden]{display:none}`，收起的维护子导航原样显示在常规
+  界面——样式层补全局 `[hidden]{display:none!important}`，`ui_contract_test.go` 补该
+  规则的回归断言。
 
 
 

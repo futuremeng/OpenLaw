@@ -191,6 +191,11 @@ func TestThreeColumnAgentReviewUI(t *testing.T) {
 			t.Errorf("样式缺少 %s——智能体确认与人工确认必须区别显示，右列详情与维护入口必须有布局规则", want)
 		}
 	}
+	// hidden 属性必须真生效：自带 display 的类（.nav/.nav-group）会盖过 UA 的
+	// [hidden]{display:none}，缺这条样式，收起的维护子导航会显示在常规界面上。
+	if !regexp.MustCompile(`\[hidden\]\s*\{\s*display:\s*none`).MatchString(css) {
+		t.Errorf("样式缺少 [hidden] { display: none } 规则——带 hidden 属性的维护子导航会原样显示")
+	}
 }
 
 // sectionOf 取 <section id="name" ...> 到下一个 <section 或 </main> 之间的片段。

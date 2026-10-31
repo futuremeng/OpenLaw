@@ -48,6 +48,10 @@ body {
 }
 #layout { display: flex; min-height: 100vh; }
 .hidden { display: none !important; }
+/* hidden 属性必须真生效：.nav/.nav-group 等自带 display 的类会盖过浏览器 UA 的
+   [hidden]{display:none}（作者样式恒胜 UA 样式）——不加这条，收起的维护子导航
+   会原样显示在常规界面里。 */
+[hidden] { display: none !important; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; line-height: 1.55; }
 .bad, .err { color: var(--bad); white-space: pre-wrap; }
