@@ -509,6 +509,24 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   `browseOrder` 把未标注排到最后并在脚注声明，新增 `TestBrowseLawListOrdersUnlabeledLast`。
   **下一步**：打包 `.app` 内逐面板手工冒烟（顶栏状态随获取任务变化、分面折叠记忆、阅读控制
   记忆、浅色/深色两套下的图标与发丝分隔），以及多法域（美国数据）设计文档。
+- **三栏重构 · 智能审核（2026-10-30，双智能体自审 → 人工只纠正例外）**：界面改为三栏——
+  左列 `#side`（导航 + 筛选栏，仅「按条件筛选」展开）、中列 `main`（顶栏 + 面板列表）、
+  右列 `#detail`（共享详情：原文 / 条文核对 / 例外详情，阅读控制移挂详情头，
+  「一键纠正」工具条 `#fix-bar` 只在例外详情下出现；窄窗口先收窄再改浮层）。
+  「人工复核」面板由「智能审核」`#panel-review` 取代（设计成文 `docs/design-agent-review.md`）：
+  双智能体（分类 + 核对）自审，两项置信度都达门槛（`agent.DefaultMinConfidence`=0.85）才
+  自动确认（`document.confirm_source=agent`，schema v5），拿不准、调用失败、留痕不合格式
+  一律 escalate 进例外队列；人工唯一动作是右列一键确认/驳回（`CorrectDoc`，署名固定
+  「本机用户（人工纠正）」、结论依据必填）；每次审核都写 `agent_review` 留痕（原始 JSON）。
+  诚实展示：统计与徽章三口径分列——智能体确认（`.badge.agent`）/ 人工确认（`.badge.human`）/
+  历史确认（来源未记录，中性徽章，不得冒充）；「需要您纠正」与「尚未审核」分开计数。
+  技术操作退出常规界面：复核人/批量落判控件、数据包路径输入（改 `PickUpdatePack` 系统
+  文件夹选择器）、构建签名包、重载缓存按钮移除（构建与批量留 CLI）；限速/起始页/连续
+  空白页护栏参数由程序固定。门禁同步：`ui_contract_test.go` 的 `TestBrowseFilterRailIsPrimary`
+  改为 `TestFilterRailLivesInLeftColumn` 并新增 `TestThreeColumnAgentReviewUI`（旧控件回流
+  即失败）；`wiring_smoke.mjs` 改跑智能审核路径（`AgentStatus`/`AgentStats`/`ExceptionList`
+  桩，断言统计分开计数、例外队列给出没把握原因、通道回显）。**下一步**：打包 `.app` 内
+  手工冒烟智能审核全链路（配置通道 → 开始审核 → 例外纠正 → 徽章与统计联动）。
 
 
 
