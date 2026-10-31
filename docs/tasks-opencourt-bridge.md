@@ -562,6 +562,19 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   pack_id/kind/total/imported/skipped；桌面 `StartPackImportTask` 如实汇报导入/跳过。
   测试：`pack/split_test.go`（地域切分/日期窗口/台账幂等/旧包回退/冲突中止）+
   `store/migrate_test.go` v5→v6 真实链路。
+- **基础包/增量包分发 · 第二、三步（归档目录 + 远程安装，2026-10-31）**：
+  `pack/archive.go`（zip 归档/解包：zip-slip 拒绝、拒覆盖半成品）；`pack/catalog.go`
+  （index.json+index.sig：与包同一 Ed25519 模型、公钥在签名体内须命中受信名单、
+  条目身份取自包内已签名 manifest、旧整包拒入目录）；`pack/fetch.go`（GitHub latest
+  API → 目录 → 归档 sha256 复核 → 暂存复用 → `InstallPacks` 基础包先行串行安装，
+  中断如实保留、台账续跑）；`pack/official.go`（官方发布者名单内置钩子：空名单 =
+  未发版如实拒收）。桌面 `PackCatalogRefresh`/`StartRemoteInstallTask` 绑定 +
+  初始化面板改造（目录勾选安装优先，离线导入与逐条获取折叠兜底）；
+  `KIND_TEXT` 补「安装数据包」。测试：`pack/catalog_test.go`（归档往返/zip-slip/
+  目录门禁/篡改验签失败）、`pack/fetch_test.go`（httptest 端到端：目录拉取、乱序选包
+  按基础/增量排序安装、重跑全跳过、哈希不符拒收不留半成品、未受信目录拒收）；
+  冒烟补目录渲染两条断言；契约测试补新元素与绑定断言。README/release-process 同步
+  发版流水线（GitHub Release 资产 + 公钥内置）。
 
 
 

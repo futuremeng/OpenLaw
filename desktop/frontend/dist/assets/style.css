@@ -191,6 +191,10 @@ button.card { text-align: left; font: inherit; color: inherit; cursor: pointer; 
 /* 初始化面板：路线卡片自带一个去处按钮；空库提示紧贴搜索框。 */
 #panel-setup .card { max-width: 420px; }
 #panel-setup .card button { margin-top: 10px; }
+/* 官方数据包目录行：勾选 + 名称 + 计数/大小（渐进披露：一行一包，细节一行内） */
+#panel-setup .pack-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+#panel-setup .pack-row:last-child { border-bottom: 0; }
+#panel-setup .pack-row .muted { margin-left: auto; }
 #h-empty { margin: 12px 0 0; }
 #h-empty button { margin-left: 8px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0; padding: 12px 14px; background: var(--warn-soft); border: 1px solid var(--warn); border-radius: var(--r); }

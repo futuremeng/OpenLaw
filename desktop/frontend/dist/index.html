@@ -150,11 +150,23 @@
         <p class="lead">本机法规库还是空的。先获取数据，再开始查询——获取与校验全部在您本机完成，是否联网由您点按钮决定。</p>
       </header>
       <p id="su-status" class="muted">正在读取本机状态…</p>
-      <h2>第一步 · 获取法规数据<span class="sub">二选一</span></h2>
-      <div class="hero-cards">
-        <div class="card"><b>导入离线更新包</b><span>推荐：从他人分享的完整数据包导入（U 盘、共享文件夹均可）；导入前自动校验完整性与来源。</span><button id="su-go-pack" class="ok">去导入更新包</button></div>
-        <div class="card"><b>从官方渠道获取</b><span>连接国务院官方库逐条获取原文；获取官方规章目录需要辅助浏览工具，速度有不打扰官方的护栏。</span><button id="su-go-collect">去获取最新法规</button></div>
+      <h2>第一步 · 获取法规数据<span class="sub">推荐：从官方数据包安装</span></h2>
+      <div class="toolbar">
+        <button id="su-catalog-refresh" class="ok">刷新官方目录</button>
+        <span id="su-catalog-info" class="muted">尚未获取目录——是否联网由您按下这个按钮决定。</span>
       </div>
+      <div id="su-catalog" class="list"><p class="muted">获取目录后，这里列出可按需勾选的数据包：基础包按地域分、增量包按日期分。</p></div>
+      <div class="toolbar">
+        <button id="su-install" class="ok" disabled>安装勾选的数据包</button>
+        <span id="su-sel" class="muted">未勾选数据包。</span>
+      </div>
+      <details class="disclose">
+        <summary>其他方式：导入离线更新包 · 从官方渠道逐条获取</summary>
+        <div class="hero-cards">
+          <div class="card"><b>导入离线更新包</b><span>从他人分享的完整数据包导入（U 盘、共享文件夹均可）；导入前自动校验完整性与来源。</span><button id="su-go-pack" class="ok">去导入更新包</button></div>
+          <div class="card"><b>从官方渠道获取</b><span>连接国务院官方库逐条获取原文；获取官方规章目录需要辅助浏览工具，速度有不打扰官方的护栏。</span><button id="su-go-collect">去获取最新法规</button></div>
+        </div>
+      </details>
       <h2>第二步 · 智能审核<span class="sub">可选 · 不配置也能用</span></h2>
       <p id="su-agent" class="muted">正在读取智能审核通道状态…</p>
       <h2>完成后</h2>

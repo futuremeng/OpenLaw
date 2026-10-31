@@ -118,6 +118,12 @@ const data = {
   BrowserStatus: () => ({ enabled: false, guidance: '请打开辅助浏览工具后重试。', technical: 'endpoint http://127.0.0.1:9211/mcp' }),
   GovcnLists: () => [],
   ManifestStatus: () => ({ exists: false }),
+  // 官方数据包目录（远程分发通道）：冒烟里桩一份两包目录（国家级基础包 + 日期增量包），
+  // 验证渲染路径与法言法语标签；联网动作本身不在冒烟内发生。
+  PackCatalogRefresh: () => ({ generated_at: '2026-10-30T00:00:00Z', packs: [
+    { pack_id: 'base-cn-2026', kind: 'base', regions: ['CN'], since: '', until: '', doc_count: 12345, size: 10485760 },
+    { pack_id: 'delta-20260101-20260331', kind: 'delta', regions: [], since: '2026-01-01', until: '2026-03-31', doc_count: 88, size: 1048576 },
+  ] }),
   SearchArticles: () => [{ doc_id: 'D1', law_name: '工伤保险条例', level: '行政法规', confirm_status: 'pending', snippet: '…工伤…', article_no: '第一条' }],
 };
 const App = new Proxy({}, { get: (t, k) => async (...args) => (k in data ? data[k](...args) : []) });
@@ -196,6 +202,10 @@ const g = (id) => byId.get(id);
   await ctx.loadSetup();
   const setupDoneLine = g('su-status').textContent;
   const goEnabled = g('su-go-home').disabled === false;
+  // 官方数据包目录：桩目录渲染为基础包/增量包两类标签（法言法语，不露 kind 黑话）。
+  await ctx.loadPackCatalog();
+  const catalogHTML = g('su-catalog').innerHTML;
+  const catalogInfo = g('su-catalog-info').textContent;
   // 复位顶栏/徽标态：工作区场景里总览面板重设过待复核徽标，此处恢复「为 0 即收起」的核对基线。
   ctx.setSideFoot({ laws: 1, pending: 0 });
   const report = {
@@ -245,6 +255,8 @@ const g = (id) => byId.get(id);
     '初始化面板如实报空库': setupEmptyLine.includes('还是空的（0 部法规）'),
     '空库时不得装作可查询': goDisabled,
     '库非空初始化如实报完成': setupDoneLine.includes('初始化已完成') && goEnabled,
+    '数据包目录渲染基础包/增量包': catalogHTML.includes('基础包 · 全国') && catalogHTML.includes('增量包 · 2026-01-01 至 2026-03-31 公布'),
+    '数据包目录如实报更新时间': catalogInfo.includes('目录已更新') && catalogInfo.includes('2 个包'),
   };
   const failed = Object.entries(report).filter(([, v]) => v === false).map(([k]) => k);
   console.log(JSON.stringify(report, null, 1));

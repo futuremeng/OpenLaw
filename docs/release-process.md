@@ -35,13 +35,31 @@ pack-YYYYMMDD/
 当前已实装：manifest 生成 + Ed25519 签名/验签（`validate/manifest.go`）+ 包体打包与
 `changes.csv`（`pack/pack.go`；当前 v3 表头含 `region_code`/`region_source`，v0/v1/v2 旧包向后兼容）。
 
-**包模型 v2（基础包/增量包）**：manifest 可选身份字段 `pack_id / kind(base|delta) /
+**包模型 v2（基础包/增量包 + 远程分发）**：manifest 可选身份字段 `pack_id / kind(base|delta) /
 regions / since / until / doc_count`（随签名保护；缺字段 = 旧整包）。切分打包：
 `openlaw-pack build -kind base -regions CN,44 -pack-id base-cn-2026 …` 或
 `-kind delta -since 2026-01-01 -until 2026-03-31`；包内只含清单引用到的文件。
 导入幂等：`pack_log` 台账（schema v6）记录包级安装事实，`status=applied` 的包再导入
-整包跳过；重复条目与库内哈希一致则跳过、不一致中止转人工。分发渠道（GitHub Releases、
-签名 index 与下载通道）见 docs/tasks-opencourt-bridge.md 对应阶段记录，尚未实装。
+整包跳过；重复条目与库内哈希一致则跳过、不一致中止转人工。
+
+发版流水线（GitHub Releases 为官方分发渠道）：
+
+```text
+1. 切分打包   openlaw-pack build -kind base -regions CN  -pack-id base-cn-<YYYYMMDD> -key <私钥> -pack dist/base-cn
+              openlaw-pack build -kind base -regions 44  -pack-id base-44-<YYYYMMDD> …（各省同理）
+              openlaw-pack build -kind delta -since … -until … -pack-id delta-<起-止> …
+2. 归档       openlaw-pack archive -pack dist/base-cn
+3. 签名目录   openlaw-pack index -index dist/index -key <私钥> \
+                -url-base https://github.com/futuremeng/OpenLaw/releases/download/packs-<YYYYMMDD> \
+                dist/*.zip          # 产出 index.json + index.sig（与包同一密钥签名）
+4. 发布       把 index.json、index.sig 与各 zip 作为该 Release 的资产上传；
+              发版流水线同时把公钥内置进 pack/official.go（officialPubkeys）。
+5. 自检       openlaw-pack index-verify -index dist/index
+```
+
+桌面端「初始化法规库」经同一通道刷新目录、勾选安装（基础包在前、增量包按日期，
+串行；每包过目录验签 + 归档哈希 + 包级 VerifyTrusted 三道闸）。名单外公钥一律拒收
+（`ImportAllowUntrusted` 仅限本地自验）。
 
 ## 4. 日常运维（9.2）
 

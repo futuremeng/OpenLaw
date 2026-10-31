@@ -21,6 +21,7 @@ import (
 
 	"github.com/futuremeng/OpenLaw/browser"
 	"github.com/futuremeng/OpenLaw/ingest"
+	"github.com/futuremeng/OpenLaw/pack"
 	"github.com/futuremeng/OpenLaw/search"
 	"github.com/futuremeng/OpenLaw/store"
 	"github.com/futuremeng/OpenLaw/validate"
@@ -41,6 +42,10 @@ type App struct {
 	riskLoad string // 最近一次加载错误（如实展示用）
 
 	tm *TaskManager // 采集任务管理器（单槽互斥，见 tasks.go）
+
+	// 远程数据包目录缓存（packs.go）：仅由用户显式刷新，安装任务据此校验所选包。
+	packsMu      sync.Mutex
+	packsCatalog *pack.Catalog
 }
 
 func NewApp(dataDir string) *App {
@@ -54,6 +59,10 @@ func NewApp(dataDir string) *App {
 }
 
 func (a *App) Open() error {
+	if err := pack.RegisterOfficialKeys(); err != nil {
+		a.openErr = err.Error()
+		return err
+	}
 	if err := os.MkdirAll(filepath.Join(a.dataDir, "db"), 0o755); err != nil {
 		a.openErr = err.Error()
 		return err

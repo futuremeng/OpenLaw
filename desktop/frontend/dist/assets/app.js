@@ -230,7 +230,7 @@ function setNavCount(id, n, warn) {
 
 /* ---------- 共享组件：徽章 / 法规要素 / 预览 / 引用格式 ---------- */
 const FLAG_TEXT = { inferred_date: "公布日期由文本推断", whole_text: "全文未分条", no_publish_date: "缺少公布日期" };
-const KIND_TEXT = { "govcn-import": "获取官方原文", "govlist-browse": "获取官方规章目录", "pack-build": "生成数据包", "pack-verify": "校验数据包", "pack-import": "导入数据包", "agent-review": "智能审核" };
+const KIND_TEXT = { "govcn-import": "获取官方原文", "govlist-browse": "获取官方规章目录", "pack-build": "生成数据包", "pack-verify": "校验数据包", "pack-import": "导入数据包", "pack-install": "安装数据包", "agent-review": "智能审核" };
 const SRC_TEXT = { govcn: "国家行政法规库", govgz: "国家规章库", govlocal: "地方规章", govlist: "规章目录", batch: "批量导入" };
 
 // statusBadge：复核状态徽章。确认来源必须区分显示（诚实展示纪律）：
@@ -692,6 +692,73 @@ async function loadSetupAgent() {
 $("#su-go-pack").addEventListener("click", () => enterMaintain("pack"));
 $("#su-go-collect").addEventListener("click", () => enterMaintain("collect"));
 $("#su-go-home").addEventListener("click", () => showPanel("home"));
+
+/* ---------- 初始化 · 官方数据包目录（GitHub Releases 分发通道） ----------
+   纪律：只有用户按下「刷新官方目录」才联网；目录验签 + 归档哈希复核 + 包级验签
+   三道闸全部在 Go 侧执行，失败原样展示——不渲染空目录冒充可用，不假装已就绪。 */
+let suCatalog = null;
+async function loadPackCatalog() {
+  const info = $("#su-catalog-info");
+  info.textContent = "正在获取官方目录…";
+  try {
+    const c = await app().PackCatalogRefresh();
+    const packs = (c && c.packs) || [];
+    if (!packs.length) {
+      suCatalog = null;
+      $("#su-catalog").innerHTML = '<p class="muted">目录中暂无可安装的数据包。</p>';
+      info.textContent = "目录已获取：暂无数据包。";
+      $("#su-install").disabled = true;
+      return;
+    }
+    suCatalog = c;
+    info.textContent = "目录已更新（" + (c.generated_at || "时间未知") + " · " +
+      packs.length + " 个包）。勾选需要的包再安装。";
+    renderSuCatalog();
+  } catch (e) {
+    suCatalog = null;
+    $("#su-catalog").innerHTML = '<p class="muted">未获取到目录。</p>';
+    info.textContent = "目录获取失败：" + (e.message || e) + "——可稍后重试，或用下方其他方式。";
+    $("#su-install").disabled = true;
+  }
+}
+function suPackLabel(p) {
+  if (p.kind === "delta") return "增量包 · " + (p.since || "?") + " 至 " + (p.until || "?") + " 公布";
+  const rs = (p.regions || []).map((r) => (r === "CN" ? "全国" : "区划 " + r));
+  return "基础包 · " + (rs.length ? rs.join("、") : "全部地域");
+}
+function suFmtMB(n) { return ((Number(n) || 0) / 1048576).toFixed(1) + " MB"; }
+function renderSuCatalog() {
+  $("#su-catalog").innerHTML = (suCatalog.packs || []).map((p) =>
+    `<label class="pack-row"><input type="checkbox" data-pack="${escapeHTML(p.pack_id)}"/><b>${escapeHTML(suPackLabel(p))}</b><span class="muted">${num(p.doc_count)} 条 · ${suFmtMB(p.size)}</span></label>`).join("");
+  updateSuSel();
+}
+function suSelected() {
+  return [...document.querySelectorAll("#su-catalog input[data-pack]")]
+    .filter((b) => b.checked).map((b) => b.getAttribute("data-pack"));
+}
+function updateSuSel() {
+  const ids = suSelected();
+  const btn = $("#su-install");
+  btn.disabled = !ids.length;
+  if (!ids.length) { $("#su-sel").textContent = "未勾选数据包。"; return; }
+  let docs = 0, size = 0;
+  for (const p of ((suCatalog && suCatalog.packs) || [])) {
+    if (ids.includes(p.pack_id)) { docs += Number(p.doc_count) || 0; size += Number(p.size) || 0; }
+  }
+  $("#su-sel").textContent = `已勾选 ${ids.length} 个包（约 ${num(docs)} 条 · ${suFmtMB(size)}）；` +
+    "逐包安装，每包都会校验完整性与来源。";
+}
+$("#su-catalog-refresh").addEventListener("click", loadPackCatalog);
+$("#su-catalog").addEventListener("change", updateSuSel);
+$("#su-install").addEventListener("click", async () => {
+  const ids = suSelected();
+  if (!ids.length) { toast("请先勾选要安装的数据包"); return; }
+  try {
+    const t = await app().StartRemoteInstallTask(ids);
+    toast(`安装任务 #${t.id} 已开始（逐包获取与校验，进度见任务列表）`);
+    loadTasks(); loadTasksTick();
+  } catch (e) { toast("无法开始：" + (e.message || e)); }
+});
 
 /* ---------- 按条件筛选 · 条目行的元信息 ---------- */
 // LEVEL_UNLABELED：Go 侧对空效力等级给出诚实默认值（desktop/browse.go 的 SQL 默认值），

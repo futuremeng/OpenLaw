@@ -42,6 +42,9 @@ func main() {
 		usage()
 	}
 	cmd := os.Args[1]
+	if err := pack.RegisterOfficialKeys(); err != nil {
+		fatal(fmt.Errorf("受信发布者名单装配失败: %w", err))
+	}
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		os.Exit(1)
 	}

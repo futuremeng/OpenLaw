@@ -150,6 +150,7 @@ func TestThreeColumnAgentReviewUI(t *testing.T) {
 		`id="nav-maintain"`, `id="nav-group-main"`, `id="nav-home"`, `id="nav-browse"`, `id="nav-search"`,
 		`id="nav-group-maintain"`, `id="nav-exit-maintain"`,
 		`id="panel-setup"`, `id="su-status"`, `id="su-go-pack"`, `id="su-go-collect"`, `id="su-go-home"`,
+		`id="su-catalog-refresh"`, `id="su-catalog"`, `id="su-install"`, `id="su-sel"`,
 		`id="panel-pack"`, `id="h-empty"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("缺少 %s——三栏布局、智能审核控件、独立维护入口与初始化引导是界面契约", want)
@@ -181,7 +182,8 @@ func TestThreeColumnAgentReviewUI(t *testing.T) {
 		"app().ExceptionList(", "app().CorrectDoc(", "app().PickUpdatePack(",
 		"loadReview(", "statusBadge(s, src)", `src === "agent"`, `src === "human"`,
 		"function enterMaintain(", "function exitMaintain(", "function applyWorkspace(",
-		"function loadSetup(", `showPanel("setup")`, "MAIN_NAV", "MAINTAIN_NAV"} {
+		"function loadSetup(", `showPanel("setup")`, "MAIN_NAV", "MAINTAIN_NAV",
+		"app().PackCatalogRefresh(", "app().StartRemoteInstallTask(", "function loadPackCatalog("} {
 		if !strings.Contains(js, want) {
 			t.Errorf("前端缺少 %s——智能审核的计数、例外与一键纠正必须走同一库层路径；维护工作区与空库引导必须接线", want)
 		}

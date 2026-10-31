@@ -57,7 +57,8 @@ OpenLaw/
     openlaw-ingest/   # CLI：PDF → 哈希 → 溯源 → 文本层提取/拆分 → 入库 → 断链检测
     openlaw-fetch/    # CLI：显式触发的抓取（robots/白名单/大小限制 → 暂存区 → 人工确认；含公报批量两阶段模式）
     openlaw-compare/  # CLI：跨来源同一法律文件一致性核验（字节级 + 文本级双重复核）
-    openlaw-pack/     # CLI：离线更新包 keygen / build / verify / import（完整性 + 来源信任双门禁，失败保留旧数据）
+    openlaw-pack/     # CLI：离线更新包 keygen / build（基础包按地域/增量包按日期切分）/ verify /
+                      #   import（台账幂等）/ archive（zip 归档）/ index·index-verify（签名目录）
     openlaw-scan/     # CLI：存量批量下载包盘点（zip/GBK 解码/SHA-256/文本探测/CSV 报告）
     openlaw-batch/    # CLI：从盘点报告批量导入存量（docx 正文提取/三层去重/版本链自动接续）
     openlaw-confirm/  # CLI：pending 语料人工确认（风险抽样/清单落判/条件批量，全程 review_log 审计）
@@ -72,7 +73,9 @@ OpenLaw/
                 #   按条件筛选/法规检索+修订沿革+引用核验；独立维护工作区（左列底部
                 #   「维护法规库」入口，公众/专业模式切换已撤除）：库总览/
                 #   智能审核（双智能体自审，人工只纠正例外）/地域标引/获取最新法规（原「数据采集与更新」）/
-                #   离线更新包（导入控件唯一落点）；空库启动默认进入「初始化法规库」引导；
+                #   离线更新包（导入控件唯一落点）；空库启动默认进入「初始化法规库」引导
+                #   （官方数据包目录按地域/日期勾选安装，GitHub Releases 通道；离线包导入与
+                #   逐条获取为兜底）；
                 #   文案、渐进披露与
                 #   界面结构遵守 docs/design-ui-language.md：每屏一个页头（处境一句话 + 主行动）、
                 #   顶栏常驻当前位置与本机状态（法规库总数、待复核提醒、进行中的获取任务、
