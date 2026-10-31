@@ -24,7 +24,10 @@ import (
 // 见 docs/design-agent-review.md。
 // v6（2026-10）：新表 pack_log（更新包安装台账：基础包/增量包按包幂等导入的依据）。
 // 加法式：仅新表经 schemaSQL IF NOT EXISTS 自动补齐，无需结构迁移。
-const SchemaVersion = "6"
+// v7（2026-10）：多法域（docs/design-multi-jurisdiction.md）——law +jurisdiction
+// （CN|EU|US，空=未标注）；effect_level CHECK 扩展美国类别（美国宪法/联邦法律/
+// 联邦规章/行政命令/联邦条约）。改 CHECK 须重建表（同 v2/v3 十二步法，迁移前已自动备份）。
+const SchemaVersion = "7"
 
 // OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
 //   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、
@@ -150,6 +153,9 @@ func migrate(db *sql.DB) error {
 	}
 	if err := upgradeToV5(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v4→v5）: %w", err)
+	}
+	if err := upgradeToV7(db); err != nil {
+		return fmt.Errorf("数据库迁移失败（v6→v7）: %w", err)
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
@@ -319,6 +325,64 @@ func upgradeToV5(db *sql.DB) error {
 		return fmt.Errorf("加列 confirm_source 失败: %w", err)
 	}
 	return nil
+}
+
+// upgradeToV7 多法域（docs/design-multi-jurisdiction.md）：law 重建以扩展
+// effect_level CHECK（美国类别）并新增 jurisdiction 列（SQLite 改 CHECK 须重建表，
+// 同 v2/v3 十二步法；结构迁移前已自动备份，见 backup.go）。
+// 判定依据：law 表是否已有 jurisdiction 列（全新库由 schemaSQL 直接建 v7 结构）。
+// 回填为机器推断（依据充分、如实标注于注释）：欧盟三类效力或带 eli/celex → EU；
+// 其余 → CN（v6 及以前的语料全部来自中国官方渠道与欧盟 Cellar 通道，无美国条目）。
+func upgradeToV7(db *sql.DB) error {
+	if ok, _ := hasColumn(db, "law", "law_id"); !ok {
+		return nil // 全新库（或空库），schemaSQL 直接建 v7 结构
+	}
+	if ok, _ := hasColumn(db, "law", "jurisdiction"); ok {
+		return nil // 已是 v7
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmts := []string{
+		`CREATE TABLE law_v7 (
+  law_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  short_name TEXT,
+  issuer TEXT,
+  effect_level TEXT CHECK (effect_level IN ('宪法','法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定','美国宪法','联邦法律','联邦规章','行政命令','联邦条约')),
+  is_local INTEGER NOT NULL DEFAULT 0,
+  remark TEXT,
+  eli TEXT,
+  celex TEXT,
+  region_code TEXT,
+  region_source TEXT,
+  region_rule TEXT,
+  region_reviewer TEXT,
+  region_reviewed_at TEXT,
+  jurisdiction TEXT
+)`,
+		`INSERT INTO law_v7 (law_id,name,short_name,issuer,effect_level,is_local,remark,eli,celex,region_code,region_source,region_rule,region_reviewer,region_reviewed_at)
+   SELECT law_id,name,short_name,issuer,effect_level,is_local,remark,eli,celex,region_code,region_source,region_rule,region_reviewer,region_reviewed_at FROM law`,
+		`UPDATE law_v7 SET jurisdiction='EU' WHERE effect_level IN ('欧盟条例','欧盟指令','欧盟决定') OR COALESCE(eli,'')<>'' OR COALESCE(celex,'')<>''`,
+		`UPDATE law_v7 SET jurisdiction='CN' WHERE jurisdiction IS NULL`,
+		`DROP TABLE law`,
+		`ALTER TABLE law_v7 RENAME TO law`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			return fmt.Errorf("%v（语句: %.60s…）", err, s)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`PRAGMA foreign_keys=ON`)
+	return err
 }
 
 // CheckVersionOverlap 版本时效区间重叠检查（开发文档 13.3）。

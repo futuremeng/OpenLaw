@@ -460,11 +460,11 @@ $("#btn-region-trial").addEventListener("click", async () => {
 // browseFilter 是浏览页唯一的筛选状态。日常浏览常用「效力等级 + 地区」两个维度，
 // 需要时可再叠加复核状态、来源、公布年代——同一套条件、同一条 SQL 口径
 // （Go 侧 BrowseLawList 与 BrowseFacets 共用 browseWhere，计数与列表不会两说）。
-const browseFilter = { level: "", confirm: "", source: "", year: "", region: "" };
+const browseFilter = { level: "", juris: "", confirm: "", source: "", year: "", region: "" };
 
 function browseArgs(limit, offset) {
   return {
-    level: browseFilter.level, confirm: browseFilter.confirm, source: browseFilter.source,
+    level: browseFilter.level, juris: browseFilter.juris, confirm: browseFilter.confirm, source: browseFilter.source,
     year: browseFilter.year, region: browseFilter.region,
     kw: $("#b-kw").value.trim(), limit: limit || 300, offset: offset || 0,
   };
@@ -472,7 +472,7 @@ function browseArgs(limit, offset) {
 
 // 分面组：可折叠。组头给出「本维度已选什么 / 共有多少可选值」，折叠状态记住——
 // 年代、来源这类长维度默认收起，常用的类别与地区默认展开（筛选栏不必长成一条竖河）。
-const GROUP_DEFAULT = { level: true, confirm: true, year: false, source: false, region: true };
+const GROUP_DEFAULT = { level: true, juris: true, confirm: true, year: false, source: false, region: true };
 let groupOpen = {};
 try { groupOpen = JSON.parse(localStorage.getItem("ol-fgrp") || "{}") || {}; } catch (e) { groupOpen = {}; }
 const groupExpanded = {}; // 「显示全部」只在本次会话内展开，下次进来仍按默认收起
@@ -552,11 +552,12 @@ function facetAdorn(dim, usable, isOn) {
 function renderFacets(v) {
   lastFacets = v || {};
   facetChips("#f-levels", "level", v.levels);
+  facetChips("#f-juris", "juris", v.juris);
   facetChips("#f-confirms", "confirm", v.confirms);
   facetChips("#f-years", "year", v.years, 6);
   facetChips("#f-sources", "source", v.sources, 5);
   facetChips("#f-regions", "region", v.regions, 6, (val) => (browseFilter.region || "").slice(0, 2) === val);
-  ["level", "confirm", "year", "source", "region"].forEach(facetGroup);
+  ["level", "juris", "confirm", "year", "source", "region"].forEach(facetGroup);
   const note = $("#f-region-note");
   if (note) {
     note.textContent = v.unlabeled
@@ -573,6 +574,7 @@ function renderFacets(v) {
 function activeFilterText() {
   const parts = [];
   if (browseFilter.level) parts.push("类别 " + browseFilter.level);
+  if (browseFilter.juris) parts.push("法域 " + { CN: "中国", EU: "欧盟", US: "美国", none: "未标注" }[browseFilter.juris]);
   if (browseFilter.confirm) parts.push("复核状态 " + { confirmed: "已复核确认", pending: "待复核", rejected: "已驳回" }[browseFilter.confirm]);
   if (browseFilter.year) parts.push("公布年代 " + (browseFilter.year === "none" ? "缺失" : browseFilter.year + " 年代"));
   if (browseFilter.source) parts.push("来源 " + browseFilter.source);
@@ -631,7 +633,7 @@ async function loadHome() {
     // 首页卡片即入口：点类别直接进浏览页并带上该筛选，数字与筛选当场对上。
     document.querySelectorAll("#h-cards .card[data-level]").forEach((el) => el.addEventListener("click", () => {
       browseFilter.level = el.dataset.level;
-      browseFilter.confirm = browseFilter.source = browseFilter.year = "";
+      browseFilter.juris = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
       showPanel("browse");
     }));
   } catch (e) { /* 首页卡片失败不阻塞搜索 */ }
@@ -821,7 +823,7 @@ async function openLaw(lawID, name) {
 $("#b-refresh").addEventListener("click", loadLaws);
 // 清空筛选：维度一律复位；地区是全局偏好，一并取消，避免下一次浏览又被悄悄筛掉。
 $("#btn-filter-clear").addEventListener("click", () => {
-  browseFilter.level = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
+  browseFilter.level = browseFilter.juris = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
   if (browseFilter.region) { applyRegion(""); return; }
   loadLaws();
 });
@@ -850,6 +852,27 @@ function renderBars(rows) {
 }
 
 /* ---------- 维护 · 库总览（数字 → 处境 → 下一步；技术信息折叠在页尾） ---------- */
+// renderJuris：分法域恒常三行（中国/欧盟/美国）——计数如实给出；0 必须如实显示
+// 「尚未收录」并给可达补救指引（诚实展示纪律：缺失不得留白、不得渲染成可用）。
+const JURIS_TEXT = { CN: "中国", EU: "欧盟", US: "美国", "": "法域未标注" };
+function renderJuris(rows) {
+  const el = $("#ov-juris");
+  if (!el) return;
+  const m = {};
+  (rows || []).forEach((r) => { if (r) m[r.code || ""] = r.laws || 0; });
+  const hint = {
+    CN: "尚未收录。可在「初始化法规库」安装官方数据包，或在「获取最新法规」从官方渠道获取。",
+    EU: "尚未收录。欧盟官方通道目前经命令行开通（openlaw-eu），界面通道尚未开通。",
+    US: "尚未收录。美国官方通道尚在建设中，暂无数据。",
+    "": "请核对条目来源后补标法域。",
+  };
+  const codes = ["CN", "EU", "US"].concat(m[""] ? [""] : []);
+  el.innerHTML = codes.map((c) => {
+    const n = m[c] || 0;
+    const note = n ? "" : `<span class="muted">${escapeHTML(hint[c])}</span>`;
+    return `<div class="juris-row"><b>${JURIS_TEXT[c]}</b><span class="num">${num(n)} 部</span>${note}</div>`;
+  }).join("");
+}
 async function loadOverview() {
   try {
     const v = await app().Status();
@@ -878,6 +901,7 @@ async function loadOverview() {
     $("#level-table tbody").innerHTML = (v.by_level || []).map((r) =>
       `<tr><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
     renderBars(v.by_level);
+    renderJuris(v.juris);
     const reps = (await app().RecentReports(5)) || [];
     // 失败如实说：ok=0 不得渲染成中性数字（诚实展示纪律）。
     $("#reports").innerHTML = reps.map((r) => `<div class="rep"><b>${escapeHTML(SRC_TEXT[r.source] || r.source)}</b> ${fmtWhen(r.modified_at)}<span class="muted">（本机时间）</span><br><span class="muted"${utcTitle(r.modified_at)}>${r.ok > 0 ? "获取到 " + num(r.ok) + " 条" : "本轮没有新增内容"} · 失败 ${num(r.failed)} 条${r.pages ? " · 翻页 " + num(r.pages) + " 页" : ""}</span></div>`).join("") ||

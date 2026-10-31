@@ -302,11 +302,15 @@ func (im *Importer) writeTx(tx *sql.Tx, req Request, versionID, sha, now string,
 		return nil, "", err
 	}
 
-	if _, err := tx.Exec(`INSERT INTO law(law_id, name, short_name, issuer, effect_level, is_local)
-		VALUES(?,?,?,?,?,0)
+	// 法域随效力等级写入（v7 多法域）：判定不出法域就留空（未标注，界面如实显示）；
+	// 冲突更新时只在新值可判定处覆盖，判不出不得清空既有法域。
+	if _, err := tx.Exec(`INSERT INTO law(law_id, name, short_name, issuer, effect_level, is_local, jurisdiction)
+		VALUES(?,?,?,?,?,0,NULLIF(?,''))
 		ON CONFLICT(law_id) DO UPDATE SET name=excluded.name, short_name=excluded.short_name,
-			issuer=excluded.issuer, effect_level=excluded.effect_level`,
-		req.LawID, req.LawName, nullable(req.ShortName), nullable(req.Issuer), nullable(req.EffectLevel)); err != nil {
+			issuer=excluded.issuer, effect_level=excluded.effect_level,
+			jurisdiction=COALESCE(excluded.jurisdiction, law.jurisdiction)`,
+		req.LawID, req.LawName, nullable(req.ShortName), nullable(req.Issuer), nullable(req.EffectLevel),
+		DeriveJurisdiction(req.EffectLevel)); err != nil {
 		return nil, "", fmt.Errorf("写入 law 失败: %w", err)
 	}
 

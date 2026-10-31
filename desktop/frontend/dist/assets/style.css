@@ -202,6 +202,10 @@ button.card { text-align: left; font: inherit; color: inherit; cursor: pointer; 
 
 /* ---------- 构成占比条（数字之外给出「库里装了什么」的直观形状） ---------- */
 .bars { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; max-width: 720px; }
+/* 分法域（v7 多法域）：一行一法域，0 也要如实出现并给补救指引 */
+.juris { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; max-width: 720px; }
+.juris-row { display: grid; grid-template-columns: 128px auto 1fr; gap: 10px; align-items: baseline; font-size: 13.5px; }
+.juris-row .num { font-variant-numeric: tabular-nums; color: var(--muted); }
 .bar-row { display: grid; grid-template-columns: 128px 1fr auto; gap: 10px; align-items: center; font-size: 13.5px; }
 .bar-row .nm { color: var(--ink); }
 .bar-row .num { font-variant-numeric: tabular-nums; color: var(--muted); }

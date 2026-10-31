@@ -336,10 +336,10 @@ func (c *Cellar) UpsertLaw(w *EUWork, name, shortName, issuer string) (string, e
 		issuer = "European Union"
 	}
 	lawID := w.LawID()
-	_, err := c.DB.Exec(`INSERT INTO law(law_id,name,short_name,issuer,effect_level,is_local,remark,eli,celex)
-		VALUES(?,?,?,?,?,0,?,?,?)
+	_, err := c.DB.Exec(`INSERT INTO law(law_id,name,short_name,issuer,effect_level,is_local,remark,eli,celex,jurisdiction)
+		VALUES(?,?,?,?,?,0,?,?,?,'EU')
 		ON CONFLICT(law_id) DO UPDATE SET eli=excluded.eli, celex=excluded.celex,
-			effect_level=excluded.effect_level, issuer=excluded.issuer`,
+			effect_level=excluded.effect_level, issuer=excluded.issuer, jurisdiction='EU'`,
 		lawID, name, nullable(shortName), issuer, w.EffectLevel(),
 		nullable("Cellar work graph "+w.GraphURI+" @"+w.FetchedAt+"；关系 pending 待人工确认"),
 		nullable(w.ELI), nullable(w.Celex))

@@ -9,17 +9,22 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 
 -- law 法规主表（v2：新增 eli/celex 欧盟标识列；effect_level 扩展欧盟类别；
--- v4：新增地域标引 5 列，见 docs/design-region-write.md §3）
+-- v4：新增地域标引 5 列，见 docs/design-region-write.md §3；
+-- v7：新增法域列 + effect_level 扩展美国类别，见 docs/design-multi-jurisdiction.md）
 CREATE TABLE IF NOT EXISTS law (
   law_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   short_name TEXT,
   issuer TEXT,
-  effect_level TEXT CHECK (effect_level IN ('宪法','法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定')),
+  effect_level TEXT CHECK (effect_level IN ('宪法','法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定','美国宪法','联邦法律','联邦规章','行政命令','联邦条约')),
   is_local INTEGER NOT NULL DEFAULT 0,
   remark TEXT,
   eli TEXT,      -- 欧盟 European Legislation Identifier（docs/sources-eu.md）
   celex TEXT,    -- 欧盟 CELEX 编号
+  -- v7 法域：CN=中国 EU=欧盟 US=美国；空 = 法域未标注（界面必须如实显示）。
+  -- 刻意不加 CHECK（同 v4 地域列策略）：取值合法性放应用层与门禁测试，
+  -- 法域加列走纯 ALTER，不为此再重建表。
+  jurisdiction TEXT,
   -- v4 地域标引：机器建议与人工落判共用同一组列，靠 region_source/region_reviewer 区分。
   -- 空 = 地域未标注，界面必须如实显示，不得留白或渲染占位。
   -- 刻意不加 CHECK、不重建表（v2/v3 改 CHECK 需重建表，风险高）：取值合法性放应用层与门禁测试。
@@ -223,6 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_document_confirm ON document(confirm_status); -- 
 CREATE INDEX IF NOT EXISTS idx_element_case ON element(case_type);
 CREATE INDEX IF NOT EXISTS idx_relation_src ON relation(src_law_id);
 CREATE INDEX IF NOT EXISTS idx_law_region_code ON law(region_code); -- 按区划码浏览/过滤（v4）
+CREATE INDEX IF NOT EXISTS idx_law_jurisdiction ON law(jurisdiction); -- 按法域浏览/统计（v7）
 CREATE INDEX IF NOT EXISTS idx_region_log_law ON region_log(law_id);
 CREATE INDEX IF NOT EXISTS idx_region_log_batch ON region_log(batch_id); -- 按批次撤销
 CREATE INDEX IF NOT EXISTS idx_agent_review_doc ON agent_review(doc_id); -- 例外队列按条目取最近结论

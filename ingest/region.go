@@ -42,6 +42,22 @@ const (
 	regionActorPack = "openlaw-pack"
 )
 
+// DeriveJurisdiction 法域判定（v7 多法域，docs/design-multi-jurisdiction.md）：
+// 由效力等级推出法域——欧盟三类 → EU；美国五类 → US；中国各级 → CN；
+// 「其他」或空 = 无法判定，返回空串（法域未标注：界面必须如实显示，禁止瞎猜）。
+func DeriveJurisdiction(effectLevel string) string {
+	switch effectLevel {
+	case "欧盟条例", "欧盟指令", "欧盟决定":
+		return "EU"
+	case "美国宪法", "联邦法律", "联邦规章", "行政命令", "联邦条约":
+		return "US"
+	case "宪法", "法律", "行政法规", "监察法规", "地方性法规", "部门规章", "地方政府规章", "司法解释":
+		return "CN"
+	default:
+		return ""
+	}
+}
+
 // nationalEffectLevels 国家级效力等级：这类法规的地域不是「名称开头的行政区」。
 // 实测抓出的反例：「台湾渔船停泊点边防治安管理办法」（issuer=公安部，部门规章）
 // 按名称前缀会误标 710000 台湾省——名称里的地名不等于法规的地域归属。
@@ -50,6 +66,8 @@ var nationalEffectLevels = map[string]bool{
 	"宪法": true, "法律": true, "行政法规": true, "监察法规": true,
 	"部门规章": true, "司法解释": true,
 	"欧盟条例": true, "欧盟指令": true, "欧盟决定": true,
+	// v7 多法域：美国联邦各级同样不适用「名称开头行政区」规则（中国区划码与其无关）。
+	"美国宪法": true, "联邦法律": true, "联邦规章": true, "行政命令": true, "联邦条约": true,
 }
 
 // RegionMarker 地域标引执行器（库层）。

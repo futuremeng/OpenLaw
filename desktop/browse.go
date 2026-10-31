@@ -35,6 +35,7 @@ type LawRow struct {
 // （类别、地区），专业模式靠维度组合定位条目——两者共用同一套条件与同一条 SQL 口径。
 type LawFilter struct {
 	Level   string `json:"level"`   // 效力等级
+	Juris   string `json:"juris"`   // 法域 CN/EU/US（v7 多法域）；"none" = 法域未标注
 	Confirm string `json:"confirm"` // confirmed/pending/rejected
 	Source  string `json:"source"`  // document.source_type 精确值（来自下拉，不是通配符）
 	Year    string `json:"year"`    // 公布年代桶（"2000" = 2000 年代）；"none" = 公布日期缺失
@@ -62,6 +63,9 @@ const browseOrder = `ORDER BY (l.effect_level IS NULL), l.effect_level, l.name`
 const yearBucketExpr = `CASE WHEN COALESCE(d.publish_date,'')='' THEN 'none'
 		ELSE CAST((CAST(substr(d.publish_date,1,4) AS INTEGER)/10)*10 AS TEXT) END`
 
+// jurisExpr 法域分组表达式（v7）：未标注单独成桶（"none"），不静默并入任何法域。
+const jurisExpr = `CASE WHEN COALESCE(l.jurisdiction,'')='' THEN 'none' ELSE l.jurisdiction END`
+
 // browseWhere 构造筛选子句与参数；skip 指名某维度时不计该维度条件——分面计数的
 // 标准口径：某维度各可选值的计数按「其他维度已生效、本维度不限」给出，
 // 这样用户选中一项后，其余维度的计数仍能用于继续收窄（界面实时联动的依据）。
@@ -71,6 +75,10 @@ func browseWhere(f LawFilter, skip string) (string, []any) {
 	if skip != "level" {
 		where += ` AND (?='' OR COALESCE(l.effect_level,'')=?)`
 		args = append(args, f.Level, f.Level)
+	}
+	if skip != "juris" {
+		where += ` AND (?='' OR ` + jurisExpr + `=?)`
+		args = append(args, f.Juris, f.Juris)
 	}
 	if skip != "confirm" {
 		where += ` AND (?='' OR COALESCE(d.confirm_status,'')=?)`
@@ -150,6 +158,7 @@ type FacetView struct {
 	Total     int           `json:"total"`
 	Unlabeled int           `json:"unlabeled"`
 	Levels    []FacetOption `json:"levels"`
+	Juris     []FacetOption `json:"juris"`
 	Confirms  []FacetOption `json:"confirms"`
 	Sources   []FacetOption `json:"sources"`
 	Years     []FacetOption `json:"years"`
@@ -184,6 +193,17 @@ func facetLabel(dim, v string) string {
 			return "效力等级未标注"
 		}
 		return v
+	case "juris":
+		switch v {
+		case "CN":
+			return "中国"
+		case "EU":
+			return "欧盟"
+		case "US":
+			return "美国"
+		default:
+			return "法域未标注"
+		}
 	case "confirm":
 		switch v {
 		case "confirmed":
@@ -236,6 +256,7 @@ func (a *App) BrowseFacets(f LawFilter) (*FacetView, error) {
 		dst       *[]FacetOption
 	}{
 		{"level", `COALESCE(l.effect_level,'')`, &v.Levels},
+		{"juris", jurisExpr, &v.Juris},
 		{"confirm", `COALESCE(d.confirm_status,'')`, &v.Confirms},
 		{"source", `COALESCE(d.source_type,'')`, &v.Sources},
 		{"year", yearBucketExpr, &v.Years},

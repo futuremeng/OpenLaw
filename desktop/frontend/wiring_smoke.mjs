@@ -69,17 +69,17 @@ const document = {
 // L3 故意缺等级/机关/地域：条目行的缺失标记要在冒烟里可见。
 // 缺失的效力等级按 Go 侧真实形状给出（SQL 默认值「效力等级未标注」，不是空串）。
 const laws = [
-  { law_id: 'L1', name: '工伤保险条例', level: '行政法规', confirm_status: 'pending', confirm_source: '', region_source: 'none', region: '北京市', issuer: '国务院', effective_date: '2004-01-01' },
-  { law_id: 'L2', name: '北京市生活垃圾管理条例', level: '地方性法规', confirm_status: 'confirmed', confirm_source: 'agent', region_source: 'auto', region: '北京市', issuer: '北京市人大常委会', effective_date: '1996-06-01' },
-  { law_id: 'L3', name: '某市养犬管理办法', level: '效力等级未标注', confirm_status: 'pending', confirm_source: '', region_source: '', region: '', issuer: '', effective_date: '' },
+  { law_id: 'L1', name: '工伤保险条例', level: '行政法规', juris: 'CN', confirm_status: 'pending', confirm_source: '', region_source: 'none', region: '北京市', issuer: '国务院', effective_date: '2004-01-01' },
+  { law_id: 'L2', name: '北京市生活垃圾管理条例', level: '地方性法规', juris: 'CN', confirm_status: 'confirmed', confirm_source: 'agent', region_source: 'auto', region: '北京市', issuer: '北京市人大常委会', effective_date: '1996-06-01' },
+  { law_id: 'L3', name: '某市养犬管理办法', level: '效力等级未标注', juris: '', confirm_status: 'pending', confirm_source: '', region_source: '', region: '', issuer: '', effective_date: '' },
 ];
-const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) && (!a.kw || r.name.includes(a.kw)));
+const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) && (!a.juris || (r.juris || 'none') === a.juris) && (!a.kw || r.name.includes(a.kw)));
 // 空库开关：初始化面板与启动落面板的诚实展示要在冒烟里可见（0 部就说 0 部）。
 let emptyLib = false;
 const data = {
   Status: () => emptyLib
-    ? ({ laws: 0, articles: 0, documents: 0, versions: 0, pending: 0, confirmed: 0, rejected: 0, by_level: [], last_fetch: {}, data_dir: 'data', schema_version: '5', schema_min: '3', schema_max: '5', producer_version: '无 manifest', open_err: '' })
-    : ({ laws: 28952, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', pending: 30859, confirmed: 4, rejected: 1 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '5', schema_min: '3', schema_max: '5', producer_version: 'v0.1.0', open_err: '' }),
+    ? ({ laws: 0, articles: 0, documents: 0, versions: 0, pending: 0, confirmed: 0, rejected: 0, by_level: [], juris: [{ code: 'CN', laws: 0 }, { code: 'EU', laws: 0 }, { code: 'US', laws: 0 }], last_fetch: {}, data_dir: 'data', schema_version: '5', schema_min: '3', schema_max: '5', producer_version: '无 manifest', open_err: '' })
+    : ({ laws: 28952, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', pending: 30859, confirmed: 4, rejected: 1 }], juris: [{ code: 'CN', laws: 28952 }, { code: 'EU', laws: 0 }, { code: 'US', laws: 0 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '5', schema_min: '3', schema_max: '5', producer_version: 'v0.1.0', open_err: '' }),
   // 智能审核：通道就绪 + 分开计数（智能体/人工/历史来源未记录）+ 例外队列样例。
   // 例外条目必须带白话原因与建议——冒烟里要能看出「为什么需要人工」。
   AgentStatus: () => ({ configured: true, model: 'test-model', guidance: '', technical: '环境变量 OPENLAW_LLM_*' }),
@@ -109,6 +109,7 @@ const data = {
       // 分面口径与 Go 侧一致：缺失项按 COALESCE(...,'') 归入空值桶（前端不列空值桶，
       // 由脚注说明「未记录的条目不参与该维度筛选」）。
       levels: group((r) => (r.level === '效力等级未标注' ? '' : r.level)),
+      juris: group((r) => r.juris || 'none').map((o) => ({ ...o, label: ({ CN: '中国', EU: '欧盟', US: '美国', none: '法域未标注' })[o.value] || o.value })),
       confirms: group((r) => r.confirm_status),
       sources: group(() => 'gov.cn 国家规章库'), years: group(() => '2000'),
       regions: group((r) => (r.region_source === 'none' ? '' : '11')),
@@ -151,12 +152,19 @@ const g = (id) => byId.get(id);
   const paneCnt = g('b-pane-cnt').innerHTML;
   const yearClosed = g('g-year').dataset.open;
   const adornAll = g('ad-level').textContent;
+  // 法域维度（v7 多法域）：全库条件下分面给出「中国/法域未标注」，勾选后计数联动、回显成白话。
+  const jurisChips = g('f-juris').innerHTML;
   vm.runInContext('browseFilter.level = "行政法规"; loadLaws();', ctx);
   await new Promise((r) => setTimeout(r, 60));
   const totalFiltered = g('f-total').textContent;
   const statsLine = g('b-stats').textContent;
   const adornSel = g('ad-level').textContent;
   const crumb = g('crumb-cur').textContent + ' | ' + g('crumb-ctx').textContent;
+  vm.runInContext('browseFilter.level = ""; browseFilter.juris = "CN"; loadLaws();', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+  const jurisFiltered = g('f-total').textContent;
+  const jurisEcho = g('b-stats').textContent;
+  vm.runInContext('browseFilter.juris = "";', ctx);
   const cntConfirm = g('cnt-review').textContent, cntConfirmTitle = g('cnt-review').title;
   // 待复核确实为 0 时不得留「0」徽标（无需提醒），面板内另有如实说明。
   ctx.setSideFoot({ laws: 1, pending: 0 });
@@ -229,6 +237,10 @@ const g = (id) => byId.get(id);
     '任务卡 class 含 running': g('task-list').innerHTML.includes('task running'),
     '端点等技术细节仍可得（供折叠展示）': g('browser-tech').innerHTML.includes('127.0.0.1'),
     '清单缺失给出下一步': g('g-list-hint').textContent.includes('没有目录清单'),
+    '分面法域给出中国/未标注': jurisChips.includes('中国') && jurisChips.includes('法域未标注'),
+    '法域筛选联动计数': jurisFiltered === '2',
+    '法域筛选回显为白话': jurisEcho.includes('法域 中国'),
+    '总览分法域如实报缺失': g('ov-juris').innerHTML.includes('尚未收录') && g('ov-juris').innerHTML.includes('美国'),
     '浏览分面给出计数': levelChips.includes('fcount'),
     '筛选前后总数联动': totalAll === '3' && totalFiltered === '1',
     '筛选回显为白话': statsLine.includes('当前筛选：类别 行政法规'),

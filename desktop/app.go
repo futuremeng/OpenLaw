@@ -93,6 +93,14 @@ type LevelCount struct {
 	Rejected  int    `json:"rejected"`
 }
 
+// JurisCount 法域计数（v7 多法域，docs/design-multi-jurisdiction.md）。
+// Code 为技术标识 CN/EU/US（界面文案由前端映射为「中国/欧盟/美国」）；
+// 空 Code = 法域未标注。诚实展示：CN/EU/US 三行恒常给出，0 也要如实显示。
+type JurisCount struct {
+	Code string `json:"code"`
+	Laws int    `json:"laws"`
+}
+
 type StatusView struct {
 	DataDir         string            `json:"data_dir"`
 	DataSrc         string            `json:"data_src,omitempty"` // 目录来源（如实展示）
@@ -113,6 +121,7 @@ type StatusView struct {
 	Govcn           int               `json:"govcn"`
 	Govlocal        int               `json:"govlocal"`
 	ByLevel         []LevelCount      `json:"by_level"`
+	Juris           []JurisCount      `json:"juris"`                // 分法域计数（CN/EU/US 恒常三行，0 也如实显示）
 	LastFetch       map[string]string `json:"last_fetch,omitempty"` // 各渠道最近抓取报告时间（数据源状态卡）
 }
 
@@ -155,6 +164,23 @@ func (a *App) Status() (StatusView, error) {
 			if err := rows.Scan(&lc.Level, &lc.Pending, &lc.Confirmed, &lc.Rejected); err == nil {
 				v.ByLevel = append(v.ByLevel, lc)
 			}
+		}
+	}
+	// 分法域计数：CN/EU/US 三行恒常给出（缺失必须如实显示为 0，前端据此给补救指引）；
+	// 法域未标注仅在非 0 时追加一行（诚实展示纪律）。
+	juris := map[string]int{}
+	if jrows, err := a.db.Query(`SELECT COALESCE(jurisdiction,''), COUNT(*) FROM law GROUP BY 1`); err == nil {
+		defer jrows.Close()
+		for jrows.Next() {
+			var code string
+			var n int
+			if err := jrows.Scan(&code, &n); err == nil {
+				juris[code] = n
+			}
+		}
+		v.Juris = []JurisCount{{"CN", juris["CN"]}, {"EU", juris["EU"]}, {"US", juris["US"]}}
+		if n := juris[""]; n > 0 {
+			v.Juris = append(v.Juris, JurisCount{"", n})
 		}
 	}
 	if m, _, err := validate.LoadManifest(a.dataDir); err == nil {

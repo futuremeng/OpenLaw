@@ -67,6 +67,67 @@ func facetCount(opts []FacetOption, value string) (int, bool) {
 	return 0, false
 }
 
+// TestBrowseFacetsJurisdiction v7 多法域：法域分面按 CN/EU/US/未标注如实分组
+// （未标注单独成桶不并入任何法域），筛选与计数同源联动，标签用法言法语。
+func TestBrowseFacetsJurisdiction(t *testing.T) {
+	a := newTestApp(t)
+	seedFacetLaws(t, a)
+	seed := []string{
+		`INSERT INTO law(law_id,name,effect_level,jurisdiction) VALUES('L_eu','通用数据保护条例','欧盟条例','EU')`,
+		`INSERT INTO law(law_id,name,effect_level,jurisdiction) VALUES('L_us','清洁空气法','联邦法律','US')`,
+		`INSERT INTO document(doc_id,file_name,file_path,file_size,sha256,hash_computed_at,source_type,publish_date,confirm_status)
+		 VALUES('eu_x1','x1.md','md/eu_x1.md',10,'aa','2026-10-01T00:00:00Z','欧盟出版局 Cellar','2016-04-27','pending')`,
+		`INSERT INTO document(doc_id,file_name,file_path,file_size,sha256,hash_computed_at,source_type,publish_date,confirm_status)
+		 VALUES('us_x1','x1.md','md/us_x1.md',10,'bb','2026-10-01T00:00:00Z','govinfo','1970-12-31','pending')`,
+		`INSERT INTO law_version(version_id,law_id,version_no,effective_date,doc_id) VALUES('V_eu','L_eu','现行','2018-05-25','eu_x1')`,
+		`INSERT INTO law_version(version_id,law_id,version_no,effective_date,doc_id) VALUES('V_us','L_us','现行','1970-12-31','us_x1')`,
+	}
+	for _, s := range seed {
+		if _, err := a.db.Exec(s); err != nil {
+			t.Fatalf("种子失败: %v\n%.60s", err, s)
+		}
+	}
+	v, err := a.BrowseFacets(LawFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := facetCount(v.Juris, "EU"); !ok || c != 1 {
+		t.Errorf("欧盟法域分面错: %+v", v.Juris)
+	}
+	if c, ok := facetCount(v.Juris, "US"); !ok || c != 1 {
+		t.Errorf("美国法域分面错: %+v", v.Juris)
+	}
+	if c, ok := facetCount(v.Juris, "none"); !ok || c != 4 {
+		t.Errorf("法域未标注必须单独成桶（种子 4 部未落法域）: %+v", v.Juris)
+	}
+	for _, o := range v.Juris {
+		if o.Value == "EU" && o.Label != "欧盟" {
+			t.Errorf("法域标签应为法言法语: %+v", o)
+		}
+		if o.Value == "none" && o.Label != "法域未标注" {
+			t.Errorf("法域缺失标签必须如实: %+v", o)
+		}
+	}
+	// 筛选与计数同源：选欧盟只剩 1 部，且该维度自身仍列全部可选值（可改选）。
+	rows, err := a.BrowseLawList(LawFilter{Juris: "EU", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].LawID != "L_eu" {
+		t.Errorf("法域筛选应只剩欧盟条目: %+v", rows)
+	}
+	v2, err := a.BrowseFacets(LawFilter{Juris: "EU"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v2.Total != 1 {
+		t.Errorf("法域筛选后总数应联动为 1: %+v", v2)
+	}
+	if c, ok := facetCount(v2.Juris, "US"); !ok || c != 1 {
+		t.Errorf("选中欧盟后法域维度仍应列出美国可改选: %+v", v2.Juris)
+	}
+}
+
 // TestBrowseFacetsLinkage 分面计数必须与其他维度实时联动，且与本维度自身选择无关
 // （选中某等级后，等级维度仍显示全部可选值，用户才能改选）。
 func TestBrowseFacetsLinkage(t *testing.T) {

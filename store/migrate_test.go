@@ -346,3 +346,97 @@ func TestMigrateV5ToV6(t *testing.T) {
 		t.Errorf("schema_version 应为 %s，实际 %q", SchemaVersion, got)
 	}
 }
+
+// TestMigrateV6ToV7 多法域升级：v6 库（law 无 jurisdiction、CHECK 无美国类别）打开后
+// 自动重建 law 表并回填法域（欧盟三类/带 eli·celex → EU，其余 → CN），旧列旧值全保留；
+// 美国类别效力与新法域可写；非法值仍被拒；重复打开幂等。
+func TestMigrateV6ToV7(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db", "openlaw.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 造 v6 现状：law 无 jurisdiction、CHECK 无美国类别（重建回 v6 形态）。
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE law_v6 (
+  law_id TEXT PRIMARY KEY, name TEXT NOT NULL, short_name TEXT, issuer TEXT,
+  effect_level TEXT CHECK (effect_level IN ('宪法','法律','行政法规','监察法规','地方性法规','部门规章','地方政府规章','司法解释','其他','欧盟条例','欧盟指令','欧盟决定')),
+  is_local INTEGER NOT NULL DEFAULT 0, remark TEXT, eli TEXT, celex TEXT,
+  region_code TEXT, region_source TEXT, region_rule TEXT, region_reviewer TEXT, region_reviewed_at TEXT
+)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO law_v6 (law_id,name,effect_level,region_code,region_source)
+		VALUES ('law_cn','测试法','法律','110000','auto')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO law_v6 (law_id,name,effect_level,celex)
+		VALUES ('law_eu','GDPR','欧盟条例','32016R0679')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO law_v6 (law_id,name) VALUES ('law_nil','未标等级法')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP TABLE law`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`ALTER TABLE law_v6 RENAME TO law`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE meta SET value='6' WHERE key='schema_version'`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	db2, err := Open(path)
+	if err != nil {
+		t.Fatalf("打开 v6 库应自动迁移到 v7: %v", err)
+	}
+	defer db2.Close()
+
+	// 回填口径：CN 条目、EU 条目（按效力+celex 判定）、等级未标条目按语料现状回填 CN。
+	for _, want := range []struct{ id, jur string }{
+		{"law_cn", "CN"}, {"law_eu", "EU"}, {"law_nil", "CN"},
+	} {
+		var got string
+		if err := db2.QueryRow(`SELECT jurisdiction FROM law WHERE law_id=?`, want.id).Scan(&got); err != nil {
+			t.Fatalf("法域回填缺失 %s: %v", want.id, err)
+		}
+		if got != want.jur {
+			t.Errorf("%s 法域应回填 %s，实际 %q", want.id, want.jur, got)
+		}
+	}
+	// 旧列旧值保留（地域标引不因重建丢失）。
+	var rc, rs string
+	if err := db2.QueryRow(`SELECT region_code, region_source FROM law WHERE law_id='law_cn'`).Scan(&rc, &rs); err != nil {
+		t.Fatalf("地域标引列丢失: %v", err)
+	}
+	if rc != "110000" || rs != "auto" {
+		t.Errorf("地域标引旧值丢失: %q %q", rc, rs)
+	}
+	// CHECK 扩展：美国类别可写；法域可写 US；非法效力仍拒。
+	if _, err := db2.Exec(`INSERT INTO law(law_id,name,effect_level,jurisdiction)
+		VALUES ('law_us','测试联邦法','联邦法律','US')`); err != nil {
+		t.Fatalf("美国类别效力应可写: %v", err)
+	}
+	if _, err := db2.Exec(`INSERT INTO law(law_id,name,effect_level)
+		VALUES ('law_bad','非法等级','联邦州法')`); err == nil {
+		t.Error("effect_level CHECK 应拒绝名单外取值")
+	}
+	if got := getVersion(t, path); got != SchemaVersion {
+		t.Errorf("schema_version 应为 %s，实际 %q", SchemaVersion, got)
+	}
+	db3, err := Open(path)
+	if err != nil {
+		t.Fatalf("重复打开应幂等: %v", err)
+	}
+	db3.Close()
+}
