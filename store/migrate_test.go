@@ -302,3 +302,47 @@ func TestMigrateV4ToV5(t *testing.T) {
 	}
 	db2.Close()
 }
+
+// TestMigrateV5ToV6 v6 加法式升级：v5 库（无 pack_log）打开后自动补齐台账表、
+// 版本升到当前值；旧数据保留，重复打开幂等。
+func TestMigrateV5ToV6(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db", "openlaw.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO meta(key,value) VALUES('probe','keep')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP TABLE pack_log`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE meta SET value='5' WHERE key='schema_version'`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	db2, err := Open(path)
+	if err != nil {
+		t.Fatalf("打开 v5 库应自动补齐 v6 结构: %v", err)
+	}
+	defer db2.Close()
+	if _, err := db2.Exec(`INSERT INTO pack_log(pack_id,kind,regions,since,until,key_id,total,imported,skipped,status,applied_at)
+		VALUES('base-cn-2026','base','CN','','','k1',10,10,0,'applied','2026-10-31T00:00:00Z')`); err != nil {
+		t.Fatalf("pack_log 应可用: %v", err)
+	}
+	if _, err := db2.Exec(`INSERT INTO pack_log(pack_id,kind,total,imported,skipped,status,applied_at)
+		VALUES('bad','full',0,0,0,'done','2026-10-31T00:00:00Z')`); err == nil {
+		t.Error("pack_log.status 枚举应拒绝非法值")
+	}
+	var probe string
+	if err := db2.QueryRow(`SELECT value FROM meta WHERE key='probe'`).Scan(&probe); err != nil || probe != "keep" {
+		t.Errorf("迁移不得丢旧数据: %q %v", probe, err)
+	}
+	if got := getVersion(t, path); got != SchemaVersion {
+		t.Errorf("schema_version 应为 %s，实际 %q", SchemaVersion, got)
+	}
+}

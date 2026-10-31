@@ -22,7 +22,9 @@ import (
 // v5（2026-10）：document +confirm_source（agent|human，区分智能体确认与人工确认，诚实展示）
 // 与新表 agent_review（智能体自审核留痕）+ 两索引。加法式：ALTER ADD COLUMN + IF NOT EXISTS，
 // 见 docs/design-agent-review.md。
-const SchemaVersion = "5"
+// v6（2026-10）：新表 pack_log（更新包安装台账：基础包/增量包按包幂等导入的依据）。
+// 加法式：仅新表经 schemaSQL IF NOT EXISTS 自动补齐，无需结构迁移。
+const SchemaVersion = "6"
 
 // OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
 //   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、

@@ -147,7 +147,8 @@ func (a *App) StartPackBuildTask(packDir, keyPath, license, attribution string) 
 	})
 }
 
-// StartPackImportTask 校验通过后导入更新包（pack.Import——失败保留旧数据）。
+// StartPackImportTask 校验通过后导入更新包（pack.ImportPack——失败保留旧数据；
+// 台账幂等：已装过的包如实报告跳过，重复条目按哈希比对跳过，冲突中止转人工）。
 func (a *App) StartPackImportTask(packDir string) (TaskInfo, error) {
 	if packDir == "" {
 		return TaskInfo{}, errors.New("请先指定数据包目录")
@@ -160,8 +161,16 @@ func (a *App) StartPackImportTask(packDir string) (TaskInfo, error) {
 		}
 		defer db.Close()
 		progress("校验并导入中…")
-		results, err := pack.Import(db, a.dataDir, pd)
-		progress(fmt.Sprintf("已导入 %d 条（均 pending 转人工）", len(results)))
+		rep, err := pack.ImportPack(db, a.dataDir, pd)
+		if err != nil {
+			progress(fmt.Sprintf("导入中止：已导入 %d 条、跳过 %d 条（旧数据未受影响）", rep.Imported, rep.Skipped))
+			return err
+		}
+		if rep.AlreadyApplied {
+			progress("该数据包此前已导入（安装记录可查），本次未改动任何数据")
+			return nil
+		}
+		progress(fmt.Sprintf("已导入 %d 条（跳过重复 %d 条，均待复核）", rep.Imported, rep.Skipped))
 		return err
 	})
 }

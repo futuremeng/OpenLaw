@@ -35,6 +35,14 @@ pack-YYYYMMDD/
 当前已实装：manifest 生成 + Ed25519 签名/验签（`validate/manifest.go`）+ 包体打包与
 `changes.csv`（`pack/pack.go`；当前 v3 表头含 `region_code`/`region_source`，v0/v1/v2 旧包向后兼容）。
 
+**包模型 v2（基础包/增量包）**：manifest 可选身份字段 `pack_id / kind(base|delta) /
+regions / since / until / doc_count`（随签名保护；缺字段 = 旧整包）。切分打包：
+`openlaw-pack build -kind base -regions CN,44 -pack-id base-cn-2026 …` 或
+`-kind delta -since 2026-01-01 -until 2026-03-31`；包内只含清单引用到的文件。
+导入幂等：`pack_log` 台账（schema v6）记录包级安装事实，`status=applied` 的包再导入
+整包跳过；重复条目与库内哈希一致则跳过、不一致中止转人工。分发渠道（GitHub Releases、
+签名 index 与下载通道）见 docs/tasks-opencourt-bridge.md 对应阶段记录，尚未实装。
+
 ## 4. 日常运维（9.2）
 
 | 频率 | 动作 | 命令 |

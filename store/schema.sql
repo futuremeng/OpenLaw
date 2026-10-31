@@ -186,6 +186,25 @@ CREATE TABLE IF NOT EXISTS region_log (
   created_at TEXT NOT NULL
 );
 
+-- pack_log 更新包安装台账（基础包/增量包分发模型）。
+-- 与 import_log（逐条入库留痕）、region_log（地域批次审计）并列而非复用：
+-- pack_log 记「包级事实」——哪个包、什么种类（base=基础包 | delta=增量包 | full=旧整包）、
+-- 覆盖范围、装了多少。它是幂等依据：status=applied 的 pack_id 再导入直接跳过；
+-- 中断的包记 partial，重放时已装条目按哈希比对跳过（内容不一致 = 冲突，中止转人工）。
+CREATE TABLE IF NOT EXISTS pack_log (
+  pack_id    TEXT PRIMARY KEY,          -- 包标识（manifest.pack_id；旧整包回退 "pack:"+generated_at）
+  kind       TEXT NOT NULL CHECK (kind IN ('base','delta','full')),
+  regions    TEXT,                      -- 覆盖地域（区划码逗号连接；空=全部地域）
+  since      TEXT,                      -- 增量窗口起（publish_date，含）；空=非增量窗口
+  until      TEXT,                      -- 增量窗口止（含）
+  key_id     TEXT,                      -- 命中的受信发布者 key ID；空=未查信任（本地自验）
+  total      INTEGER NOT NULL,          -- changes.csv 条目数
+  imported   INTEGER NOT NULL,          -- 最近一次实际导入条数
+  skipped    INTEGER NOT NULL,          -- 库内已存在且哈希一致而跳过的条数
+  status     TEXT NOT NULL CHECK (status IN ('applied','partial')),
+  applied_at TEXT NOT NULL
+);
+
 -- validate_log 校验日志
 CREATE TABLE IF NOT EXISTS validate_log (
   validate_id INTEGER PRIMARY KEY AUTOINCREMENT,

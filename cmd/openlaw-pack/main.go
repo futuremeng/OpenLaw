@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/futuremeng/OpenLaw/ingest"
 	"github.com/futuremeng/OpenLaw/pack"
 	"github.com/futuremeng/OpenLaw/store"
 )
@@ -29,6 +29,11 @@ func main() {
 		license        = fs.String("license", "", "共享许可声明（build 可选，默认公有领域+署名要求）")
 		attrib         = fs.String("attribution", "", "来源署名声明（build 可选；欧盟等来源要求重使用署名）")
 		allowUntrusted = fs.Bool("allow-untrusted", false, "import 允许导入未列入受信发布者名单的包（仅本地自验）")
+		packID         = fs.String("pack-id", "", "build：包标识（台账主键，基础包/增量包必填）")
+		kind           = fs.String("kind", "", "build：包种类 base=基础包 | delta=增量包（留空=旧整包）")
+		regions        = fs.String("regions", "", "build：地域过滤，逗号分隔区划码前缀；CN=国家级（如 CN,44）")
+		since          = fs.String("since", "", "build：发布日期窗口起（含，如 2026-01-01）")
+		until          = fs.String("until", "", "build：发布日期窗口止（含）")
 	)
 	if len(os.Args) < 2 {
 		usage()
@@ -49,7 +54,15 @@ func main() {
 		}
 		db := openDB(*dataDir)
 		defer db.Close()
-		if err := pack.Build(db, *dataDir, *packDir, *keyPath, *license, *attrib); err != nil {
+		opts := pack.BuildOptions{PackID: *packID, Kind: *kind, Since: *since, Until: *until}
+		if *regions != "" {
+			for _, r := range strings.Split(*regions, ",") {
+				if r = strings.TrimSpace(r); r != "" {
+					opts.Regions = append(opts.Regions, r)
+				}
+			}
+		}
+		if err := pack.BuildWithOptions(db, *dataDir, *packDir, *keyPath, *license, *attrib, opts); err != nil {
 			fatal(err)
 		}
 		fmt.Println("更新包已生成并签名:", *packDir)
@@ -80,23 +93,37 @@ func main() {
 	case "import":
 		db := openDB(*dataDir)
 		defer db.Close()
-		var results []ingest.Result
+		var rep pack.ImportReport
 		var err error
 		if *allowUntrusted {
 			fmt.Fprintln(os.Stderr, "注意：-allow-untrusted 跳过来源信任检查，仅适用于本地自验。")
-			results, err = pack.ImportAllowUntrusted(db, *dataDir, *packDir)
+			rep, err = pack.ImportPackAllowUntrusted(db, *dataDir, *packDir)
 		} else {
-			results, err = pack.Import(db, *dataDir, *packDir)
+			rep, err = pack.ImportPack(db, *dataDir, *packDir)
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "导入中止（旧数据未受影响）: %v\n", err)
-			fmt.Fprintf(os.Stderr, "已成功导入 %d 条（均为新增，可经 import_log 追溯）\n", len(results))
+			fmt.Fprintf(os.Stderr, "已导入 %d 条、跳过 %d 条（均为新增，可经 import_log 追溯；台账记 partial）\n",
+				rep.Imported, rep.Skipped)
 			os.Exit(1)
 		}
+		status := "imported"
+		if rep.AlreadyApplied {
+			status = "already_applied"
+		}
 		out, _ := json.MarshalIndent(map[string]any{
-			"status": "imported", "count": len(results),
+			"status": status, "pack_id": rep.PackID, "kind": rep.Kind,
+			"total": rep.Total, "imported": rep.Imported, "skipped": rep.Skipped,
 		}, "", "  ")
 		fmt.Println(string(out))
+		if rep.AlreadyApplied {
+			fmt.Println("该包此前已导入（台账 status=applied），本次未改动任何数据")
+			return
+		}
+		if rep.Imported == 0 && rep.Skipped > 0 {
+			fmt.Println("全部条目已在库（内容一致），本次无新增")
+			return
+		}
 		fmt.Println("新导入条目 confirm_status=pending，请执行 openlaw-check 并转人工确认")
 	default:
 		usage()

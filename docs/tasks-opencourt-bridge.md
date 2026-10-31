@@ -549,6 +549,19 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   `#nav-maintain` 排到左列 DOM 末尾并以 `margin-top:auto` 钉在侧栏最下方（不再跟在
   筛选 chips 后），删除无脚本写入的空壳 `#side-foot`；契约测试补 DOM 顺序与
   margin auto 两条断言。
+- **基础包/增量包分发 · 第一步（pack 模型 v2，2026-10-31）**：对齐「安装后空库 →
+  选远程数据包（按地域的基础包 + 按日期的增量包）→ 确认加载」的目标模式（分发渠道定为
+  GitHub Releases，远程下载通道为后续步骤）。本步落库层与包层：manifest 增可选
+  `pack_id/kind/regions/since/until/doc_count`（随签名保护，旧包照常读取）；
+  `BuildWithOptions` 按 `law.region_code`（CN=国家级/前缀匹配）与 `document.publish_date`
+  窗口切分，`copyTreeFiltered` 只复制清单引用文件；schema v6 新表 `pack_log`
+  （包级安装台账：applied=已装完的唯一依据，partial=中断可续跑）；`ImportPack` 幂等
+  （台账整包跳过 + 逐条哈希比对跳过 + `ErrDocConflict` 冲突中止转人工），旧包台账主键
+  回退 `pack:`+generated_at+内容指纹（修掉同秒两包互相误判的隐患——由冲突测试暴露）。
+  CLI `openlaw-pack build` 增 `-pack-id/-kind/-regions/-since/-until`，`import` 输出
+  pack_id/kind/total/imported/skipped；桌面 `StartPackImportTask` 如实汇报导入/跳过。
+  测试：`pack/split_test.go`（地域切分/日期窗口/台账幂等/旧包回退/冲突中止）+
+  `store/migrate_test.go` v5→v6 真实链路。
 
 
 
