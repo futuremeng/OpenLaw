@@ -13,6 +13,17 @@
   三行恒常给出，0 必须如实显示「尚未收录」并给补救指引（欧盟通道现为命令行、美国
   通道尚在建设中）。按条件筛选新增「法域」分面（未标注单独成桶，计数与列表同源联动）。
 
+- **多法域 · 第三、四步（美国源核实 + 采集通道骨架）**：新增 `docs/sources-us.md`
+  （2026-10-31 实网核实：govinfo 批量目录对自动化开放并公布 bulkdata sitemap；
+  eCFR 网页 CAPTCHA 墙、开发者 API 为官方程序化入口但 robots 禁全文端点——规章现行
+  全文改走 govinfo ECFR 批量包；uscode.house.gov 批量页 403，未证实前不开采集；
+  USCODE 无批量包，联邦法律以 Statute Compilations（beta）承载）与
+  `docs/design-multi-jurisdiction.md`（法域模型、美国层级表、写路径纪律、界面口径、
+  包分发与通道分阶段）。骨架落地：`ingest.USGovinfo`（批量清单 sitemapindex 拉取——
+  robots 前置 fail-closed、限速下限 2s 不可绕过、原始留证落 incoming/ + SHA-256、
+  每次访问进 import_log、空清单如实失败）+ `openlaw-us` CLI（显式触发，只做清单
+  拉取与留证；全文解析入库未开通并如实拒绝）。
+
 - **基础包/增量包 · 第三步（远程安装）**：桌面端「初始化法规库」改为官方数据包目录
   优先：「刷新官方目录」（GitHub Releases，只有按下才联网）→ 按地域的基础包与按日期的
   增量包勾选 → 「安装勾选的数据包」单槽任务串行安装（基础包在前、增量包按日期；

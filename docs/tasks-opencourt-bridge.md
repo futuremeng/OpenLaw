@@ -575,6 +575,29 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   按基础/增量排序安装、重跑全跳过、哈希不符拒收不留半成品、未受信目录拒收）；
   冒烟补目录渲染两条断言；契约测试补新元素与绑定断言。README/release-process 同步
   发版流水线（GitHub Release 资产 + 公钥内置）。
+- **多法域 · 第一~四步（v7 模型 + 界面如实展示 + 美国源核实 + 通道骨架，2026-10-31）**：
+  用户报告「法规库维护界面缺欧盟/美国法规库信息，层级缺失」——根因是 v6 及以前法域全靠
+  `effect_level` 隐式区分、美国无处表达，且界面从不交代「此处为空」。拍板做完整多法域，
+  拆四阶段全部落地：① schema **v7**——law `+jurisdiction`（CN/EU/US，空=未标注，刻意不加
+  CHECK 同 v4 地域列策略）+ `effect_level` 扩展美国五级（美国宪法/联邦法律/联邦规章/
+  行政命令/联邦条约，改 CHECK 走十二步重建，迁移前自动备份）；存量回填欧盟→EU、其余→CN
+  （口径如实注释）；SchemaMin 保持 3。② 写路径：`ingest.DeriveJurisdiction` 按效力等级
+  推导（判不出留空不瞎猜，upsert 判不出不清空既有法域）；cellar 显式落 EU；美国联邦各级
+  纳入 `nationalEffectLevels` 护栏。③ 界面：库总览「法规库分法域」三行恒常给出、0 如实
+  「尚未收录」+ 补救指引；按条件筛选新增「法域」分面（`jurisExpr` 未标注单独成桶）。
+  ④ 美国通道：`docs/sources-us.md` 实网核实（govinfo 批量目录 robots 开放并公布 bulkdata
+  sitemap；eCFR CAPTCHA 墙 + robots 禁全文端点 → 规章全文改走 govinfo ECFR 批量包；
+  uscode.house.gov 批量页 403 未证实不开采；USCODE 无批量包、联邦法律走 Statute
+  Compilations beta）+ `docs/design-multi-jurisdiction.md` + 骨架 `ingest.USGovinfo`
+  （bulkdata sitemapindex 拉取：robots fail-closed、限速下限 2s、原始留证 + SHA-256、
+  import_log 留痕、空清单如实失败）+ `openlaw-us` CLI（只做清单拉取与留证，全文入库
+  未开通并如实拒绝）。测试：`store/migrate_test.go` v6→v7 真实链路（回填口径/旧列旧值/
+  CHECK 扩展/非法值仍拒/幂等）、`desktop/browse_test.go` 法域分面联动、
+  `ingest/usgovinfo_test.go`（httptest 端到端 + robots 拒绝留痕 + 空清单失败 + 限速下限
+  不可绕过）、冒烟四条断言 + 契约三条元素两条约定。
+  **下一步**：美国全文解析入库（USLM/USC 结构化 → law/law_version/article，写路径高风险
+  按阶段带真实链路测试）；`BuildOptions` 加 `Jurisdictions` 支持按法域切分基础包；
+  欧盟通道界面接线（现为命令行）。
 
 
 
