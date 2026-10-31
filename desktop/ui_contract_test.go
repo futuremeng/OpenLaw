@@ -135,6 +135,18 @@ func TestFilterRailLivesInLeftColumn(t *testing.T) {
 			t.Errorf("前端缺少 %s——列表与计数必须走同一条件，不能各算各的", want)
 		}
 	}
+	// 库总览联动契约：分法域与法规构成必须同一口径——构成按法域分组（bar-group）、
+	// 法域行可下钻（data-juris → browseFilter.juris）、精确数字表带法域列。
+	for _, want := range []string{`<th>法域</th>`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("index.html 缺少 %s——精确数字表须带法域列，与分法域区块对账", want)
+		}
+	}
+	for _, want := range []string{`data-juris`, `browseFilter.juris = b.dataset.juris`, `class="bar-group"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——分法域与构成必须联动：法域行可下钻、构成按法域分组", want)
+		}
+	}
 }
 
 // TestThreeColumnAgentReviewUI 三栏结构与智能审核面板契约：右列共享详情带一键纠正

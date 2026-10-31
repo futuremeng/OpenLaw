@@ -88,6 +88,7 @@ func (a *App) shutdown(ctx context.Context) {
 
 type LevelCount struct {
 	Level     string `json:"level"`
+	Juris     string `json:"juris"` // 效力等级所属法域（CN/EU/US，空=法域未标注）——库总览构成按法域分组联动
 	Pending   int    `json:"pending"`
 	Confirmed int    `json:"confirmed"`
 	Rejected  int    `json:"rejected"`
@@ -97,8 +98,9 @@ type LevelCount struct {
 // Code 为技术标识 CN/EU/US（界面文案由前端映射为「中国/欧盟/美国」）；
 // 空 Code = 法域未标注。诚实展示：CN/EU/US 三行恒常给出，0 也要如实显示。
 type JurisCount struct {
-	Code string `json:"code"`
-	Laws int    `json:"laws"`
+	Code    string `json:"code"`
+	Laws    int    `json:"laws"`
+	Pending int    `json:"pending"` // 该法域待复核条文数（与「待复核」总数同口径，按法域联动）
 }
 
 type StatusView struct {
@@ -153,22 +155,23 @@ func (a *App) Status() (StatusView, error) {
 	v.Govcn = a.count(`SELECT COUNT(*) FROM document WHERE doc_id LIKE 'govcn_%'`)
 	v.Govlocal = a.count(`SELECT COUNT(*) FROM document WHERE doc_id LIKE 'govlocal_%'`)
 
-	rows, err := a.db.Query(`SELECT COALESCE(l.effect_level,'效力等级未标注'),
+	rows, err := a.db.Query(`SELECT COALESCE(l.effect_level,'效力等级未标注'), COALESCE(l.jurisdiction,''),
 		SUM(d.confirm_status='pending'), SUM(d.confirm_status='confirmed'), SUM(d.confirm_status='rejected')
 		FROM document d LEFT JOIN law_version v ON v.doc_id=d.doc_id LEFT JOIN law l ON l.law_id=v.law_id
-		GROUP BY 1 ORDER BY 2 DESC`)
+		GROUP BY 1,2 ORDER BY 3 DESC`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var lc LevelCount
-			if err := rows.Scan(&lc.Level, &lc.Pending, &lc.Confirmed, &lc.Rejected); err == nil {
+			if err := rows.Scan(&lc.Level, &lc.Juris, &lc.Pending, &lc.Confirmed, &lc.Rejected); err == nil {
 				v.ByLevel = append(v.ByLevel, lc)
 			}
 		}
 	}
 	// 分法域计数：CN/EU/US 三行恒常给出（缺失必须如实显示为 0，前端据此给补救指引）；
-	// 法域未标注仅在非 0 时追加一行（诚实展示纪律）。
+	// 法域未标注仅在非 0 时追加一行（诚实展示纪律）。待复核按法域联动（与总待复核同口径）。
 	juris := map[string]int{}
+	jp := map[string]int{}
 	if jrows, err := a.db.Query(`SELECT COALESCE(jurisdiction,''), COUNT(*) FROM law GROUP BY 1`); err == nil {
 		defer jrows.Close()
 		for jrows.Next() {
@@ -178,10 +181,21 @@ func (a *App) Status() (StatusView, error) {
 				juris[code] = n
 			}
 		}
-		v.Juris = []JurisCount{{"CN", juris["CN"]}, {"EU", juris["EU"]}, {"US", juris["US"]}}
-		if n := juris[""]; n > 0 {
-			v.Juris = append(v.Juris, JurisCount{"", n})
+	}
+	if prows, err := a.db.Query(`SELECT COALESCE(l.jurisdiction,''), SUM(d.confirm_status='pending')
+		FROM document d JOIN law_version v ON v.doc_id=d.doc_id JOIN law l ON l.law_id=v.law_id GROUP BY 1`); err == nil {
+		defer prows.Close()
+		for prows.Next() {
+			var code string
+			var n int
+			if err := prows.Scan(&code, &n); err == nil {
+				jp[code] = n
+			}
 		}
+	}
+	v.Juris = []JurisCount{{"CN", juris["CN"], jp["CN"]}, {"EU", juris["EU"], jp["EU"]}, {"US", juris["US"], jp["US"]}}
+	if n := juris[""]; n > 0 {
+		v.Juris = append(v.Juris, JurisCount{"", n, jp[""]})
 	}
 	if m, _, err := validate.LoadManifest(a.dataDir); err == nil {
 		v.ProducerVersion = m.ProducerVersion

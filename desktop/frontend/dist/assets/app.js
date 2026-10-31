@@ -624,7 +624,9 @@ async function loadHome() {
     if (he) he.classList.toggle("hidden", !empty);
     const levels = ["行政法规", "部门规章", "地方政府规章"];
     let html = levels.map((lv) => {
-      const r = (v.by_level || []).find((x) => x.level === lv) || { pending: 0, confirmed: 0, rejected: 0 };
+      const r = (v.by_level || []).reduce((acc, x) => (x && x.level === lv)
+        ? { pending: acc.pending + (x.pending || 0), confirmed: acc.confirmed + (x.confirmed || 0), rejected: acc.rejected + (x.rejected || 0) }
+        : acc, { pending: 0, confirmed: 0, rejected: 0 });
       return `<button class="card big" data-level="${lv}" title="按该类别浏览"><b>${num(r.pending + r.confirmed + r.rejected)}</b><span>${lv}</span><span class="muted">已复核 ${num(r.confirmed)}</span></button>`;
     }).join("");
     const lf = Object.values(v.last_fetch || {}).sort().reverse()[0];
@@ -834,32 +836,57 @@ $("#b-kw").addEventListener("keydown", (e) => { if (e.key === "Enter") { clearTi
 
 // renderBars：法规构成给出「形状」而不只是数字——每级一条堆叠条，段长按条目数比例，
 // 条长之间按最大等级归一（哪一级占多少一眼可辨）。精确值仍在「各等级的精确数字」折叠里。
-function renderBars(rows) {
+// 法域文案映射（CN/EU/US 是技术标识，界面一律法言法语；空=法域未标注）。
+const JURIS_TEXT = { CN: "中国", EU: "欧盟", US: "美国", "": "法域未标注" };
+// renderBars：法规构成按法域分组——分法域与构成必须联动对账（同一法域上下呼应），
+// 空法域组如实说明（0 部=尚未收录；有部数但无留证条文=如实说尚无条文，不得凭空出条）。
+function renderBars(rows, juris) {
   const el = $("#ov-bars");
   if (!el) return;
   const data = (rows || []).filter((r) => r && ((r.pending || 0) + (r.confirmed || 0) + (r.rejected || 0) > 0));
-  if (!data.length) {
+  const jm = {};
+  (juris || []).forEach((r) => { if (r) jm[r.code || ""] = r; });
+  if (!data.length && !(juris || []).some((r) => r && r.laws > 0)) {
     el.innerHTML = '<p class="muted">法规库中还没有条文。可在「获取最新法规」中从官方渠道获取。</p>';
     return;
   }
   const totalOf = (r) => (r.pending || 0) + (r.confirmed || 0) + (r.rejected || 0);
-  const max = data.reduce((m, r) => Math.max(m, totalOf(r)), 0) || 1;
+  const max = data.reduce((m, r) => Math.max(m, totalOf(r)), 0) || 1; // 全局归一：跨法域可比
   const seg = (cls, n) => (n ? `<i class="${cls}" style="width:${((n / max) * 100).toFixed(2)}%"></i>` : "");
-  el.innerHTML = data.map((r) => `<div class="bar-row" title="已复核确认 ${num(r.confirmed)} · 待复核 ${num(r.pending)} · 已驳回 ${num(r.rejected)}">` +
-    `<span class="nm">${escapeHTML(r.level || "效力等级未标注")}</span>` +
-    `<span class="bar">${seg("ok", r.confirmed)}${seg("pend", r.pending)}${seg("no", r.rejected)}</span>` +
-    `<span class="num">${num(totalOf(r))} 条</span></div>`).join("");
+  const groups = {};
+  data.forEach((r) => { const k = r.juris || ""; (groups[k] = groups[k] || []).push(r); });
+  const codes = ["CN", "EU", "US"];
+  if (groups[""] || (jm[""] && jm[""].laws > 0)) codes.push("");
+  let html = "";
+  for (const c of codes) {
+    const g = (groups[c] || []).slice().sort((a, b) => totalOf(b) - totalOf(a));
+    const laws = (jm[c] && jm[c].laws) || 0;
+    html += `<div class="bar-group"><h3>${JURIS_TEXT[c] || escapeHTML(c)}</h3>`;
+    if (g.length) {
+      html += g.map((r) => `<div class="bar-row" title="已复核确认 ${num(r.confirmed)} · 待复核 ${num(r.pending)} · 已驳回 ${num(r.rejected)}">` +
+        `<span class="nm">${escapeHTML(r.level || "效力等级未标注")}</span>` +
+        `<span class="bar">${seg("ok", r.confirmed)}${seg("pend", r.pending)}${seg("no", r.rejected)}</span>` +
+        `<span class="num">${num(totalOf(r))} 条</span></div>`).join("");
+    } else if (laws > 0) {
+      html += `<p class="muted">已收录 ${num(laws)} 部，但尚无留证原文入库，构成待原文获取后显示。</p>`;
+    } else {
+      html += '<p class="muted">尚未收录。</p>';
+    }
+    html += "</div>";
+  }
+  el.innerHTML = html;
 }
 
 /* ---------- 维护 · 库总览（数字 → 处境 → 下一步；技术信息折叠在页尾） ---------- */
 // renderJuris：分法域恒常三行（中国/欧盟/美国）——计数如实给出；0 必须如实显示
 // 「尚未收录」并给可达补救指引（诚实展示纪律：缺失不得留白、不得渲染成可用）。
-const JURIS_TEXT = { CN: "中国", EU: "欧盟", US: "美国", "": "法域未标注" };
+// 有内容的法域行是入口：点击带法域筛选进浏览页（数字与列表当场对上，并与下方
+// 按法域分组的构成呼应同一口径）。
 function renderJuris(rows) {
   const el = $("#ov-juris");
   if (!el) return;
   const m = {};
-  (rows || []).forEach((r) => { if (r) m[r.code || ""] = r.laws || 0; });
+  (rows || []).forEach((r) => { if (r) m[r.code || ""] = r; });
   const hint = {
     CN: "尚未收录。可在「初始化法规库」安装官方数据包，或在「获取最新法规」从官方渠道获取。",
     EU: "尚未收录。欧盟官方通道目前经命令行开通（openlaw-eu），界面通道尚未开通。",
@@ -868,10 +895,20 @@ function renderJuris(rows) {
   };
   const codes = ["CN", "EU", "US"].concat(m[""] ? [""] : []);
   el.innerHTML = codes.map((c) => {
-    const n = m[c] || 0;
-    const note = n ? "" : `<span class="muted">${escapeHTML(hint[c])}</span>`;
-    return `<div class="juris-row"><b>${JURIS_TEXT[c]}</b><span class="num">${num(n)} 部</span>${note}</div>`;
+    const r = m[c] || { laws: 0, pending: 0 };
+    const n = r.laws || 0;
+    if (!n) {
+      return `<div class="juris-row off"><b>${JURIS_TEXT[c]}</b><span class="num">0 部</span><span class="muted">${escapeHTML(hint[c])}</span></div>`;
+    }
+    const pend = (r.pending || 0) > 0 ? `待复核 ${num(r.pending)} 条` : "均已复核";
+    return `<button class="juris-row" data-juris="${c}" title="浏览该法域全部法规">` +
+      `<b>${JURIS_TEXT[c]}</b><span class="num">${num(n)} 部</span><span class="muted">${pend} · 点击查看全部</span></button>`;
   }).join("");
+  el.querySelectorAll("[data-juris]").forEach((b) => b.addEventListener("click", () => {
+    browseFilter.juris = b.dataset.juris || "none"; // 未标注桶在浏览页以 none 表达
+    browseFilter.level = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
+    showPanel("browse");
+  }));
 }
 async function loadOverview() {
   try {
@@ -899,8 +936,8 @@ async function loadOverview() {
     $("#ov-actions").innerHTML = acts;
     document.querySelectorAll("#ov-actions [data-go]").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.go)));
     $("#level-table tbody").innerHTML = (v.by_level || []).map((r) =>
-      `<tr><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
-    renderBars(v.by_level);
+      `<tr><td>${JURIS_TEXT[r.juris || ""] || escapeHTML(r.juris || "")}</td><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
+    renderBars(v.by_level, v.juris);
     renderJuris(v.juris);
     const reps = (await app().RecentReports(5)) || [];
     // 失败如实说：ok=0 不得渲染成中性数字（诚实展示纪律）。

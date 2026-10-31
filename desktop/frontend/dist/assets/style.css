@@ -206,6 +206,12 @@ button.card { text-align: left; font: inherit; color: inherit; cursor: pointer; 
 .juris { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; max-width: 720px; }
 .juris-row { display: grid; grid-template-columns: 128px auto 1fr; gap: 10px; align-items: baseline; font-size: 13.5px; }
 .juris-row .num { font-variant-numeric: tabular-nums; color: var(--muted); }
+button.juris-row { appearance: none; background: transparent; border: 0; margin: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+button.juris-row:hover b { text-decoration: underline; }
+.juris-row.off b { color: var(--muted); }
+.bar-group { margin: 0 0 14px; }
+.bar-group:last-child { margin-bottom: 0; }
+.bar-group h3 { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .bar-row { display: grid; grid-template-columns: 128px 1fr auto; gap: 10px; align-items: center; font-size: 13.5px; }
 .bar-row .nm { color: var(--ink); }
 .bar-row .num { font-variant-numeric: tabular-nums; color: var(--muted); }

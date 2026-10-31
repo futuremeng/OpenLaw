@@ -78,8 +78,8 @@ const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) &&
 let emptyLib = false;
 const data = {
   Status: () => emptyLib
-    ? ({ laws: 0, articles: 0, documents: 0, versions: 0, pending: 0, confirmed: 0, rejected: 0, by_level: [], juris: [{ code: 'CN', laws: 0 }, { code: 'EU', laws: 0 }, { code: 'US', laws: 0 }], last_fetch: {}, data_dir: 'data', schema_version: '5', schema_min: '3', schema_max: '5', producer_version: '无 manifest', open_err: '' })
-    : ({ laws: 28952, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', pending: 30859, confirmed: 4, rejected: 1 }], juris: [{ code: 'CN', laws: 28952 }, { code: 'EU', laws: 0 }, { code: 'US', laws: 0 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '5', schema_min: '3', schema_max: '5', producer_version: 'v0.1.0', open_err: '' }),
+    ? ({ laws: 0, articles: 0, documents: 0, versions: 0, pending: 0, confirmed: 0, rejected: 0, by_level: [], juris: [{ code: 'CN', laws: 0, pending: 0 }, { code: 'EU', laws: 0, pending: 0 }, { code: 'US', laws: 0, pending: 0 }], last_fetch: {}, data_dir: 'data', schema_version: '7', schema_min: '3', schema_max: '7', producer_version: '无 manifest', open_err: '' })
+    : ({ laws: 28953, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', juris: 'CN', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', juris: 'CN', pending: 30859, confirmed: 4, rejected: 1 }], juris: [{ code: 'CN', laws: 28952, pending: 36109 }, { code: 'EU', laws: 1, pending: 0 }, { code: 'US', laws: 0, pending: 0 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '7', schema_min: '3', schema_max: '7', producer_version: 'v0.1.0', open_err: '' }),
   // 智能审核：通道就绪 + 分开计数（智能体/人工/历史来源未记录）+ 例外队列样例。
   // 例外条目必须带白话原因与建议——冒烟里要能看出「为什么需要人工」。
   AgentStatus: () => ({ configured: true, model: 'test-model', guidance: '', technical: '环境变量 OPENLAW_LLM_*' }),
@@ -241,6 +241,10 @@ const g = (id) => byId.get(id);
     '法域筛选联动计数': jurisFiltered === '2',
     '法域筛选回显为白话': jurisEcho.includes('法域 中国'),
     '总览分法域如实报缺失': g('ov-juris').innerHTML.includes('尚未收录') && g('ov-juris').innerHTML.includes('美国'),
+    '总览法域行可下钻（带待复核）': g('ov-juris').innerHTML.includes('data-juris="CN"') && g('ov-juris').innerHTML.includes('待复核 36,109 条'),
+    '构成按法域分组（上下呼应）': (g('ov-bars').innerHTML.match(/class="bar-group"/g) || []).length === 3,
+    '构成空组如实说明': g('ov-bars').innerHTML.includes('尚未收录') && g('ov-bars').innerHTML.includes('尚无留证原文'),
+    '精确数字表行带法域列': g('level-table').innerHTML.includes('中国'),
     '浏览分面给出计数': levelChips.includes('fcount'),
     '筛选前后总数联动': totalAll === '3' && totalFiltered === '1',
     '筛选回显为白话': statsLine.includes('当前筛选：类别 行政法规'),
