@@ -225,6 +225,10 @@ button.card { text-align: left; font: inherit; color: inherit; cursor: pointer; 
 .badge.pend { background: var(--warn-soft); color: var(--warn); }
 .badge.no { background: var(--bad-soft); color: var(--bad); }
 .badge.exp, .badge.na { background: var(--surface-2); color: var(--muted); }
+/* 确认来源徽章：智能体确认与人工确认必须区别显示（诚实展示纪律）；
+   历史确认（来源未记录）沿用中性 .ok 徽章，不得冒充其中任何一种。 */
+.badge.agent { background: var(--acc-soft); color: var(--acc); }
+.badge.human { background: var(--ok-soft); color: var(--ok); }
 .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); }
 .pill.warn { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
 
@@ -372,15 +376,32 @@ tbody tr:hover { background: var(--surface-2); }
 .kv { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; font-size: 13.5px; }
 .kv span { font-variant-numeric: tabular-nums; }
 
-/* ---------- 弹窗 / 提示 ---------- */
-#modal { position: fixed; inset: 0; background: rgba(12, 18, 26, .55); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; max-width: 880px; width: 92%; max-height: 88vh; overflow: auto; padding: 20px 24px; position: relative; box-shadow: var(--shadow); }
-#modal-close { position: sticky; top: 0; float: right; }
+/* ---------- 右列：共享详情（三栏：左=导航与筛选、中=列表、右=原文/详情） ----------
+   默认收起；点选条目展开为定宽列，正文独立滚动；「一键纠正」工具条钉在底部。 */
+#detail {
+  width: 440px; flex: none; background: var(--surface); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh;
+}
+#detail > .panehd { background: var(--bg); border-bottom: 1px solid var(--line); padding: 8px 14px; }
+#detail #detail-body { flex: 1; overflow: auto; background: var(--panel); border: 0; border-radius: 0; box-shadow: none; }
+#fix-bar {
+  display: flex; gap: 8px; align-items: center; padding: 10px 14px;
+  background: var(--panel); border-top: 1px solid var(--line);
+  box-shadow: 0 -2px 8px rgba(16, 24, 40, .06);
+}
+#fix-bar input { flex: 1; min-width: 0; }
+
+/* ---------- 提示 ---------- */
 #toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: var(--r-s); font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .25s; max-width: 80vw; }
 #toast.show { opacity: .97; }
 
-/* ---------- 窄窗口兜底（低于桌面最小宽时不横向挤压） ---------- */
+/* ---------- 窄窗口兜底（低于桌面最小宽时不横向挤压）：
+   右列先收窄，再改为浮层覆盖（详情是临时阅读面，不该挤没列表列）。 ---------- */
 @media (max-width: 1080px) {
   .split, .cols { grid-template-columns: 1fr; }
   main { padding: 20px 18px 60px; }
+  #detail { width: 360px; }
+}
+@media (max-width: 860px) {
+  #detail { position: fixed; right: 0; top: 0; bottom: 0; width: min(92vw, 430px); z-index: 40; box-shadow: var(--shadow); }
 }

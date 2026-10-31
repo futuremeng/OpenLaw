@@ -56,20 +56,27 @@ const document = {
     return [];
   },
 };
-// 浏览用的小语料：列表与分面计数都由同一条件函数产出（与 Go 侧 browseWhere 同构）。
+// 浏览用的小语料：列表与分面计数都按同一条件计算——冒烟里也要能看出「筛选变了、计数跟着变」。
+// 桩字段一律按 Go 侧 LawRow 的真实 JSON 形状给出（confirm_status/confirm_source，
+// 不是 status——桩与真实契约不一致会让接线冒烟验证错东西）。
 // L3 故意缺等级/机关/地域：条目行的缺失标记要在冒烟里可见。
 // 缺失的效力等级按 Go 侧真实形状给出（SQL 默认值「效力等级未标注」，不是空串）。
 const laws = [
-  { law_id: 'L1', name: '工伤保险条例', level: '行政法规', status: 'pending', region_source: 'none', region: '北京市', issuer: '国务院', effective_date: '2004-01-01' },
-  { law_id: 'L2', name: '北京市生活垃圾管理条例', level: '地方性法规', status: 'confirmed', region_source: 'auto', region: '北京市', issuer: '北京市人大常委会', effective_date: '1996-06-01' },
-  { law_id: 'L3', name: '某市养犬管理办法', level: '效力等级未标注', status: 'pending', region_source: '', region: '', issuer: '', effective_date: '' },
+  { law_id: 'L1', name: '工伤保险条例', level: '行政法规', confirm_status: 'pending', confirm_source: '', region_source: 'none', region: '北京市', issuer: '国务院', effective_date: '2004-01-01' },
+  { law_id: 'L2', name: '北京市生活垃圾管理条例', level: '地方性法规', confirm_status: 'confirmed', confirm_source: 'agent', region_source: 'auto', region: '北京市', issuer: '北京市人大常委会', effective_date: '1996-06-01' },
+  { law_id: 'L3', name: '某市养犬管理办法', level: '效力等级未标注', confirm_status: 'pending', confirm_source: '', region_source: '', region: '', issuer: '', effective_date: '' },
 ];
 const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) && (!a.kw || r.name.includes(a.kw)));
 const data = {
   Status: () => ({ laws: 28952, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', pending: 30859, confirmed: 4, rejected: 1 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '4', schema_min: '3', schema_max: '4', producer_version: 'v0.1.0', open_err: '' }),
-  QueueStats: () => ({ pending: 36109, confirmed: 12, rejected: 1, risk: { inferred_date: 5 } }),
-  PendingList: () => [{ doc_id: 'D1', law_name: '工伤保险条例', source_type: 'flk 批量下载', flags: ['inferred_date'] }],
-  ConfirmSources: () => [{ source: 'flk 批量下载', pending: 30859 }],
+  // 智能审核：通道就绪 + 分开计数（智能体/人工/历史来源未记录）+ 例外队列样例。
+  // 例外条目必须带白话原因与建议——冒烟里要能看出「为什么需要人工」。
+  AgentStatus: () => ({ configured: true, model: 'test-model', guidance: '', technical: '环境变量 OPENLAW_LLM_*' }),
+  AgentStats: () => ({ agent_confirmed: 42, human_confirmed: 3, legacy_confirmed: 7, escalated: 5, unreviewed: 9, last_run: '2026-10-29T02:00:00Z' }),
+  ExceptionList: () => [{ doc_id: 'D1', law_name: '工伤保险条例', level: '行政法规', source: 'gov.cn 国家规章库', confidence: 0.55, reason: '公布日期与原文不一致', suggest: '建议公布日期 2004-01-01', model: 'test-model', reviewed_at: '2026-10-29T02:00:00Z' }],
+  CorrectDoc: () => ({}),
+  StartReviewTask: () => ({ id: 9, kind: 'agent-review', state: 'running', progress: '' }),
+  Preview: () => ({ doc_id: 'D1', law_name: '工伤保险条例', level: '行政法规', confirm_status: 'pending', confirm_source: '', review_log: [], articles: [{ article_no: '第一条', text: '为了保障工伤职工…' }] }),
   RecentReports: () => [{ source: 'govcn', ok: 0, failed: 1361, pages: 0, modified_at: '2026-10-28T02:28:32Z' }],
   RecentReviews: () => [{ reviewer: '张三', action: 'confirm', doc_id: 'D1', created_at: '2026-10-27T01:00:00Z' }],
   RegionReviewStats: () => ({ total: 28952, suggest_pending: 83, confirmed: 5, left_blank: 2, unmarked: 900 }),
@@ -91,7 +98,7 @@ const data = {
       // 分面口径与 Go 侧一致：缺失项按 COALESCE(...,'') 归入空值桶（前端不列空值桶，
       // 由脚注说明「未记录的条目不参与该维度筛选」）。
       levels: group((r) => (r.level === '效力等级未标注' ? '' : r.level)),
-      confirms: group((r) => r.status),
+      confirms: group((r) => r.confirm_status),
       sources: group(() => 'gov.cn 国家规章库'), years: group(() => '2000'),
       regions: group((r) => (r.region_source === 'none' ? '' : '11')),
     };
@@ -111,7 +118,7 @@ for (const f of ['assets/api.js', 'assets/app.js']) vm.runInContext(fs.readFileS
 (listeners['DOMContentLoaded'] || []).forEach((f) => f());
 const g = (id) => byId.get(id);
 (async () => {
-  for (const p of ['home', 'browse', 'overview', 'search', 'confirm', 'region', 'collect']) {
+  for (const p of ['home', 'browse', 'overview', 'search', 'review', 'region', 'collect']) {
     ctx.showPanel(p);
     await new Promise((r) => setTimeout(r, 30));
   }
@@ -133,7 +140,7 @@ const g = (id) => byId.get(id);
   const statsLine = g('b-stats').textContent;
   const adornSel = g('ad-level').textContent;
   const crumb = g('crumb-cur').textContent + ' | ' + g('crumb-ctx').textContent;
-  const cntConfirm = g('cnt-confirm').textContent, cntConfirmTitle = g('cnt-confirm').title;
+  const cntConfirm = g('cnt-review').textContent, cntConfirmTitle = g('cnt-review').title;
   // 待复核确实为 0 时不得留「0」徽标（无需提醒），面板内另有如实说明。
   ctx.setSideFoot({ laws: 1, pending: 0 });
   const topLib = g('t-lib-n').textContent;
@@ -156,7 +163,7 @@ const g = (id) => byId.get(id);
   const argsAfter = JSON.stringify(vm.runInContext('browseArgs(300,0)', ctx));
   const report = {
     '侧栏待复核计数': cntConfirm + ' (title: ' + cntConfirmTitle + ')',
-    '待复核为 0 时清空徽标': g('cnt-confirm').textContent === '' && !g('cnt-confirm').title,
+    '待复核为 0 时清空徽标': g('cnt-review').textContent === '' && !g('cnt-review').title,
     '侧栏地域计数': g('cnt-region').textContent,
     '获取任务指示灯随任务显示': g('dot-collect').hidden === false,
     '顶栏法规库总数常驻': topLib === '1',
@@ -167,7 +174,9 @@ const g = (id) => byId.get(id);
     '等级精确表行数': (g('level-table').innerHTML.match(/<tr>/g) || []).length,
     '获取记录如实（本轮没有新增内容）': g('reports').innerHTML.includes('本轮没有新增内容'),
     '复核记录本机时间': /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(g('reviews').innerHTML),
-    '批量来源为真实来源名': g('b-source').innerHTML.includes('flk 批量下载'),
+    '智能审核统计分开计数': g('rv-stats').innerHTML.includes('智能体已确认') && g('rv-stats').innerHTML.includes('人工已确认') && g('rv-stats').innerHTML.includes('历史确认'),
+    '例外队列给出没把握原因': g('ex-list').innerHTML.includes('没把握的原因') && g('ex-list').innerHTML.includes('公布日期与原文不一致'),
+    '智能审核通道回显': g('rv-channel').textContent.includes('已就绪'),
     '外观切换（顶栏图标按钮）': g('theme-toggle').title,
     'html data-theme': JSON.stringify(documentElement.dataset.theme || ''),
     '任务卡 class 含 running': g('task-list').innerHTML.includes('task running'),
@@ -184,6 +193,7 @@ const g = (id) => byId.get(id);
     '缺失合并成一个标记': rowHTML.includes('未标注 3 项') && !rowHTML.includes('效力等级未标注 · 地域未标注'),
     '缺失不被当作已知值回显': !rowHTML.includes('效力等级未标注'),
     '待复核条目行有强调类': rowHTML.includes('item pend'),
+    '条目徽章如实报智能体确认': rowHTML.includes('智能体确认'),
     '未标注地区如实说明': unlabeledNote.includes('未标注'),
     '检索命中可就地收窄': g('sf-level').innerHTML.includes('fcount'),
     '检索面板头报显示/命中': g('s-pane-cnt').innerHTML.includes('命中'),

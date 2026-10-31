@@ -106,40 +106,68 @@ func TestTechnicalTermsOnlyInDisclosure(t *testing.T) {
 	}
 }
 
-// TestBrowseFilterRailIsPrimary 筛选必须是浏览页的主结构，且不得回流到侧栏：
-// 地区等维度是「定位法规」的手段，属面板；侧栏只报状态。计数与列表必须同源
+// TestFilterRailLivesInLeftColumn 三栏布局契约：左列 = 导航 + 筛选栏（仅「按条件筛选」
+// 展开）、中列 = 面板列表、右列 = 共享详情。筛选是「定位法规」的手段，常驻左列；
+// 左列不得携带状态与外观工具（那些在顶栏）。计数与列表必须同源
 // （前端同一处调用 BrowseLawList / BrowseFacets，Go 侧共用 browseWhere）。
-func TestBrowseFilterRailIsPrimary(t *testing.T) {
+func TestFilterRailLivesInLeftColumn(t *testing.T) {
 	html := readFrontend(t, "index.html")
 	start := strings.Index(html, `<aside id="side">`)
 	end := strings.Index(html, `</aside>`)
 	if start < 0 || end <= start {
-		t.Fatalf("未定位到侧栏结构")
+		t.Fatalf("未定位到左列结构")
 	}
 	side := html[start:end]
-	for _, banned := range []string{"<select", "region-prov", "btn-locate", "region-bar"} {
-		if strings.Contains(side, banned) {
-			t.Errorf("侧栏出现筛选控件 %q——筛选属面板职责，侧栏只报状态", banned)
+	for _, want := range []string{`id="filters"`, `class="filters"`, `id="f-levels"`, `id="f-confirms"`,
+		`id="f-sources"`, `id="f-years"`, `id="f-regions"`, `id="btn-filter-clear"`} {
+		if !strings.Contains(side, want) {
+			t.Errorf("左列缺少 %q：多维筛选与分面计数是定位法规的手段，常驻左列", want)
 		}
 	}
-	parts := strings.Split(html, `<section id="panel-browse"`)
-	if len(parts) != 2 {
-		t.Fatalf("未定位到浏览面板")
-	}
-	body := parts[1]
-	if i := strings.Index(body, `<section id="`); i >= 0 {
-		body = body[:i]
-	}
-	for _, want := range []string{`class="filters"`, `id="f-levels"`, `id="f-confirms"`,
-		`id="f-sources"`, `id="f-years"`, `id="f-regions"`, `id="btn-filter-clear"`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("浏览面板缺少 %q：多维筛选与分面计数是本页主结构", want)
+	for _, banned := range []string{"theme-toggle", "t-lib", "t-pending", "schema-badge"} {
+		if strings.Contains(side, banned) {
+			t.Errorf("左列出现 %q——状态与外观工具在顶栏，左列只留导航与筛选，不得两处各一套", banned)
 		}
 	}
 	js := readFrontend(t, filepath.Join("assets", "app.js"))
 	for _, want := range []string{"app().BrowseLawList(", "app().BrowseFacets("} {
 		if !strings.Contains(js, want) {
 			t.Errorf("前端缺少 %s——列表与计数必须走同一条件，不能各算各的", want)
+		}
+	}
+}
+
+// TestThreeColumnAgentReviewUI 三栏结构与智能审核面板契约：右列共享详情带一键纠正
+// 工具条；人工复核入口已由「智能审核」取代——人工只处理例外。技术操作
+// （批量署名落判、手输路径、构建签名包、重载缓存）不得回流到常规界面。
+func TestThreeColumnAgentReviewUI(t *testing.T) {
+	html := readFrontend(t, "index.html")
+	for _, want := range []string{`<aside id="side">`, `<main>`, `<aside id="detail"`, `id="fix-bar"`,
+		`id="panel-review"`, `id="btn-review-run"`, `id="rv-stats"`, `id="rv-channel"`,
+		`id="ex-list"`, `id="fix-confirm"`, `id="fix-reject"`, `id="btn-pack-pick"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("缺少 %s——三栏布局与智能审核控件是界面契约", want)
+		}
+	}
+	for _, gone := range []string{`id="panel-confirm"`, `id="queue-list"`, `id="reviewer"`, `id="reason"`,
+		`id="btn-bulk-preview"`, `id="btn-bulk-apply"`, `id="modal"`, `id="p-dir"`, `id="p-key"`,
+		`id="btn-pack-build"`, `id="btn-risk-reload"`, `id="schema-badge"`} {
+		if strings.Contains(html, gone) {
+			t.Errorf("%s 重新出现——人工队列与技术操作已收进智能审核与折叠，不得回流常规界面", gone)
+		}
+	}
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	for _, want := range []string{"app().AgentStatus(", "app().StartReviewTask(", "app().AgentStats(",
+		"app().ExceptionList(", "app().CorrectDoc(", "app().PickUpdatePack(",
+		"loadReview(", "statusBadge(s, src)", `src === "agent"`, `src === "human"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——智能审核的计数、例外与一键纠正必须走同一库层路径；确认来源必须如实区分", want)
+		}
+	}
+	css := readFrontend(t, filepath.Join("assets", "style.css"))
+	for _, want := range []string{".badge.agent", ".badge.human", "#detail", "#fix-bar"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("样式缺少 %s——智能体确认与人工确认必须区别显示，右列详情必须有布局规则", want)
 		}
 	}
 }
@@ -163,7 +191,9 @@ func TestFrontendWiringSmoke(t *testing.T) {
 	}
 	for _, want := range []string{"侧栏待复核计数", "待复核为 0 时清空徽标\": true", "总览占比条含 bar-row\": true",
 		"任务卡 class 含 running\": true", "筛选前后总数联动\": true", "浏览分面给出计数\": true",
-		"未标注地区如实说明\": true", "检索命中可就地收窄\": true"} {
+		"未标注地区如实说明\": true", "检索命中可就地收窄\": true",
+		"智能审核统计分开计数\": true", "例外队列给出没把握原因\": true", "智能审核通道回显\": true",
+		"条目徽章如实报智能体确认\": true"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("接线冒烟缺少期望产出 %q：\n%s", want, strings.TrimSpace(string(out)))
 		}
@@ -219,6 +249,7 @@ func TestTopbarCarriesContextAndStatus(t *testing.T) {
 
 // TestNavAndPanesUseIconChrome 导航项与面板头要有图标承载识别，且图标由脚本集中注入
 // （界面文件不堆 SVG 源码）。图标只承载识别：结论仍是文字与数字。
+// 阅读控制（字号/行宽）挂在右列详情头——原文只在右列展开。
 func TestNavAndPanesUseIconChrome(t *testing.T) {
 	html := readFrontend(t, "index.html")
 	nav := strings.Split(strings.Split(html, `<nav id="nav">`)[1], `</nav>`)[1]
@@ -230,10 +261,17 @@ func TestNavAndPanesUseIconChrome(t *testing.T) {
 	}
 	browse := strings.Split(html, `<section id="panel-browse"`)[1]
 	browse = browse[:strings.Index(browse, `<section id="`)]
-	for _, want := range []string{`class="pane"`, `class="panehd"`, `id="b-pane-cnt"`,
-		`id="b-fs-down"`, `id="b-fs-up"`, `id="b-wide"`} {
+	for _, want := range []string{`class="panehd"`, `id="b-pane-cnt"`} {
 		if !strings.Contains(browse, want) {
-			t.Errorf("浏览面板缺少 %s——列表列与原文列各有面板头，阅读控制挂在原文列头", want)
+			t.Errorf("浏览面板缺少 %s——列表列有面板头并如实报列出/共计", want)
+		}
+	}
+	detail := strings.Split(html, `<aside id="detail"`)[1]
+	detail = detail[:strings.Index(detail, `</aside>`)]
+	for _, want := range []string{`id="detail-title"`, `id="detail-body"`,
+		`id="b-fs-down"`, `id="b-fs-up"`, `id="b-wide"`, `id="detail-close"`} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("右列详情缺少 %s——原文在右列展开，阅读控制挂在详情头", want)
 		}
 	}
 	js := readFrontend(t, filepath.Join("assets", "app.js"))
@@ -250,19 +288,20 @@ func TestNavAndPanesUseIconChrome(t *testing.T) {
 
 // TestFacetGroupsAreCollapsible 分面组必须可折叠并自带组头（chevron + 微标题 +
 // 已选/计数 adornment），折叠状态记住；长维度默认收起并给出「显示全部」。
+// 分面栏常驻左列（三栏布局），不再随面板搬运。
 func TestFacetGroupsAreCollapsible(t *testing.T) {
 	html := readFrontend(t, "index.html")
-	browse := strings.Split(html, `<section id="panel-browse"`)[1]
-	browse = browse[:strings.Index(browse, `<section id="`)]
+	rail := strings.Split(html, `<div id="filters"`)[1]
+	rail = rail[:strings.Index(rail, `</aside>`)]
 	for _, dim := range []string{"level", "confirm", "year", "source", "region"} {
-		if !strings.Contains(browse, `id="g-`+dim+`"`) || !strings.Contains(browse, `id="ad-`+dim+`"`) {
+		if !strings.Contains(rail, `id="g-`+dim+`"`) || !strings.Contains(rail, `id="ad-`+dim+`"`) {
 			t.Errorf("分面组 %s 缺少组头或计数 adornment——折叠状态下也要能看出该维度筛的是哪一项", dim)
 		}
 	}
-	if !strings.Contains(browse, `aria-controls="f-`) {
+	if !strings.Contains(rail, `aria-controls="f-`) {
 		t.Errorf("分面组头缺少 aria-controls——折叠控件必须可被辅助技术定位")
 	}
-	if got := strings.Count(browse, `class="fhd"`); got < 5 {
+	if got := strings.Count(rail, `class="fhd"`); got < 5 {
 		t.Errorf("分面组头只有 %d 处，应为 5 个维度各有其主", got)
 	}
 	js := readFrontend(t, filepath.Join("assets", "app.js"))
