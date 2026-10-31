@@ -231,6 +231,11 @@ button.jhead:hover b { text-decoration: underline; }
 .jsub .muted { font-weight: 400; margin-left: 6px; }
 .jgroup .rep.sm { padding: 6px 9px; font-size: 12.5px; margin: 4px 0 0 12px; }
 .jgroup p.muted.small { margin: 4px 0 0 12px; }
+/* 法域列内的精确数字折叠：与本法域占比条同批数据，就地可对账 */
+.jgroup .disclose.sm { margin: 10px 0 0 12px; padding: 2px 12px; }
+.jgroup .disclose.sm summary { padding: 6px 0; font-size: 12.5px; }
+.jgroup table.lv { max-width: none; font-size: 12.5px; margin: 4px 0 8px; }
+.jgroup table.lv th, .jgroup table.lv td { padding: 4px 8px; border-bottom: 1px solid var(--line-2); text-align: left; }
 .bar-row { display: grid; grid-template-columns: 128px 1fr auto; gap: 10px; align-items: center; font-size: 13.5px; }
 .bar-row .nm { color: var(--ink); }
 .bar-row .num { font-variant-numeric: tabular-nums; color: var(--muted); }

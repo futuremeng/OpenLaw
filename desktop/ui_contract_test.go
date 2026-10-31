@@ -136,10 +136,10 @@ func TestFilterRailLivesInLeftColumn(t *testing.T) {
 		}
 	}
 	// 库总览联动契约：分法域与构成必须同一口径——一个法域一个块（jgroup）、
-	// 块头可下钻（data-juris → browseFilter.juris）、精确数字表带法域列。
-	for _, want := range []string{`<th>法域</th>`} {
-		if !strings.Contains(html, want) {
-			t.Errorf("index.html 缺少 %s——精确数字表须带法域列，与分法域区块对账", want)
+	// 块头可下钻（data-juris → browseFilter.juris）、精确数字折叠归入本法域列。
+	for _, want := range []string{`各等级的精确数字`, `<table class="lv">`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——精确数字须折叠在本法域列内，与占比条同批数据可就地核对", want)
 		}
 	}
 	for _, want := range []string{`data-juris`, `browseFilter.juris = b.dataset.juris`, `class="jgroup"`} {

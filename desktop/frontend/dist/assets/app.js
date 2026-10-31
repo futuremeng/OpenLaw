@@ -893,6 +893,11 @@ function renderJuris(rows, byLevel, reps, revs) {
         `<span class="nm">${escapeHTML(b.level || "效力等级未标注")}</span>` +
         `<span class="bar">${seg("ok", b.confirmed)}${seg("pend", b.pending)}${seg("no", b.rejected)}</span>` +
         `<span class="num">${num(totalOf(b))} 条</span></div>`).join("");
+      // 精确数字明细随构成走：折叠在本法域列内（与占比条同一批数据，可对账）。
+      body += `<details class="disclose sm"><summary>各等级的精确数字</summary>` +
+        `<table class="lv"><thead><tr><th>效力等级</th><th>待复核</th><th>已复核确认</th><th>已驳回</th></tr></thead><tbody>` +
+        bars.map((b) => `<tr><td>${escapeHTML(b.level || "效力等级未标注")}</td><td>${num(b.pending)}</td><td>${num(b.confirmed)}</td><td>${num(b.rejected)}</td></tr>`).join("") +
+        `</tbody></table></details>`;
     } else if (laws > 0) {
       body = `<p class="muted">尚无留证原文入库，构成待原文获取后显示。</p>`;
     } else {
@@ -944,8 +949,6 @@ async function loadOverview() {
     acts += `<button data-go="collect">获取最新法规</button>`;
     $("#ov-actions").innerHTML = acts;
     document.querySelectorAll("#ov-actions [data-go]").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.go)));
-    $("#level-table tbody").innerHTML = (v.by_level || []).map((r) =>
-      `<tr><td>${JURIS_TEXT[r.juris || ""] || escapeHTML(r.juris || "")}</td><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
     // 获取/复核记录归入所属法域列（计数→构成→动态，一个法域一个完整档案）。
     // 失败如实说：ok=0 不得渲染成中性数字（诚实展示纪律）。
     const reps = (await app().RecentReports(9)) || [];
