@@ -220,13 +220,16 @@ func (a *App) PendingList(filter string, limit, offset int) ([]PendingItem, erro
 }
 
 type PreviewView struct {
-	DocID      string   `json:"doc_id"`
-	FilePath   string   `json:"file_path"`
-	SourceURL  string   `json:"source_url"`
-	SourceType string   `json:"source_type"`
-	Publish    string   `json:"publish_date"`
-	SHA256     string   `json:"sha256"`
-	Status     string   `json:"confirm_status"`
+	DocID      string `json:"doc_id"`
+	FilePath   string `json:"file_path"`
+	SourceURL  string `json:"source_url"`
+	SourceType string `json:"source_type"`
+	Publish    string `json:"publish_date"`
+	SHA256     string `json:"sha256"`
+	Status     string `json:"confirm_status"`
+	// ConfirmSrc 确认来源（agent=智能体确认 / human=人工确认 / 空=历史数据或未经确认）。
+	// 徽章必须按它区分，历史确认条目不得渲染成智能体确认（诚实展示纪律）。
+	ConfirmSrc string   `json:"confirm_source,omitempty"`
 	Content    string   `json:"content"`
 	Truncated  bool     `json:"truncated"`
 	Missing    string   `json:"missing,omitempty"`
@@ -248,8 +251,8 @@ func (a *App) Preview(docID string) (PreviewView, error) {
 		return p, errors.New(a.openErr)
 	}
 	err := a.db.QueryRow(`SELECT doc_id, file_path, COALESCE(source_url,''), COALESCE(source_type,''),
-		COALESCE(publish_date,''), sha256, confirm_status FROM document WHERE doc_id=?`, docID).
-		Scan(&p.DocID, &p.FilePath, &p.SourceURL, &p.SourceType, &p.Publish, &p.SHA256, &p.Status)
+		COALESCE(publish_date,''), sha256, confirm_status, COALESCE(confirm_source,'') FROM document WHERE doc_id=?`, docID).
+		Scan(&p.DocID, &p.FilePath, &p.SourceURL, &p.SourceType, &p.Publish, &p.SHA256, &p.Status, &p.ConfirmSrc)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, fmt.Errorf("文档不存在: %s", docID)
 	} else if err != nil {

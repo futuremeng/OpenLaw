@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+
 	"github.com/futuremeng/OpenLaw/pack"
 	"github.com/futuremeng/OpenLaw/store"
 	"github.com/futuremeng/OpenLaw/validate"
@@ -165,8 +167,20 @@ func (a *App) StartPackImportTask(packDir string) (TaskInfo, error) {
 }
 
 // ReloadRiskCache 强制丢弃风险标记缓存（下次读队列重扫 provenance）。
+// 界面上不再有对应按钮（5 分钟 TTL 自动重载）；保留给 CLI 与排障。
 func (a *App) ReloadRiskCache() {
 	a.riskMu.Lock()
 	a.risk = nil
 	a.riskMu.Unlock()
+}
+
+// PickUpdatePack 系统文件夹选择器：导入更新包不再要求用户手输目录路径
+// （界面去技术化：路径输入属技术操作）。返回空串 = 用户取消。
+func (a *App) PickUpdatePack() (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("窗口尚未就绪，请稍候再试")
+	}
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择要导入的更新包文件夹",
+	})
 }

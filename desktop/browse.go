@@ -28,6 +28,7 @@ type LawRow struct {
 	Expire       string `json:"expire_date"` // 空 = 仍现行有效
 	Publish      string `json:"publish_date"`
 	Status       string `json:"confirm_status"`
+	ConfirmSrc   string `json:"confirm_source"` // agent=智能体确认 / human=人工确认 / 空=历史或未经复核
 }
 
 // LawFilter 多维筛选条件（空 = 该维度不限）。公众模式常用其中一两个维度
@@ -109,7 +110,7 @@ func (a *App) BrowseLawList(f LawFilter) ([]LawRow, error) {
 		COALESCE(l.effect_level,'效力等级未标注'), COALESCE(l.region_code,''), COALESCE(l.region_source,''),
 		COALESCE(v.version_no,''),
 		COALESCE(v.effective_date,''), COALESCE(v.expire_date,''),
-		COALESCE(d.publish_date,''), COALESCE(d.confirm_status,'')
+		COALESCE(d.publish_date,''), COALESCE(d.confirm_status,''), COALESCE(d.confirm_source,'')
 		`+browseFrom+where+`
 		`+browseOrder+` LIMIT ? OFFSET ?`, args...)
 	if err != nil {
@@ -120,7 +121,7 @@ func (a *App) BrowseLawList(f LawFilter) ([]LawRow, error) {
 	for rows.Next() {
 		var r LawRow
 		if err := rows.Scan(&r.LawID, &r.Name, &r.Issuer, &r.Level, &r.RegionCode, &r.RegionSource,
-			&r.VersionNo, &r.Effective, &r.Expire, &r.Publish, &r.Status); err != nil {
+			&r.VersionNo, &r.Effective, &r.Expire, &r.Publish, &r.Status, &r.ConfirmSrc); err != nil {
 			return out, err
 		}
 		r.Region, r.RegionSource = displayRegion(r.RegionCode, r.RegionSource, r.Name)
