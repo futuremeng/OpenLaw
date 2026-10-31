@@ -34,6 +34,9 @@ func main() {
 		regions        = fs.String("regions", "", "build：地域过滤，逗号分隔区划码前缀；CN=国家级（如 CN,44）")
 		since          = fs.String("since", "", "build：发布日期窗口起（含，如 2026-01-01）")
 		until          = fs.String("until", "", "build：发布日期窗口止（含）")
+		indexDir       = fs.String("index", "", "index：目录输出目录（index.json + index.sig）")
+		urlBase        = fs.String("url-base", "", "index：下载直链前缀（与归档文件名拼接，如 GitHub Release 资产目录）")
+		outPath        = fs.String("out", "", "archive：归档输出路径（默认 <pack 目录>.zip）")
 	)
 	if len(os.Args) < 2 {
 		usage()
@@ -42,7 +45,7 @@ func main() {
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		os.Exit(1)
 	}
-	if cmd != "keygen" && *packDir == "" {
+	if cmd != "keygen" && cmd != "index" && cmd != "index-verify" && *packDir == "" {
 		fmt.Fprintln(os.Stderr, "必须提供 -pack")
 		os.Exit(1)
 	}
@@ -125,6 +128,47 @@ func main() {
 			return
 		}
 		fmt.Println("新导入条目 confirm_status=pending，请执行 openlaw-check 并转人工确认")
+	case "archive":
+		out := *outPath
+		if out == "" {
+			out = *packDir + ".zip"
+		}
+		if err := pack.Archive(*packDir, out); err != nil {
+			fatal(err)
+		}
+		fmt.Println("更新包归档已生成:", out)
+	case "index":
+		if *indexDir == "" || *keyPath == "" {
+			fatal("index 必须指定 -index 输出目录与 -key 私钥路径（参数为各包的 zip 归档）")
+		}
+		if *urlBase == "" {
+			fatal("index 必须指定 -url-base 下载直链前缀（如 https://github.com/<owner>/<repo>/releases/download/<tag>）")
+		}
+		var metas []pack.CatalogPack
+		for _, z := range fs.Args() {
+			cp, err := pack.ReadPackMeta(z, strings.TrimSuffix(*urlBase, "/")+"/"+filepath.Base(z))
+			if err != nil {
+				fatal(err)
+			}
+			metas = append(metas, cp)
+		}
+		if err := pack.BuildCatalog(metas, *indexDir, *keyPath); err != nil {
+			fatal(err)
+		}
+		fmt.Printf("更新包目录已生成并签名: %s（%d 个包）\n", *indexDir, len(metas))
+	case "index-verify":
+		if *indexDir == "" {
+			fatal("index-verify 必须指定 -index 目录")
+		}
+		c, err := pack.ParseCatalog(*indexDir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "更新包目录校验失败:", err)
+			os.Exit(2)
+		}
+		fmt.Printf("更新包目录校验通过（签名有效、来源可信）: %d 个包\n", len(c.Packs))
+		for _, p := range c.Packs {
+			fmt.Printf("  %-32s %-5s %6d 条 %12d 字节\n", p.PackID, p.Kind, p.DocCount, p.Size)
+		}
 	default:
 		usage()
 	}
@@ -142,7 +186,8 @@ func openDB(dataDir string) *store.DB {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "用法: openlaw-pack keygen|build|verify|import -pack <dir> [-data <dir>] [-key <path>] [-allow-untrusted]")
+	fmt.Fprintln(os.Stderr, "用法: openlaw-pack keygen|build|verify|import|archive|index|index-verify [-pack <dir>] [-data <dir>] [-key <path>] [-allow-untrusted]")
+	fmt.Fprintln(os.Stderr, "  archive: -pack <包目录> [-out <zip>]；index: -index <目录> -key <私钥> -url-base <直链前缀> <zip>…；index-verify: -index <目录>")
 	os.Exit(1)
 }
 

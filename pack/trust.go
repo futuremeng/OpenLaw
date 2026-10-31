@@ -43,7 +43,13 @@ func TrustOf(packDir string) (string, error) {
 	if err != nil {
 		return "", ErrSignatureFail
 	}
-	h := strings.ToLower(strings.TrimSpace(string(b)))
+	return TrustPubkey(string(b))
+}
+
+// TrustPubkey 按公钥 hex（允许首尾空白）查受信名单；未命中返回 ErrUntrustedKey。
+// 包（pubkey.hex）与目录（index.json 内 pubkey 字段）共用同一道来源闸。
+func TrustPubkey(pubHex string) (string, error) {
+	h := strings.ToLower(strings.TrimSpace(pubHex))
 	if _, err := hex.DecodeString(h); err != nil {
 		return "", ErrSignatureFail
 	}

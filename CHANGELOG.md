@@ -4,6 +4,12 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **基础包/增量包 · 第二步（归档与目录）**：包可归档为单 zip（`openlaw-pack archive`，
+  zip 根=包内容；解包拒绝越界路径与覆盖已有文件）；新增签名目录 `index.json + index.sig`
+  （`openlaw-pack index / index-verify`）：目录用与包相同的 Ed25519 密钥签名、公钥必须命中
+  受信名单，条目身份取自包内已签名 manifest（目录不得伪造包身份），旧整包（无 pack_id）
+  不得进目录。下载通道与桌面接线为下一步。
+
 - **基础包/增量包 · 第一步（包模型 v2 + 安装台账）**：更新包 manifest 新增可选身份字段
   `pack_id/kind(base|delta)/regions/since/until/doc_count`（随签名保护，旧包照常读取 = 旧整包）；
   `openlaw-pack build` 支持按地域（`CN`=国家级、区划码前缀）与发布日期窗口切分，且只复制
