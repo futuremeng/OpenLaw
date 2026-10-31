@@ -202,11 +202,18 @@ button.card { text-align: left; font: inherit; color: inherit; cursor: pointer; 
 
 /* ---------- 构成占比条（数字之外给出「库里装了什么」的直观形状） ---------- */
 .bars { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; max-width: 720px; }
-/* 分法域与构成（v7 多法域）：一个法域一个块——块头计数+下钻，块体构成条；0 也要如实出现并给补救指引 */
-.juris { display: flex; flex-direction: column; gap: 0; margin: 12px 0; max-width: 720px; }
-.jgroup { padding: 10px 0 12px; border-top: 1px solid var(--line); }
-.jgroup:first-child { border-top: 0; padding-top: 2px; }
-.jhead { display: grid; grid-template-columns: 128px auto 1fr; gap: 10px; align-items: baseline; width: 100%; font-size: 13.5px; }
+/* 分法域与构成（v7 多法域）：一个法域一个块，三法域并列多列——中国宽列（构成条密集）、
+   欧盟/美国窄列（多为如实空述），块间竖线分隔；窄屏回落单列堆叠。0 也要如实出现并给补救指引 */
+.juris { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1.3fr) minmax(0, 1.3fr); gap: 0 20px; margin: 12px 0; align-items: start; }
+.jgroup { padding: 8px 0 10px; min-width: 0; }
+.jgroup:nth-child(2), .jgroup:nth-child(3) { border-left: 1px solid var(--line); padding-left: 18px; }
+@media (max-width: 1100px) {
+  .juris { grid-template-columns: 1fr; gap: 0; }
+  .jgroup { border-top: 1px solid var(--line); }
+  .jgroup:first-child { border-top: 0; }
+  .jgroup:nth-child(2), .jgroup:nth-child(3) { border-left: 0; padding-left: 0; }
+}
+.jhead { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; width: 100%; font-size: 13.5px; }
 .jhead b { font-size: 14px; }
 .jhead .num { font-variant-numeric: tabular-nums; color: var(--muted); }
 button.jhead { appearance: none; background: transparent; border: 0; margin: 0; padding: 0; font: inherit; font-size: 13.5px; color: inherit; text-align: left; cursor: pointer; }
