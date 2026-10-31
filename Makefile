@@ -1,7 +1,7 @@
 # OpenLaw Makefile
 # 国内网络建议: export GOPROXY=https://goproxy.cn,direct
 
-.PHONY: test lint fmt vet check coverage build build-all
+.PHONY: test lint fmt vet check coverage build build-all dev-desktop
 
 # 二进制构建（部署形态：CLI 单文件 + 数据目录，无常驻服务）
 # 纯 Go（modernc.org/sqlite，无 CGO）→ 交叉编译即开即用
@@ -49,3 +49,9 @@ check:
 
 coverage:
 	go test ./... -cover
+
+# 桌面端开发模式（热更新）：前端改动即时热重载、Go 改动自动重编译重启。
+# 需要 wails CLI（版本与 go.mod 对齐）：go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
+dev-desktop:
+	@command -v wails >/dev/null 2>&1 || { echo "缺少 wails CLI：go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0"; exit 1; }
+	cd desktop && wails dev

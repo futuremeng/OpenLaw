@@ -14,6 +14,10 @@ keys/
 bin/
 /dist/
 
+# wails dev 产物（wails dev 在 desktop/ 下运行：build/bin 临时二进制、
+# build/wailsjs 自动绑定生成物——前端不用 wailsjs 模块，生成物不入库）
+desktop/build/
+
 # Delve/Wails 调试产物
 __debug_bin*
 
@@ -22,3 +26,6 @@ __debug_bin*
 .idea/
 *.log
 .vscode/settings.local.json
+
+# wails dev 绑定探测时以 desktop/ 为工作目录产生的临时数据（真实库在项目根 data/）
+desktop/data/

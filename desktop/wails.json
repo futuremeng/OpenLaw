@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "openlaw-desktop",
+  "outputfilename": "openlaw-desktop",
+  "frontend:dir": "frontend",
+  "assetdir": "frontend/dist",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "build:dir": "build",
+  "wailsjsdir": "build/wailsjs",
+  "appargs": "-data ../data",
+  "author": {
+    "name": "futuremeng"
+  }
+}

@@ -135,6 +135,22 @@ go run ./cmd/openlaw-check -data data -build-manifest -key ./keys/openlaw.key
 go run ./cmd/openlaw-eu -data data -celex 32016R0679 -name 欧盟通用数据保护条例 -short-name GDPR
 ```
 
+### 桌面端开发模式（热更新）
+
+桌面端生产形态把前端 `go:embed` 进二进制，改一行前端也要重新构建；开发期用
+`wails dev`（配置见 `desktop/wails.json`）：
+
+```bash
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0  # CLI 版本与 go.mod 对齐
+make dev-desktop        # 等价于 cd desktop && wails dev
+```
+
+- 前端直接从 `desktop/frontend/dist/` 磁盘直读：HTML/JS/CSS 改动即时热重载窗口；
+- `desktop/` 下 `.go` 改动自动重编译并重启应用（重启而非热替换，内存状态不保留）；
+- dev 模式自动开启 devtools；也可用浏览器访问 `http://localhost:34115` 调同一应用；
+- dev 自动带 `-data ../data`（仓库根数据目录；可在 `desktop/wails.json` 的 `appargs` 调整）；
+- 发版验证仍以 `go build -tags desktop,production` 门禁为准，dev 模式不能替代。
+
 ## SDK 调用示例（OpenCourt 侧）
 
 > ⚠️ 上层应用打开语料**必须走只读入口**（OL-7 `sdk.OpenReadOnly`，尚未实现）。

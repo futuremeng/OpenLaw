@@ -38,6 +38,14 @@
   「各等级的精确数字」也不再全局一张表：折叠明细**归入本法域列**（与占比条同批
   数据，就地可对账），无条文法域不出空表。
 
+- **桌面端开发模式（热更新）**：新增 `desktop/wails.json`（纯静态前端：无 install/build
+  步骤，`assetdir` 直读 `frontend/dist`），`make dev-desktop` 即 `wails dev`——前端
+  HTML/JS/CSS 改动即时热重载窗口，`desktop/` 下 `.go` 改动自动重编译重启，devtools
+  自动开启，并可经 `http://localhost:34115` 浏览器调同一应用；dev 自动带 `-data ../data`。
+  此前开发只能改一次跑一次 `go build -tags desktop,production`（前端 go:embed，无热更）。
+  dev 产物（`desktop/build/`、绑定探测产生的 `desktop/data/`）已入 .gitignore；
+  发版门禁仍以生产构建为准，README 补「桌面端开发模式（热更新）」小节。
+
 - **多法域 · 第三、四步（美国源核实 + 采集通道骨架）**：新增 `docs/sources-us.md`
   （2026-10-31 实网核实：govinfo 批量目录对自动化开放并公布 bulkdata sitemap；
   eCFR 网页 CAPTCHA 墙、开发者 API 为官方程序化入口但 robots 禁全文端点——规章现行
