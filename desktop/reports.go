@@ -28,6 +28,7 @@ type FailCount struct {
 type ReportSummary struct {
 	Path        string      `json:"path"`
 	Source      string      `json:"source"` // govcn / govgz / govlocal / batch / govlist
+	Juris       string      `json:"juris"`  // 渠道对应的法域（CN/EU/US，空=法域未知）——库总览按法域归列
 	Kind        string      `json:"kind"`   // csv / json
 	ModifiedAt  string      `json:"modified_at"`
 	Total       int         `json:"total"`
@@ -175,6 +176,21 @@ func topN(m map[string]int, n int) []FailCount {
 
 // ScanReports 扫描 data/incoming/<source>/ 下报告文件，每个来源按修改时间取
 // 最近 perSource 份（govcn 三通道 + batch + govlist JSON）。
+// jurisOfSource 渠道目录名 → 法域（库总览获取记录按法域归列）。
+// 判不出如实留空（法域未知），不得默认归到中国——未知不是中国。
+func jurisOfSource(source string) string {
+	switch source {
+	case "govcn", "govgz", "govlocal", "govlist", "batch", "scanonly":
+		return "CN"
+	case "cellar", "eu":
+		return "EU"
+	case "us-govinfo", "usgovinfo":
+		return "US"
+	default:
+		return ""
+	}
+}
+
 func ScanReports(dataDir string, perSource int) []ReportSummary {
 	if perSource <= 0 {
 		perSource = 2
@@ -216,6 +232,7 @@ func ScanReports(dataDir string, perSource int) []ReportSummary {
 			if fi, err := fe.Info(); err == nil {
 				rep.ModifiedAt = fi.ModTime().UTC().Format(time.RFC3339)
 			}
+			rep.Juris = jurisOfSource(rep.Source)
 			reps = append(reps, rep)
 		}
 		sort.Slice(reps, func(i, j int) bool { return reps[i].ModifiedAt > reps[j].ModifiedAt })

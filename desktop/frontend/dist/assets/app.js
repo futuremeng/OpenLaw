@@ -849,7 +849,7 @@ const JURIS_HINT = {
   US: "尚未收录。美国官方通道尚在建设中，暂无数据。",
   "": "请核对条目来源后补标法域。",
 };
-function renderJuris(rows, byLevel) {
+function renderJuris(rows, byLevel, reps, revs) {
   const el = $("#ov-juris");
   if (!el) return;
   const m = {};
@@ -861,8 +861,10 @@ function renderJuris(rows, byLevel) {
   });
   const max = (byLevel || []).reduce((acc, r) => (r ? Math.max(acc, totalOf(r)) : acc), 0) || 1; // 全局归一：跨法域可比
   const seg = (cls, n) => (n ? `<i class="${cls}" style="width:${((n / max) * 100).toFixed(2)}%"></i>` : "");
+  const R = (reps || []).filter((r) => r), V = (revs || []).filter((r) => r);
   const codes = ["CN", "EU", "US"];
-  if (groups[""] || (m[""] && m[""].laws > 0)) codes.push("");
+  const hasRec = (c) => R.some((r) => (r.juris || "") === c) || V.some((r) => (r.juris || "") === c);
+  if (groups[""] || (m[""] && m[""].laws > 0) || hasRec("")) codes.push("");
   // 列宽随数据状态走：恰好一个法域有构成条 → 该位置宽列（空列不值得占宽）；
   // 两个及以上有 → 等宽并列（将来欧盟/美国条文进来，宽度自动跟上）。
   const barred = codes.map((c) => (groups[c] || []).length);
@@ -896,7 +898,19 @@ function renderJuris(rows, byLevel) {
     } else {
       body = `<p class="muted">${escapeHTML(JURIS_HINT[c])}</p>`;
     }
-    html += `<div class="jgroup">${head}${body}</div>`;
+    // 该法域的最近动态：获取记录（按渠道映射法域）与复核记录（经条目真实联查法域）
+    // 归入所属法域列——每个法域一个完整档案（计数→构成→动态），缺失如实说明。
+    const jr = R.filter((x) => (x.juris || "") === c).slice(0, 3);
+    const jv = V.filter((x) => (x.juris || "") === c).slice(0, 3);
+    const recs = `<div class="jsub">最近获取<span class="muted">本机时间</span></div>` +
+      (jr.length ? jr.map((x) => `<div class="rep sm"><b>${escapeHTML(SRC_TEXT[x.source] || x.source)}</b> ${fmtWhen(x.modified_at)}<br>` +
+        `<span class="muted"${utcTitle(x.modified_at)}>${x.ok > 0 ? "获取到 " + num(x.ok) + " 条" : "本轮没有新增内容"} · 失败 ${num(x.failed)} 条${x.pages ? " · 翻页 " + num(x.pages) + " 页" : ""}</span></div>`).join("") :
+        '<p class="muted small">暂无获取记录。</p>') +
+      `<div class="jsub">最近复核<span class="muted">谁确认或驳回了哪一条</span></div>` +
+      (jv.length ? jv.map((x) => `<div class="rep sm"${utcTitle(x.created_at)}>${fmtWhen(x.created_at)}（本机时间）· ${escapeHTML(x.reviewer)} ` +
+        `<span class="muted">${escapeHTML(x.action === "confirm" ? "确认" : x.action === "reject" ? "驳回" : "重新复核")} ${x.law_name ? "《" + escapeHTML(x.law_name) + "》" : "条目 " + escapeHTML(x.doc_id)}</span></div>`).join("") :
+        '<p class="muted small">暂无复核记录。</p>');
+    html += `<div class="jgroup">${head}${body}${recs}</div>`;
   }
   el.innerHTML = html;
   el.querySelectorAll("[data-juris]").forEach((b) => b.addEventListener("click", () => {
@@ -932,14 +946,11 @@ async function loadOverview() {
     document.querySelectorAll("#ov-actions [data-go]").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.go)));
     $("#level-table tbody").innerHTML = (v.by_level || []).map((r) =>
       `<tr><td>${JURIS_TEXT[r.juris || ""] || escapeHTML(r.juris || "")}</td><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
-    renderJuris(v.juris, v.by_level);
-    const reps = (await app().RecentReports(5)) || [];
+    // 获取/复核记录归入所属法域列（计数→构成→动态，一个法域一个完整档案）。
     // 失败如实说：ok=0 不得渲染成中性数字（诚实展示纪律）。
-    $("#reports").innerHTML = reps.map((r) => `<div class="rep"><b>${escapeHTML(SRC_TEXT[r.source] || r.source)}</b> ${fmtWhen(r.modified_at)}<span class="muted">（本机时间）</span><br><span class="muted"${utcTitle(r.modified_at)}>${r.ok > 0 ? "获取到 " + num(r.ok) + " 条" : "本轮没有新增内容"} · 失败 ${num(r.failed)} 条${r.pages ? " · 翻页 " + num(r.pages) + " 页" : ""}</span></div>`).join("") ||
-      '<p class="muted">暂无获取记录。可在「获取最新法规」中从官方渠道获取原文。</p>';
-    const revs = (await app().RecentReviews(5)) || [];
-    $("#reviews").innerHTML = revs.map((r) => `<div class="rep"${utcTitle(r.created_at)}>${fmtWhen(r.created_at)}（本机时间）· ${escapeHTML(r.reviewer)} <span class="muted">${escapeHTML(r.action === "confirm" ? "确认" : r.action === "reject" ? "驳回" : "重新复核")} 条目 ${escapeHTML(r.doc_id)}</span></div>`).join("") ||
-      '<p class="muted">暂无复核记录。智能审核会自动核对条目，没把握的会进入「智能审核」的例外队列请您纠正。</p>';
+    const reps = (await app().RecentReports(9)) || [];
+    const revs = (await app().RecentReviews(9)) || [];
+    renderJuris(v.juris, v.by_level, reps, revs);
     // 技术信息：路径、启动参数、数据格式版本一律收在折叠里，不占主视图。
     $("#ov-tech").innerHTML = `<span>数据存放位置：${escapeHTML(v.data_dir || "未知")}${v.data_src ? "（由启动参数指定：" + escapeHTML(v.data_src) + "）" : ""}</span>
       <span>数据格式版本 ${escapeHTML(v.schema_version || "?")}（本程序支持 ${escapeHTML(v.schema_min)}–${escapeHTML(v.schema_max)}）</span>

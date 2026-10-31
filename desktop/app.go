@@ -429,6 +429,7 @@ func (a *App) RecentReports(limit int) []ReportSummary {
 type ReviewRow struct {
 	DocID     string `json:"doc_id"`
 	LawName   string `json:"law_name"`
+	Juris     string `json:"juris"` // 条目所属法域（CN/EU/US，空=法域未标注/未知）——库总览按法域归列
 	Action    string `json:"action"`
 	From      string `json:"from_status"`
 	To        string `json:"to_status"`
@@ -445,7 +446,7 @@ func (a *App) RecentReviews(limit int) ([]ReviewRow, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := a.db.Query(`SELECT r.doc_id, COALESCE(l.name,''), r.action, r.from_status, r.to_status,
+	rows, err := a.db.Query(`SELECT r.doc_id, COALESCE(l.name,''), COALESCE(l.jurisdiction,''), r.action, r.from_status, r.to_status,
 		r.reviewer, COALESCE(r.reason,''), r.created_at
 		FROM review_log r LEFT JOIN law_version v ON v.doc_id=r.doc_id LEFT JOIN law l ON l.law_id=v.law_id
 		ORDER BY r.review_id DESC LIMIT ?`, limit)
@@ -456,7 +457,7 @@ func (a *App) RecentReviews(limit int) ([]ReviewRow, error) {
 	var out []ReviewRow
 	for rows.Next() {
 		var r ReviewRow
-		if err := rows.Scan(&r.DocID, &r.LawName, &r.Action, &r.From, &r.To,
+		if err := rows.Scan(&r.DocID, &r.LawName, &r.Juris, &r.Action, &r.From, &r.To,
 			&r.Reviewer, &r.Reason, &r.CreatedAt); err != nil {
 			return nil, err
 		}
