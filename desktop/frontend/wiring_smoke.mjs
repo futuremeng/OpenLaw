@@ -243,6 +243,7 @@ const g = (id) => byId.get(id);
     '总览分法域如实报缺失': g('ov-juris').innerHTML.includes('尚未收录') && g('ov-juris').innerHTML.includes('美国'),
     '总览法域行可下钻（带待复核）': g('ov-juris').innerHTML.includes('data-juris="CN"') && g('ov-juris').innerHTML.includes('待复核 36,109 条'),
     '分法域与构成一个法域一个块': (g('ov-juris').innerHTML.match(/class="jgroup"/g) || []).length === 3,
+    '列宽随数据状态（仅中国有条→solo-1）': String(g('ov-juris').className).includes('solo-1'),
     '空法域如实说明（0条文不得说均已复核）': g('ov-juris').innerHTML.includes('尚未收录') && g('ov-juris').innerHTML.includes('尚无留证条文'),
     '精确数字表行带法域列': g('level-table').innerHTML.includes('中国'),
     '浏览分面给出计数': levelChips.includes('fcount'),

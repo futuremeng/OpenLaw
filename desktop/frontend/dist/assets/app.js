@@ -863,6 +863,11 @@ function renderJuris(rows, byLevel) {
   const seg = (cls, n) => (n ? `<i class="${cls}" style="width:${((n / max) * 100).toFixed(2)}%"></i>` : "");
   const codes = ["CN", "EU", "US"];
   if (groups[""] || (m[""] && m[""].laws > 0)) codes.push("");
+  // 列宽随数据状态走：恰好一个法域有构成条 → 该位置宽列（空列不值得占宽）；
+  // 两个及以上有 → 等宽并列（将来欧盟/美国条文进来，宽度自动跟上）。
+  const barred = codes.map((c) => (groups[c] || []).length);
+  const solo = barred.filter((n) => n > 0).length === 1 ? barred.findIndex((n) => n > 0) : -1;
+  el.className = "juris" + (codes.length === 3 && barred.length === 3 && solo >= 0 ? " solo-" + (solo + 1) : "");
   let html = "";
   for (const c of codes) {
     const r = m[c] || { laws: 0, documents: 0, pending: 0 };
