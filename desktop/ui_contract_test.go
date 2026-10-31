@@ -197,6 +197,13 @@ func TestThreeColumnAgentReviewUI(t *testing.T) {
 	if !regexp.MustCompile(`\[hidden\]\s*\{\s*display:\s*none`).MatchString(css) {
 		t.Errorf("样式缺少 [hidden] { display: none } 规则——带 hidden 属性的维护子导航会原样显示")
 	}
+	// 维护入口钉在侧栏最下方：DOM 上位于筛选栏之后，样式用 margin-top:auto 顶开剩余空间。
+	if strings.Index(html, `id="filters"`) > strings.Index(html, `id="nav-maintain"`) {
+		t.Errorf("#nav-maintain 未排在筛选栏之后——「维护法规库」入口必须固定在侧栏最下方")
+	}
+	if !regexp.MustCompile(`#nav-maintain\s*\{[^}]*margin:\s*auto`).MatchString(css) {
+		t.Errorf("样式缺少 #nav-maintain 的 margin-top:auto——入口会跟在筛选栏后面而不是钉在最下方")
+	}
 }
 
 // sectionOf 取 <section id="name" ...> 到下一个 <section 或 </main> 之间的片段。

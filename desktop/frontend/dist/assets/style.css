@@ -74,10 +74,10 @@ body {
 .brand .txt b { font-size: 15px; color: var(--ink); }
 .brand .txt span { font-size: 12px; color: var(--muted); }
 
-/* 维护入口：左列底部的独立按钮（主导航只谈「查法规」，维护不混入浏览动线）。
+/* 维护入口：固定在侧栏最下方（margin-top:auto 把筛选栏以下的剩余空间全部顶开）。
    完整切换：进入维护工作区后本按钮收起，出口是维护子导航首位的「返回查法规」。 */
 #nav-maintain {
-  margin: 10px 12px 0; padding: 8px 10px; display: flex; align-items: center; gap: 8px;
+  margin: auto 12px 0; padding: 8px 10px; display: flex; align-items: center; gap: 8px;
   background: none; border: 1px solid var(--side-line); border-radius: 8px;
   color: var(--muted); font-size: 13px; cursor: pointer; text-align: left;
 }
@@ -97,9 +97,6 @@ nav#nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
 .nav .cnt.warn { background: var(--warn-soft); color: var(--warn); }
 .nav .dot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--acc); }
 
-#side-foot { margin-top: auto; padding: 10px 14px 0; border-top: 1px solid var(--side-line); display: flex; align-items: center; gap: 8px; }
-#side-foot #schema-badge { flex: 1; font-size: 11.5px; color: var(--muted); }
-#side-foot button { background: none; border: 1px solid var(--side-line); color: var(--muted); font-size: 12px; padding: 4px 9px; }
 
 /* 图标：一律 16px 线性、跟随文字颜色；由 data-icon 在启动时注入，避免 HTML 里堆 SVG */
 .ic { width: 16px; height: 16px; flex: none; stroke: currentColor; stroke-width: 1.7; fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: .82; }

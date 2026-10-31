@@ -545,7 +545,10 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   规则的回归断言。**完整切换补全**：`applyWorkspace` 改为两套导航互斥——主导航
   （`MAIN_NAV`：`#nav-group-main/#nav-home/#nav-browse/#nav-search`）在维护态整套收起、
   底部入口 `#nav-maintain` 维护态收起（出口只留子导航首位「返回查法规」），左列任何
-  时刻只呈现一套导航；冒烟新增「两套导航完整互斥切换」断言。
+  时刻只呈现一套导航；冒烟新增「两套导航完整互斥切换」断言。**入口钉底**：
+  `#nav-maintain` 排到左列 DOM 末尾并以 `margin-top:auto` 钉在侧栏最下方（不再跟在
+  筛选 chips 后），删除无脚本写入的空壳 `#side-foot`；契约测试补 DOM 顺序与
+  margin auto 两条断言。
 
 
 
