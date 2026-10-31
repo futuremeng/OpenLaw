@@ -220,3 +220,85 @@ func TestMigrateV3ToV4(t *testing.T) {
 	}
 	db2.Close()
 }
+
+// setupV4Raw 在 path 落一个真实的 v4 库（v3 结构 + 地域标引列/region_log，schema_version=4）。
+// 用于测试 v4→v5 加法式迁移的真实链路（AGENTS.md：必须验证旧数据到新版本的真实链路）。
+func setupV4Raw(t *testing.T, path string) {
+	t.Helper()
+	setupV3Raw(t, path)
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	stmts := []string{
+		`ALTER TABLE law ADD COLUMN region_code TEXT`,
+		`ALTER TABLE law ADD COLUMN region_source TEXT`,
+		`ALTER TABLE law ADD COLUMN region_rule TEXT`,
+		`ALTER TABLE law ADD COLUMN region_reviewer TEXT`,
+		`ALTER TABLE law ADD COLUMN region_reviewed_at TEXT`,
+		`CREATE TABLE region_log (
+  log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  law_id TEXT NOT NULL REFERENCES law(law_id),
+  action TEXT NOT NULL CHECK (action IN ('suggest','confirm','reject','clear','undo')),
+  from_code TEXT, to_code TEXT, source TEXT NOT NULL, rule TEXT, actor TEXT NOT NULL,
+  reason TEXT, batch_id TEXT, created_at TEXT NOT NULL
+)`,
+		`UPDATE meta SET value='4' WHERE key='schema_version'`,
+	}
+	for _, s := range stmts {
+		if _, err := raw.Exec(s); err != nil {
+			t.Fatalf("构造 v4 库失败: %v（语句: %.40s…）", err, s)
+		}
+	}
+}
+
+// TestMigrateV4ToV5 v5 加法式迁移：旧数据保留、confirm_source 列出现且可写、
+// agent_review 表可用且约束生效（doc_id 外键 + verdict 枚举）、重复打开幂等。
+func TestMigrateV4ToV5(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db", "openlaw.db")
+	setupV4Raw(t, path)
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("打开 v4 库应自动迁移成功: %v", err)
+	}
+	defer db.Close()
+
+	// 旧数据保留，confirm_source 默认空 = 历史数据（界面不得渲染成智能体确认）
+	var status string
+	var src sql.NullString
+	if err := db.QueryRow(`SELECT confirm_status, confirm_source FROM document WHERE doc_id='doc_x'`).Scan(&status, &src); err != nil {
+		t.Fatalf("旧 document 数据丢失或 confirm_source 列缺失: %v", err)
+	}
+	if status != "pending" || src.Valid {
+		t.Errorf("迁移后 confirm_source 应为空，实际 %q / %v", status, src)
+	}
+	// 新列可写：agent/human 两种来源
+	if _, err := db.Exec(`UPDATE document SET confirm_status='confirmed', confirm_source='agent' WHERE doc_id='doc_x'`); err != nil {
+		t.Fatalf("confirm_source 应可写: %v", err)
+	}
+	// agent_review 留痕可写
+	if _, err := db.Exec(`INSERT INTO agent_review(doc_id,verdict,confidence,classify,audit,model,created_at)
+		VALUES('doc_x','confirm',0.95,'{}','{}','test-model','2026-10-30T00:00:00Z')`); err != nil {
+		t.Fatalf("agent_review 应可写: %v", err)
+	}
+	// 外键：不存在的 doc 必须被拒（智能体留痕不能挂空）
+	if _, err := db.Exec(`INSERT INTO agent_review(doc_id,verdict,confidence,classify,audit,model,created_at)
+		VALUES('doc_missing','confirm',0.9,'{}','{}','m','2026-10-30T00:00:00Z')`); err == nil {
+		t.Error("agent_review 必须拒绝不存在的 doc_id")
+	}
+	// verdict 枚举：非法裁决必须被拒（fail-closed 语义在库层同样成立）
+	if _, err := db.Exec(`INSERT INTO agent_review(doc_id,verdict,confidence,classify,audit,model,created_at)
+		VALUES('doc_x','approve',0.9,'{}','{}','m','2026-10-30T00:00:00Z')`); err == nil {
+		t.Error("agent_review.verdict 枚举应拒绝非法值")
+	}
+	if got := getVersion(t, path); got != SchemaVersion {
+		t.Errorf("schema_version 应为 %s，实际 %q", SchemaVersion, got)
+	}
+	db2, err := Open(path)
+	if err != nil {
+		t.Fatalf("重复打开应幂等: %v", err)
+	}
+	db2.Close()
+}

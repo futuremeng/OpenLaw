@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS law (
 );
 
 -- document 原始文档与溯源（开发文档 4.3；MD5 仅判下载损坏，SHA-256 为防篡改依据）
+-- v5：+confirm_source（复核结论出自谁：agent=智能体自审核，human=人工落判；
+-- 空=历史数据或未经复核）。诚实展示纪律：界面必须区分「智能体确认」与「人工确认」，
+-- 不得把智能体确认渲染成人工复核。取值合法性放应用层（刻意不加 CHECK，与 v4 地域列同策略）。
 CREATE TABLE IF NOT EXISTS document (
   doc_id TEXT PRIMARY KEY,
   file_name TEXT NOT NULL,
@@ -47,7 +50,8 @@ CREATE TABLE IF NOT EXISTS document (
   ocr_confidence REAL,
   confirm_status TEXT NOT NULL DEFAULT 'pending'
     CHECK (confirm_status IN ('confirmed','pending','rejected')),
-  lang TEXT NOT NULL DEFAULT 'zho'   -- 文本语言（ISO 639-3；欧盟 24 语同等作准，v2）
+  lang TEXT NOT NULL DEFAULT 'zho',  -- 文本语言（ISO 639-3；欧盟 24 语同等作准，v2）
+  confirm_source TEXT                 -- v5：agent|human；空=历史/未复核
 );
 
 -- law_version 版本表（时效左闭右开 [effective_date, expire_date)，未失效留 NULL，不用 9999 占位）
@@ -148,6 +152,22 @@ CREATE TABLE IF NOT EXISTS review_log (
   created_at TEXT NOT NULL
 );
 
+-- agent_log 智能体自审核留痕（v5，docs/design-agent-review.md）。
+-- 与 review_log 并列而非复用：review_log 记「状态流转」（谁把条目从什么改成什么），
+-- agent_log 记「智能体每次审核的完整结论」（分类建议 + 审核裁决 + 置信度），
+-- 无论是否落判都留痕——例外队列、纠正界面与事后抽查都以它为依据。
+-- classify/audit 为两智能体的原始 JSON 结论（诚实留证，不做美化）。
+CREATE TABLE IF NOT EXISTS agent_review (
+  review_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id      TEXT NOT NULL REFERENCES document(doc_id),
+  verdict     TEXT NOT NULL CHECK (verdict IN ('confirm','escalate')),
+  confidence  REAL NOT NULL,          -- 审核智能体置信度（0–1）
+  classify    TEXT NOT NULL,          -- 分类智能体结论 JSON
+  audit       TEXT NOT NULL,          -- 审核智能体结论 JSON
+  model       TEXT NOT NULL,          -- 使用的模型标识（如实记录）
+  created_at  TEXT NOT NULL
+);
+
 -- region_log 地域标引审计（law 级，docs/design-region-write.md §3）。
 -- 与 review_log 并列而非复用：review_log 外键是 doc_id（文档级复核），
 -- 地域是法规级判定——正文已复核 ≠ 地域已复核，两者不得混同。
@@ -186,6 +206,8 @@ CREATE INDEX IF NOT EXISTS idx_relation_src ON relation(src_law_id);
 CREATE INDEX IF NOT EXISTS idx_law_region_code ON law(region_code); -- 按区划码浏览/过滤（v4）
 CREATE INDEX IF NOT EXISTS idx_region_log_law ON region_log(law_id);
 CREATE INDEX IF NOT EXISTS idx_region_log_batch ON region_log(batch_id); -- 按批次撤销
+CREATE INDEX IF NOT EXISTS idx_agent_review_doc ON agent_review(doc_id); -- 例外队列按条目取最近结论
+CREATE INDEX IF NOT EXISTS idx_document_confirm_source ON document(confirm_source); -- 智能体/人工确认分开统计
 
 -- 全文检索（开发文档 13.2）。中文分词不足由 search 层 LIKE 兜底，术语辅助列为后续版本。
 CREATE VIRTUAL TABLE IF NOT EXISTS article_fts USING fts5(

@@ -19,7 +19,10 @@ import (
 // v4（2026-10）：law +地域标引 5 列（region_code/source/rule/reviewer/reviewed_at）与新表
 // region_log（law 级地域审计）。加法式：不加 CHECK、不重建表（见 docs/design-region-write.md §3）。
 // 自 v4 起，结构迁移前一律先自动备份（store/backup.go），备份失败即中止迁移。
-const SchemaVersion = "4"
+// v5（2026-10）：document +confirm_source（agent|human，区分智能体确认与人工确认，诚实展示）
+// 与新表 agent_review（智能体自审核留痕）+ 两索引。加法式：ALTER ADD COLUMN + IF NOT EXISTS，
+// 见 docs/design-agent-review.md。
+const SchemaVersion = "5"
 
 // OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
 //   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、
@@ -132,7 +135,7 @@ func readSchemaVersion(db *sql.DB) (string, error) {
 	return strings.TrimSpace(ver), nil
 }
 
-// migrate 幂等迁移：先升级旧结构（v1→v2→v3→v4），再执行内嵌 schema（IF NOT EXISTS 补齐）。
+// migrate 幂等迁移：先升级旧结构（v1→v2→v3→v4→v5），再执行内嵌 schema（IF NOT EXISTS 补齐）。
 func migrate(db *sql.DB) error {
 	if err := upgradeToV2(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v1→v2）: %w", err)
@@ -142,6 +145,9 @@ func migrate(db *sql.DB) error {
 	}
 	if err := upgradeToV4(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v3→v4）: %w", err)
+	}
+	if err := upgradeToV5(db); err != nil {
+		return fmt.Errorf("数据库迁移失败（v4→v5）: %w", err)
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
@@ -293,6 +299,22 @@ func upgradeToV4(db *sql.DB) error {
 		if _, err := db.Exec(`ALTER TABLE law ADD COLUMN ` + col); err != nil {
 			return fmt.Errorf("加列 %s 失败: %w", col, err)
 		}
+	}
+	return nil
+}
+
+// upgradeToV5 智能体自审核（docs/design-agent-review.md）：document +confirm_source。
+// 纯加法式 ALTER ADD COLUMN；agent_review 表与索引由随后的 schemaSQL（IF NOT EXISTS）补齐。
+// 判定依据：document 是否已有 confirm_source 列（全新库由 schemaSQL 直接建 v5）。
+func upgradeToV5(db *sql.DB) error {
+	if ok, _ := hasColumn(db, "document", "doc_id"); !ok {
+		return nil // 全新库（或空库），schemaSQL 直接建 v5 结构
+	}
+	if ok, _ := hasColumn(db, "document", "confirm_source"); ok {
+		return nil // 已是 v5
+	}
+	if _, err := db.Exec(`ALTER TABLE document ADD COLUMN confirm_source TEXT`); err != nil {
+		return fmt.Errorf("加列 confirm_source 失败: %w", err)
 	}
 	return nil
 }
