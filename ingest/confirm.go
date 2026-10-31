@@ -1,6 +1,9 @@
-// confirm.go：pending 语料的人工确认流程（抽样 → 复核 → 落判 → 审计）。
-// 原则：机器绝不自动确认；一切状态流转必须落 review_log（谁/何时/依据什么）。
-// 抽样按风险优先：日期推断、全文即一节、缺公布日的文档先进人工队列。
+// confirm.go：待复核条目的落判流程（抽样 → 审核 → 落判 → 审计）。
+// 原则：一切状态流转必须落 review_log（谁/何时/依据什么）；落判来源必须落
+// document.confirm_source（agent=智能体自审核，human=人工）——诚实展示纪律要求界面
+// 区分「智能体确认」与「人工确认」，不得混同（docs/design-agent-review.md）。
+// 智能体自审核（agent 包）经本文件同一 runner 落判：桌面端与 CLI 都不是第二写路径。
+// 抽样按风险优先：日期推断、全文即一节、缺公布日的文档先进队列。
 package ingest
 
 import (
@@ -149,8 +152,8 @@ type ConfirmStats struct {
 
 // ---- 抽样 ----
 
-// pendingRow 复核队列一行。
-type pendingRow struct {
+// PendingRow 复核队列一行（导出：agent 包与桌面端经 LoadPending 共用同一取列口径）。
+type PendingRow struct {
 	DocID, LawID, LawName, Level, Issuer, VersionNo, Effective, Publish string
 	SourceType, SHA256, FilePath                                        string
 	Articles, Whole                                                     int
@@ -173,15 +176,20 @@ const pendingQuery = `SELECT d.doc_id, COALESCE(l.law_id,''), COALESCE(l.name,''
 	WHERE d.confirm_status = 'pending'
 	ORDER BY d.doc_id`
 
-func (c *Confirmer) loadPending(rs RiskSet) ([]pendingRow, error) {
+// LoadPending 导出待审队列（agent 包与桌面端共用同一取列口径，桌面端不是第二读路径）。
+func (c *Confirmer) LoadPending(rs RiskSet) ([]PendingRow, error) {
+	return c.loadPending(rs)
+}
+
+func (c *Confirmer) loadPending(rs RiskSet) ([]PendingRow, error) {
 	rows, err := c.DB.Query(pendingQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []pendingRow
+	var out []PendingRow
 	for rows.Next() {
-		var p pendingRow
+		var p PendingRow
 		if err := rows.Scan(&p.DocID, &p.LawID, &p.LawName, &p.Level, &p.Issuer, &p.VersionNo,
 			&p.Effective, &p.Publish, &p.SourceType, &p.SHA256, &p.FilePath,
 			&p.Articles, &p.Whole, &p.Head, &p.Tail); err != nil {
@@ -223,8 +231,8 @@ func (c *Confirmer) Sample(outPath string, n int, rs RiskSet) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	var risky []pendingRow
-	byLevel := map[string][]pendingRow{}
+	var risky []PendingRow
+	byLevel := map[string][]PendingRow{}
 	for _, p := range pending {
 		if len(p.Flags) > 0 {
 			risky = append(risky, p)
@@ -443,7 +451,7 @@ func (c *Confirmer) Apply(inPath string) (*ApplySummary, error) {
 		if j, ok := hdr["note"]; ok && j < len(rec) {
 			note = strings.TrimSpace(rec[j])
 		}
-		if err := c.transition(doc, verdict, to, reviewer, note, now); err != nil {
+		if err := c.transition(doc, verdict, to, reviewer, note, now, "human"); err != nil {
 			if err == errSkip {
 				sum.Skipped++
 				continue
@@ -463,8 +471,10 @@ func (c *Confirmer) Apply(inPath string) (*ApplySummary, error) {
 	return sum, nil
 }
 
-// transition 单文档状态流转 + 审计，一个事务完成，绝不出现改状态无留痕。
-func (c *Confirmer) transition(docID, action, to, reviewer, reason, now string) error {
+// transition 单文档状态流转 + 审计 + 落判来源，一个事务完成，绝不出现改状态无留痕。
+// source：agent=智能体自审核落判，human=人工落判；回到 pending（reset）时清空来源——
+// 未复核状态不得携带任何「已确认」痕迹（诚实展示纪律）。
+func (c *Confirmer) transition(docID, action, to, reviewer, reason, now, source string) error {
 	tx, err := c.DB.Begin()
 	if err != nil {
 		return err
@@ -480,7 +490,11 @@ func (c *Confirmer) transition(docID, action, to, reviewer, reason, now string) 
 	if from == to {
 		return errSkip
 	}
-	if _, err := tx.Exec(`UPDATE document SET confirm_status=? WHERE doc_id=?`, to, docID); err != nil {
+	src := any(source)
+	if to == "pending" {
+		src = nil
+	}
+	if _, err := tx.Exec(`UPDATE document SET confirm_status=?, confirm_source=? WHERE doc_id=?`, to, src, docID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`INSERT INTO review_log(doc_id, action, from_status, to_status, reviewer, reason, created_at)
@@ -514,6 +528,28 @@ func SyncProvenanceStatus(dataDir, docID, status string) error {
 		return err
 	}
 	return os.WriteFile(path, append(out, '\n'), 0o644)
+}
+
+// Judge 单条落判（桌面端人工纠正与智能体自审核共用同一写路径）。
+// verdict：confirm/reject/reset；source：agent|human（必填——落判来源必须可区分，
+// 这是诚实展示的库层保证）；必须署名（reviewer）并写明依据（reason），全程写 review_log。
+// 已是目标状态时按幂等处理（返回 nil，不产生空转审计）。
+func (c *Confirmer) Judge(docID, verdict, reviewer, reason, source string) error {
+	to, ok := verdictToStatus[verdict]
+	if !ok {
+		return fmt.Errorf("verdict 须为 confirm/reject/reset")
+	}
+	if source != "agent" && source != "human" {
+		return fmt.Errorf("source 须为 agent 或 human（落判来源必须可区分）")
+	}
+	if reviewer == "" || reason == "" {
+		return fmt.Errorf("落判必须署名（reviewer）并写明依据（reason）")
+	}
+	err := c.transition(docID, verdict, to, reviewer, reason, time.Now().UTC().Format(time.RFC3339), source)
+	if err == errSkip {
+		return nil
+	}
+	return err
 }
 
 // ---- 条件批量 ----
@@ -622,7 +658,7 @@ func (c *Confirmer) Bulk(f BulkFilter, verdict, reviewer, reason string) (*Apply
 	now := time.Now().UTC().Format(time.RFC3339)
 	sum := &ApplySummary{}
 	for _, id := range docs {
-		if err := c.transition(id, verdict, to, reviewer, note, now); err != nil {
+		if err := c.transition(id, verdict, to, reviewer, note, now, "human"); err != nil {
 			if err == errSkip {
 				sum.Skipped++
 				continue

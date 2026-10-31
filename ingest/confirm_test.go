@@ -183,3 +183,73 @@ func TestConfirmBulk(t *testing.T) {
 		t.Fatalf("reset 应全部回到 pending，实际 %d (%v)", cnt, err)
 	}
 }
+
+// TestJudgeSourceAndAudit 单条落判（智能体/人工共用）：confirm_source 必须落库、
+// review_log 必须留痕、reset 必须清空来源、非法来源必须被拒。
+func TestJudgeSourceAndAudit(t *testing.T) {
+	c, _ := setupConfirm(t)
+	doc := "flk_a_20200101"
+
+	// 智能体落判：署名带模型名，来源=agent
+	if err := c.Judge(doc, "confirm", "智能体复核（test-model）", "分类与审核智能体一致：内容与标题相符，置信度 0.95", "agent"); err != nil {
+		t.Fatal(err)
+	}
+	var status, src string
+	if err := c.DB.QueryRow(`SELECT confirm_status, COALESCE(confirm_source,'') FROM document WHERE doc_id=?`, doc).Scan(&status, &src); err != nil {
+		t.Fatal(err)
+	}
+	if status != "confirmed" || src != "agent" {
+		t.Errorf("智能体落判后应为 confirmed/agent，实际 %s/%s", status, src)
+	}
+	var reviewer, reason string
+	if err := c.DB.QueryRow(`SELECT reviewer, COALESCE(reason,'') FROM review_log WHERE doc_id=? ORDER BY review_id DESC LIMIT 1`, doc).Scan(&reviewer, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reviewer, "智能体") || reason == "" {
+		t.Errorf("review_log 必须记录智能体署名与依据，实际 %q/%q", reviewer, reason)
+	}
+
+	// 幂等：重复 confirm 不产生空转审计
+	before := 0
+	c.DB.QueryRow(`SELECT COUNT(*) FROM review_log WHERE doc_id=?`, doc).Scan(&before)
+	if err := c.Judge(doc, "confirm", "智能体复核（test-model）", "重复", "agent"); err != nil {
+		t.Fatal(err)
+	}
+	after := 0
+	c.DB.QueryRow(`SELECT COUNT(*) FROM review_log WHERE doc_id=?`, doc).Scan(&after)
+	if after != before {
+		t.Errorf("已是目标状态不应新增审计行（%d→%d）", before, after)
+	}
+
+	// 人工纠正：reset 回 pending 必须清空来源，再人工确认来源=human
+	if err := c.Judge(doc, "reset", "本机用户（人工纠正）", "抽查发现结论有误，撤回重审", "human"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DB.QueryRow(`SELECT COALESCE(confirm_source,'') FROM document WHERE doc_id=?`, doc).Scan(&src); err != nil {
+		t.Fatal(err)
+	}
+	if src != "" {
+		t.Errorf("reset 后 confirm_source 必须清空，实际 %q", src)
+	}
+	if err := c.Judge(doc, "confirm", "本机用户（人工纠正）", "已与官方原文逐字核对", "human"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DB.QueryRow(`SELECT COALESCE(confirm_source,'') FROM document WHERE doc_id=?`, doc).Scan(&src); err != nil {
+		t.Fatal(err)
+	}
+	if src != "human" {
+		t.Errorf("人工确认来源应为 human，实际 %q", src)
+	}
+
+	// 非法来源必须被拒（落判来源必须可区分）
+	if err := c.Judge("flk_c_20200103", "confirm", "x", "y", "machine"); err == nil {
+		t.Error("source=machine 应被拒绝")
+	}
+	// 缺署名/缺依据必须被拒
+	if err := c.Judge("flk_c_20200103", "confirm", "", "y", "human"); err == nil {
+		t.Error("缺署名应被拒绝")
+	}
+	if err := c.Judge("flk_c_20200103", "confirm", "x", "", "human"); err == nil {
+		t.Error("缺依据应被拒绝")
+	}
+}
