@@ -527,6 +527,19 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   即失败）；`wiring_smoke.mjs` 改跑智能审核路径（`AgentStatus`/`AgentStats`/`ExceptionList`
   桩，断言统计分开计数、例外队列给出没把握原因、通道回显）。**下一步**：打包 `.app` 内
   手工冒烟智能审核全链路（配置通道 → 开始审核 → 例外纠正 → 徽章与统计联动）。
+- **工作区拆分 · 独立维护入口与空库初始化（2026-10-31）**：撤除「公众/专业模式」切换——
+  概念冗余且把维护项混进浏览动线。主导航只留查法规（home/browse/search）；左列底部独立
+  入口 `#nav-maintain` → 维护工作区：`#nav-group-maintain` 子导航（overview/review/region/
+  collect/pack，默认 hidden）+ `#nav-exit-maintain` 出口；工作区状态 `ol-ws` 持久化，
+  维护区面包屑根改报「维护法规库」。新增 `#panel-setup` 初始化面板：启动判定 `Status` 可读
+  且 laws=0 → 落初始化（读不到不算空库，未知 ≠ 0）；如实报「0 部法规」；路线 A 跳
+  `#panel-pack`、路线 B 跳 collect（只指路不重复写路径控件）；`AgentStatus` 通道指引
+  （未配置不阻塞）；空库时 `#su-go-home` 禁用。首页 `#h-empty` 空库提示 +「去初始化法规库」。
+  离线更新包控件（`btn-pack-pick/verify/import`）从 collect 高级设置折叠升级为独立
+  `#panel-pack`（唯一落点；`packWatch` 跟踪导入任务到终态如实回显并刷新计数）。门禁同步：
+  `TestThreeColumnAgentReviewUI` 新增工作区 / setup / pack 唯一落点断言与模式控件禁用；
+  `wiring_smoke.mjs` 桩元素补 id（面板显隐断言此前在桩内恒失效——桩缺陷而非前端缺陷）、
+  新增空库开关与 6 条工作区/初始化断言。
 
 
 
