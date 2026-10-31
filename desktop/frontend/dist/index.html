@@ -14,20 +14,19 @@
       <span class="mark">法</span>
       <span class="txt"><b>法律法规库</b><span>开源 · 本机运行</span></span>
     </div>
-    <div class="modes">
-      <button id="mode-public" class="mode active">公众模式</button>
-      <button id="mode-pro" class="mode">专业模式</button>
-    </div>
     <nav id="nav">
       <div class="nav-group" data-icon="search">查法规</div>
-      <button class="nav active" data-panel="home" data-mode="public" data-icon="search">关键词检索</button>
+      <button class="nav active" data-panel="home" data-icon="search">关键词检索</button>
       <button class="nav" data-panel="browse" data-icon="filter">按条件筛选</button>
-      <div class="nav-group" data-mode="pro" data-icon="wrench">维护法规库</div>
-      <button class="nav" data-panel="overview" data-mode="pro" hidden data-icon="chart">库总览</button>
-      <button class="nav" data-panel="search" data-mode="pro" hidden data-icon="file">法规检索</button>
-      <button class="nav" data-panel="review" data-mode="pro" hidden data-icon="shield">智能审核<span class="cnt warn" id="cnt-review"></span></button>
-      <button class="nav" data-panel="region" data-mode="pro" hidden data-icon="pin">地域标引<span class="cnt" id="cnt-region"></span></button>
-      <button class="nav" data-panel="collect" data-mode="pro" hidden data-icon="download">获取最新法规<span class="dot" id="dot-collect" hidden></span></button>
+      <button class="nav" data-panel="search" data-icon="file">法规检索</button>
+      <!-- 维护子导航：默认收起，只经左列底部「维护法规库」入口进入（独立工作区）。 -->
+      <div class="nav-group" id="nav-group-maintain" data-icon="wrench" hidden>维护法规库</div>
+      <button class="nav" id="nav-exit-maintain" data-icon="back" hidden>返回查法规</button>
+      <button class="nav" id="nav-overview" data-panel="overview" data-icon="chart" hidden>库总览</button>
+      <button class="nav" id="nav-review" data-panel="review" data-icon="shield" hidden>智能审核<span class="cnt warn" id="cnt-review"></span></button>
+      <button class="nav" id="nav-region" data-panel="region" data-icon="pin" hidden>地域标引<span class="cnt" id="cnt-region"></span></button>
+      <button class="nav" id="nav-collect" data-panel="collect" data-icon="download" hidden>获取最新法规<span class="dot" id="dot-collect" hidden></span></button>
+      <button class="nav" id="nav-pack" data-panel="pack" data-icon="box" hidden>离线更新包</button>
     </nav>
     <!-- 筛选栏：多维 + 分面计数（地区是其中一个维度）。属「定位法规」的手段，
          常驻左列，随「按条件筛选」展开/收起；计数与列表同一条件产出。 -->
@@ -94,6 +93,8 @@
         <p class="fnote">计数按其余条件统计（不含本项自身），选中后仍可改选；效力等级、来源未记录的条目不参与该维度筛选，仍会出现在结果中，但排在列表最后（只影响顺序，不影响可见性）。</p>
       </div>
     </div>
+    <!-- 维护入口：独立于主导航（主导航只谈「查法规」）；进入后左列换维护子导航。 -->
+    <button id="nav-maintain" data-icon="wrench">维护法规库</button>
     <div id="side-foot"></div>
   </aside>
 
@@ -122,7 +123,7 @@
       </div>
     </header>
     <div id="panels">
-    <!-- 公众 · 关键词检索（一屏一个主行动：搜索） -->
+    <!-- 主工作区 · 关键词检索（一屏一个主行动：搜索） -->
     <section id="panel-home" class="panel">
       <div class="hero">
         <h1>查法规，认准官方原文</h1>
@@ -131,6 +132,7 @@
           <input id="hq" placeholder="想知道什么规定？直接输入关键词"/>
           <button id="btn-hsearch">搜索</button>
         </div>
+        <p id="h-empty" class="muted hidden">法规库还是空的，搜索不会有任何结果。<button id="h-setup" class="ok">去初始化法规库</button></p>
       </div>
       <div id="h-cards" class="cards"></div>
       <div id="h-results" class="cards results"></div>
@@ -139,6 +141,28 @@
         <p class="muted">本库法规原文获取自国务院「国家行政法规库」「国家规章库」等官方网站，并保留获取时间与原文链接供核对。
         标注「尚未复核」的条目尚未经比对确认，引用前请以官网文本为准。本工具为开源辅助工具，不构成法律意见。</p>
       </details>
+    </section>
+
+    <!-- 初始化法规库：空库启动默认落这里；库非空后经「维护法规库」可达（可复查状态）。
+         两条获取路线只给去处不重复控件（导入控件唯一落点在「离线更新包」）。 -->
+    <section id="panel-setup" class="panel hidden">
+      <header class="page-head">
+        <h1>初始化法规库</h1>
+        <p class="lead">本机法规库还是空的。先获取数据，再开始查询——获取与校验全部在您本机完成，是否联网由您点按钮决定。</p>
+      </header>
+      <p id="su-status" class="muted">正在读取本机状态…</p>
+      <h2>第一步 · 获取法规数据<span class="sub">二选一</span></h2>
+      <div class="hero-cards">
+        <div class="card"><b>导入离线更新包</b><span>推荐：从他人分享的完整数据包导入（U 盘、共享文件夹均可）；导入前自动校验完整性与来源。</span><button id="su-go-pack" class="ok">去导入更新包</button></div>
+        <div class="card"><b>从官方渠道获取</b><span>连接国务院官方库逐条获取原文；获取官方规章目录需要辅助浏览工具，速度有不打扰官方的护栏。</span><button id="su-go-collect">去获取最新法规</button></div>
+      </div>
+      <h2>第二步 · 智能审核<span class="sub">可选 · 不配置也能用</span></h2>
+      <p id="su-agent" class="muted">正在读取智能审核通道状态…</p>
+      <h2>完成后</h2>
+      <div class="toolbar">
+        <button id="su-go-home" class="ok">开始查法规</button>
+        <span class="muted">获取到的新条目一律进入待复核，由智能审核与例外纠正处理。</span>
+      </div>
     </section>
 
     <!-- 两模式共用 · 按条件筛选：中间列只留条目列表；筛选栏在左列，原文在右列 -->
@@ -159,7 +183,7 @@
       <div id="law-list" class="list"><p class="muted">全部条目将列于此处；用左侧条件收窄。</p></div>
     </section>
 
-    <!-- 专业 · 库总览：处境 → 下一步 → 法规构成（占比 + 精确数字折叠）· 技术信息在页尾 -->
+    <!-- 维护 · 库总览：处境 → 下一步 → 法规构成（占比 + 精确数字折叠）· 技术信息在页尾 -->
     <section id="panel-overview" class="panel hidden">
       <header class="page-head">
         <h1>库总览</h1>
@@ -192,7 +216,7 @@
       </details>
     </section>
 
-    <!-- 专业 · 法规检索（FTS5 结果不重排序，保持可复现）；条文预览在右列 -->
+    <!-- 查法规 · 法规检索（FTS5 结果不重排序，保持可复现）；条文预览在右列 -->
     <section id="panel-search" class="panel hidden">
       <header class="page-head">
         <h1>法规检索</h1>
@@ -230,7 +254,7 @@
       </div>
     </section>
 
-    <!-- 专业 · 智能审核：双智能体自审 → 人工只处理例外（确认/驳回一键完成，署名自动） -->
+    <!-- 维护 · 智能审核：双智能体自审 → 人工只处理例外（确认/驳回一键完成，署名自动） -->
     <section id="panel-review" class="panel hidden">
       <header class="page-head">
         <h1>智能审核</h1>
@@ -258,7 +282,7 @@
     </section>
 
 
-    <!-- 专业 · 地域标引（机器建议 → 人工纠正；署名自动记为本机用户，依据必填） -->
+    <!-- 维护 · 地域标引（机器建议 → 人工纠正；署名自动记为本机用户，依据必填） -->
     <section id="panel-region" class="panel hidden">
       <header class="page-head">
         <h1>地域标引</h1>
@@ -308,7 +332,7 @@
     </section>
 
 
-    <!-- 专业 · 获取最新法规：来源状态 → 常用参数（护栏由程序固定）→ 高级设置折叠 -->
+    <!-- 维护 · 获取最新法规：来源状态 → 任务 → 获取表单 → 数据自检 → 关于 -->
     <section id="panel-collect" class="panel hidden">
       <header class="page-head">
         <h1>获取最新法规</h1>
@@ -350,32 +374,41 @@
           </details>
         </div>
       </div>
-      <details class="disclose adv">
-        <summary>高级设置（数据自检 · 离线更新包 · 版本信息）</summary>
-        <div class="toolbar">
-          <button id="btn-check">数据自检（只读）</button>
-          <span id="check-info" class="muted"></span>
-        </div>
-        <div id="manifest-box" class="kv"></div>
-        <div id="check-out" class="reports"></div>
-        <h3>离线更新包（导入他人分享的更新）</h3>
-        <div class="form">
-          <div class="rowbtns">
-            <button id="btn-pack-pick">选择更新包文件夹</button>
-            <button id="btn-pack-verify">校验</button>
-            <button id="btn-pack-import" class="warn">导入（新条目进入待审核）</button>
-          </div>
-          <span id="p-dir-name" class="muted small">尚未选择更新包文件夹。</span>
-          <p class="muted small">导入前必须先校验；校验通过且来源受信才会导入，新条目一律进入待审核，由智能审核与例外纠正处理。</p>
-        </div>
+      <h2>数据自检<span class="sub">只读 · 不改法规库</span></h2>
+      <div class="toolbar">
+        <button id="btn-check">数据自检（只读）</button>
+        <span id="check-info" class="muted"></span>
+      </div>
+      <div id="manifest-box" class="kv"></div>
+      <div id="check-out" class="reports"></div>
+      <h2>关于</h2>
+      <div id="about-box" class="kv">
+        <span><b>开源法律法规数据库</b>（OpenLaw）：收录国家行政法规库、国家规章库等官方渠道法规原文的开源辅助工具。</span>
+        <span>法规原文均保留官方链接与获取留证，供逐字核对；「尚未复核」条目未经比对确认，引用前请以官网文本为准。</span>
+        <span class="muted">本工具为开源软件，不构成法律意见；数据许可与来源署名见完整性档案（manifest）。</span>
+      </div>
+      <details class="disclose">
+        <summary>技术信息（数据存放位置 · 数据格式版本）</summary>
         <div id="settings-box" class="kv"></div>
-        <h3>关于</h3>
-        <div id="about-box" class="kv">
-          <span><b>开源法律法规数据库</b>（OpenLaw）：收录国家行政法规库、国家规章库等官方渠道法规原文的开源辅助工具。</span>
-          <span>法规原文均保留官方链接与获取留证，供逐字核对；「尚未复核」条目未经比对确认，引用前请以官网文本为准。</span>
-          <span class="muted">本工具为开源软件，不构成法律意见；数据许可与来源署名见完整性档案（manifest）。</span>
-        </div>
       </details>
+    </section>
+
+    <!-- 维护 · 离线更新包：选择 → 校验 → 导入。导入控件唯一落点（初始化面板只跳转不重复控件）；
+         必须先校验，校验通过且来源受信才导入（后端强制），新条目一律进入待审核。 -->
+    <section id="panel-pack" class="panel hidden">
+      <header class="page-head">
+        <h1>离线更新包</h1>
+        <p class="lead">导入他人分享的更新：选择文件夹 → 校验 → 导入。校验通过且来源受信才会导入；新条目一律进入待审核，由智能审核与例外纠正处理。</p>
+      </header>
+      <div class="form">
+        <div class="rowbtns">
+          <button id="btn-pack-pick">选择更新包文件夹</button>
+          <button id="btn-pack-verify">校验</button>
+          <button id="btn-pack-import" class="warn">导入（新条目进入待审核）</button>
+        </div>
+        <span id="p-dir-name" class="muted small">尚未选择更新包文件夹。</span>
+        <p class="muted small">导入前必须先校验；校验通过且来源受信才会导入。手输路径属技术操作，不进界面——文件夹一律经系统选择器选取。</p>
+      </div>
     </section>
     </div><!-- /#panels -->
   </main>

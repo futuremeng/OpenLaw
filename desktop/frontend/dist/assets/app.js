@@ -1,9 +1,9 @@
 // app.js 「开源法律法规数据库」前端逻辑：
-//   公众模式（默认）：查法规（搜索为中心）+ 按条件筛选（维度组合→法规→条款）；
-//   专业模式：库总览 / 法规检索 / 按条件筛选（多维收窄）/ 智能审核（双智能体自审，
-//   人工只处理例外纠正）/ 获取最新法规 / 地域标引。
-// 三栏布局：左列导航与筛选栏、中列面板与列表、右列共享详情（原文/条款/例外纠正）。
-// 三栏布局：左列导航与筛选、中列面板列表、右列共享详情。
+//   主工作区（默认）：查法规——关键词检索 / 按条件筛选 / 法规检索（修订沿革与引用核对）；
+//   维护工作区：经左列底部「维护法规库」独立入口进入——库总览 / 智能审核（双智能体
+//   自审，人工只处理例外纠正）/ 地域标引 / 获取最新法规 / 离线更新包；
+//   初始化面板：空库启动默认落到「初始化法规库」，如实给出处境与两条获取路线。
+// 三栏布局：左列导航与筛选、中列面板列表、右列共享详情（原文/条款/例外纠正）。
 // 全部数据经 api.js → Go 只读/受控写路径，前端不做任何裁决。
 // 用户可见文案遵守 docs/design-ui-language.md（目标语言、渐进披露、诚实展示）。
 "use strict";
@@ -33,6 +33,8 @@ const ICON_PATHS = {
   pin: '<path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/>',
   download: '<path d="M12 4v10M8 10.5l4 4 4-4"/><path d="M4.5 19h15"/>',
   wrench: '<path d="M14.5 4.5a4.5 4.5 0 0 0 5 5l-9 9a3.5 3.5 0 0 1-5-5z"/><path d="M18 4.5l1.5 1.5"/>',
+  box: '<path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5z"/><path d="M4 8.5 12 13l8-4.5"/><path d="M12 13v7"/>',
+  back: '<path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/>',
   db: '<ellipse cx="12" cy="6.5" rx="7" ry="3"/><path d="M5 6.5v11c0 1.7 3.1 3 7 3s7-1.3 7-3v-11"/>',
   alert: '<path d="M12 4l8.5 16h-17z"/><path d="M12 10v4M12 17h.01"/>',
   refresh: '<path d="M20 12a8 8 0 1 1-2.9-6.2"/><path d="M20 4.5V9h-4.5"/>',
@@ -129,14 +131,23 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 3500);
 }
 
-/* ---------- 模式与导航 ---------- */
-let mode = localStorage.getItem("ol-mode") || "public";
+/* ---------- 工作区与导航 ----------
+   主工作区（查法规）与维护工作区（维护法规库）经左列底部独立入口分隔：
+   主导航只谈「查法规」，维护项不得混入；进入维护后左列换出维护子导航，
+   并有明确的「返回查法规」出口（docs/design-ui-language.md）。 */
+let ws = localStorage.getItem("ol-ws") === "maint" ? "maint" : "main";
+const MAINTAIN_NAV = ["nav-group-maintain", "nav-exit-maintain", "nav-overview",
+  "nav-review", "nav-region", "nav-collect", "nav-pack"];
 // 顶栏面包屑：当前位置 + 当前生效的筛选摘要。用户随时能看到「自己在哪、看的是不是筛过的」。
+// 维护工作区内面包屑根改报「维护法规库」——位置如实反映工作区。
 const PANEL_TITLE = {
-  home: "关键词检索", browse: "按条件筛选", overview: "库总览", search: "法规检索",
-  review: "智能审核", region: "地域标引", collect: "获取最新法规", settings: "设置",
+  home: "关键词检索", browse: "按条件筛选", search: "法规检索", setup: "初始化法规库",
+  overview: "库总览", review: "智能审核", region: "地域标引", collect: "获取最新法规",
+  pack: "离线更新包",
 };
 function setCrumb(p) {
+  const root = $("#crumb-root");
+  if (root) root.textContent = ws === "maint" ? "维护法规库" : "法律法规库";
   const cur = $("#crumb-cur");
   if (cur) cur.textContent = PANEL_TITLE[p] || "";
   const ctx = $("#crumb-ctx");
@@ -151,27 +162,38 @@ function showPanel(p) {
   if (flt) flt.classList.toggle("hidden", p !== "browse");
   if (p === "home") loadHome();
   if (p === "browse") loadLaws();
+  if (p === "setup") loadSetup();
   if (p === "overview") loadOverview();
   if (p === "review") loadReview();
   if (p === "region") { loadRegionStats(); loadRegionQueue(); }
   if (p === "collect") { loadSources(); loadTasks(); loadTasksTick(); }
+  if (p === "pack") loadPackPanel();
 }
 // 重新加载当前可见面板（地区等全局偏好变更后需要刷新列表）。
 function reloadViewing() {
   const cur = document.querySelector(".nav.active");
   if (cur) showPanel(cur.dataset.panel);
 }
-function applyMode() {
-  document.querySelectorAll(".nav").forEach((b) => (b.hidden = b.dataset.mode !== mode));
-  // 分组标题随模式收起：公众模式下不得出现只剩标题的空分组。
-  document.querySelectorAll(".nav-group").forEach((g) => (g.hidden = !!g.dataset.mode && g.dataset.mode !== mode));
-  $("#mode-public").classList.toggle("active", mode === "public");
-  $("#mode-pro").classList.toggle("active", mode === "pro");
-  showPanel(mode === "public" ? "home" : "overview");
+function applyWorkspace() {
+  MAINTAIN_NAV.forEach((id) => { const el = $("#" + id); if (el) el.hidden = ws !== "maint"; });
+  const entry = $("#nav-maintain");
+  if (entry) entry.classList.toggle("active", ws === "maint");
+}
+function enterMaintain(p) {
+  ws = "maint";
+  localStorage.setItem("ol-ws", ws);
+  applyWorkspace();
+  showPanel(p || "overview");
+}
+function exitMaintain() {
+  ws = "main";
+  localStorage.setItem("ol-ws", ws);
+  applyWorkspace();
+  showPanel("home");
 }
 document.querySelectorAll(".nav").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.panel)));
-$("#mode-public").addEventListener("click", () => { mode = "public"; localStorage.setItem("ol-mode", mode); applyMode(); });
-$("#mode-pro").addEventListener("click", () => { mode = "pro"; localStorage.setItem("ol-mode", mode); applyMode(); });
+$("#nav-maintain").addEventListener("click", () => enterMaintain("overview"));
+$("#nav-exit-maintain").addEventListener("click", exitMaintain);
 $("#theme-toggle").addEventListener("click", cycleTheme);
 $("#t-density").addEventListener("click", () => {
   density = density === "compact" ? "comfortable" : "compact";
@@ -430,8 +452,8 @@ $("#btn-region-trial").addEventListener("click", async () => {
   } catch (e) { toast("试判定失败：" + (e.message || e)); }
 });
 /* ---------- 按条件筛选：多维筛选（筛选 ↔ 条目与计数实时联动） ---------- */
-// browseFilter 是浏览页唯一的筛选状态。公众模式常用「效力等级 + 地区」两个维度，
-// 专业模式可再叠加复核状态、来源、公布年代——同一套条件、同一条 SQL 口径
+// browseFilter 是浏览页唯一的筛选状态。日常浏览常用「效力等级 + 地区」两个维度，
+// 需要时可再叠加复核状态、来源、公布年代——同一套条件、同一条 SQL 口径
 // （Go 侧 BrowseLawList 与 BrowseFacets 共用 browseWhere，计数与列表不会两说）。
 const browseFilter = { level: "", confirm: "", source: "", year: "", region: "" };
 
@@ -444,7 +466,7 @@ function browseArgs(limit, offset) {
 }
 
 // 分面组：可折叠。组头给出「本维度已选什么 / 共有多少可选值」，折叠状态记住——
-// 年代、来源这类长维度默认收起，公众常用的类别与地区默认展开（筛选栏不必长成一条竖河）。
+// 年代、来源这类长维度默认收起，常用的类别与地区默认展开（筛选栏不必长成一条竖河）。
 const GROUP_DEFAULT = { level: true, confirm: true, year: false, source: false, region: true };
 let groupOpen = {};
 try { groupOpen = JSON.parse(localStorage.getItem("ol-fgrp") || "{}") || {}; } catch (e) { groupOpen = {}; }
@@ -585,10 +607,14 @@ async function loadLaws() {
   }
 }
 
-/* ---------- 公众 · 查法规（搜索为中心） ---------- */
+/* ---------- 主工作区 · 关键词检索（搜索为中心） ---------- */
 async function loadHome() {
   try {
     const v = await app().Status();
+    // 空库如实说明并给出补救去处（诚实展示纪律：不渲染空搜索界面装作一切正常）。
+    const empty = !v.open_err && Number(v.laws || 0) === 0;
+    const he = $("#h-empty");
+    if (he) he.classList.toggle("hidden", !empty);
     const levels = ["行政法规", "部门规章", "地方政府规章"];
     let html = levels.map((lv) => {
       const r = (v.by_level || []).find((x) => x.level === lv) || { pending: 0, confirmed: 0, rejected: 0 };
@@ -625,6 +651,42 @@ async function homeSearch() {
 }
 $("#btn-hsearch").addEventListener("click", homeSearch);
 $("#hq").addEventListener("keydown", (e) => { if (e.key === "Enter") homeSearch(); });
+$("#h-setup").addEventListener("click", () => showPanel("setup"));
+
+/* ---------- 初始化法规库（新装/空库引导 · 空库启动默认落这里） ----------
+   纪律：状态如实读、如实报——库空就说空，通道未配置就展示指引；
+   「开始查法规」只在确有条目后才成为主行动。获取控件不在这里重复，
+   一律跳到唯一落点（离线更新包 / 获取最新法规，均在维护工作区）。 */
+async function loadSetup() {
+  try {
+    const v = await app().Status();
+    const n = Number(v.laws || 0);
+    const go = $("#su-go-home");
+    if (v.open_err) {
+      $("#su-status").textContent = "本机状态读取失败：" + v.open_err + "——请先修复数据目录访问，再完成初始化。";
+      if (go) go.disabled = true;
+    } else if (n > 0) {
+      $("#su-status").textContent = "初始化已完成：本机法规库已有 " + num(n) + " 部法规、" +
+        num(v.articles) + " 条条文。如需补充数据，请到「维护法规库」。";
+      if (go) go.disabled = false;
+    } else {
+      $("#su-status").textContent = "本机法规库还是空的（0 部法规）。选择下面任一方式获取数据。";
+      if (go) go.disabled = true; // 空库不得装作可查询（诚实展示：主行动不能指向空结果）
+    }
+  } catch (e) { $("#su-status").textContent = "本机状态读取失败：" + (e.message || e); }
+  loadSetupAgent();
+}
+async function loadSetupAgent() {
+  try {
+    const st = await app().AgentStatus();
+    $("#su-agent").textContent = st.configured
+      ? "智能审核通道已就绪" + (st.model ? "（模型 " + st.model + "）" : "") + "：获取数据后可自动核对新条目。"
+      : (st.guidance || "智能审核尚未配置：不配置也能查询与人工纠正，只是新条目会保持待复核。");
+  } catch (e) { $("#su-agent").textContent = "通道状态读取失败：" + (e.message || e); }
+}
+$("#su-go-pack").addEventListener("click", () => enterMaintain("pack"));
+$("#su-go-collect").addEventListener("click", () => enterMaintain("collect"));
+$("#su-go-home").addEventListener("click", () => showPanel("home"));
 
 /* ---------- 按条件筛选 · 条目行的元信息 ---------- */
 // LEVEL_UNLABELED：Go 侧对空效力等级给出诚实默认值（desktop/browse.go 的 SQL 默认值），
@@ -715,7 +777,7 @@ function renderBars(rows) {
     `<span class="num">${num(totalOf(r))} 条</span></div>`).join("");
 }
 
-/* ---------- 专业 · 库总览（数字 → 处境 → 下一步；技术信息折叠在页尾） ---------- */
+/* ---------- 维护 · 库总览（数字 → 处境 → 下一步；技术信息折叠在页尾） ---------- */
 async function loadOverview() {
   try {
     const v = await app().Status();
@@ -789,7 +851,7 @@ async function loadSideFoot() {
 }
 
 
-/* ---------- 专业 · 法规检索 ---------- */
+/* ---------- 主工作区 · 法规检索 ---------- */
 // 检索命中后就地按维度收窄：计数按本次命中统计（全文检索不重排序、不额外查库），
 // 点选即筛、再点取消——所见计数与所见列表始终同源。
 let lastHits = [];
@@ -912,7 +974,7 @@ async function doCite() {
 $("#btn-cite").addEventListener("click", doCite);
 
 
-/* ---------- 专业 · 智能审核（双智能体自审 → 人工只处理例外） ---------- */
+/* ---------- 维护 · 智能审核（双智能体自审 → 人工只处理例外） ---------- */
 // 纪律（docs/design-agent-review.md）：两项置信度都达门槛才自动确认；
 // 拿不准、留痕不合格式一律进例外队列。智能体确认与人工确认分开计数、分开徽章；
 // 历史确认（来源未记录）不得冒充其中任何一种（诚实展示纪律）。
@@ -1018,7 +1080,7 @@ $("#fix-confirm").addEventListener("click", () => correct("confirm"));
 $("#fix-reject").addEventListener("click", () => correct("reject"));
 
 
-/* ---------- 专业 · 地域标引（机器建议 → 人工落判） ---------- */
+/* ---------- 维护 · 地域标引（机器建议 → 人工落判） ---------- */
 const RG_CONF_TEXT = {
   high: "高置信（名称前缀命中）",
   medium: "中置信（仅制定机关命中，机器不写入）",
@@ -1152,7 +1214,7 @@ async function rgBulkApply() {
 $("#rg-b-preview").addEventListener("click", rgBulkPreview);
 $("#rg-b-apply").addEventListener("click", rgBulkApply);
 
-/* ---------- 专业 · 获取最新法规（状态 → 常用参数 → 高级参数 → 高级设置） ---------- */
+/* ---------- 维护 · 获取最新法规（状态 → 常用参数 → 高级参数 → 高级设置） ---------- */
 async function loadSources() {
   try {
     const v = await app().Status();
@@ -1216,7 +1278,7 @@ $("#btn-govlist").addEventListener("click", async () => {
 });
 
 
-/* ---------- 专业 · 高级设置（自检 / 完整性档案 / 离线数据包） ---------- */
+/* ---------- 维护 · 数据自检 / 完整性档案 / 离线更新包 ---------- */
 async function loadManifest() {
   try {
     const m = await app().ManifestStatus();
@@ -1240,6 +1302,14 @@ $("#btn-check").addEventListener("click", async () => {
 // 离线更新包：文件夹经系统选择器选取（手输路径属技术操作，不进界面）；
 // 必须先校验，校验通过且来源受信才导入（后端强制），新条目一律进入待审核。
 let packDir = "";
+// loadPackPanel：回到面板时回显已选文件夹（不让用户重选），未选保持「尚未选择」。
+function loadPackPanel() {
+  if (packDir) {
+    const nm = packDir.split(/[\\/]/).filter(Boolean).pop() || packDir;
+    $("#p-dir-name").textContent = "已选择更新包文件夹：" + nm + "（请先校验，再导入）";
+  }
+  loadTasks();
+}
 $("#btn-pack-pick").addEventListener("click", async () => {
   try {
     const dir = await app().PickUpdatePack();
@@ -1257,8 +1327,23 @@ $("#btn-pack-verify").addEventListener("click", async () => {
 });
 $("#btn-pack-import").addEventListener("click", async () => {
   if (!packDir) return toast("请先选择并校验更新包文件夹");
-  try { const t = await app().StartPackImportTask(packDir); toast(`更新包导入 #${t.id} 已开始（新条目进入待审核，由智能审核处理）`); loadTasks(); } catch (e) { toast("无法开始：" + (e.message || e)); }
+  try { const t = await app().StartPackImportTask(packDir); toast(`更新包导入 #${t.id} 已开始（新条目进入待审核，由智能审核处理）`); loadTasks(); packWatch(t.id); } catch (e) { toast("无法开始：" + (e.message || e)); }
 });
+// packWatch：跟踪一轮导入任务到终态，如实回显结果并刷新本机计数（初始化面板在显示时一并刷新）。
+function packWatch(id) {
+  const iv = setInterval(async () => {
+    let tasks = [];
+    try { tasks = (await app().TaskList()) || []; } catch (e) { return; }
+    const t = tasks.find((x) => x.id === id);
+    if (!t || t.state === "running") return;
+    clearInterval(iv);
+    const label = { done: "完成", failed: "失败", cancelled: "已取消" }[t.state] || t.state;
+    toast("更新包导入" + label + "：" + (t.progress || t.detail || "") + "（新条目一律进入待复核）");
+    loadSideFoot();
+    const sp = $("#panel-setup");
+    if (sp && !sp.classList.contains("hidden")) loadSetup();
+  }, 1500);
+}
 async function loadSettings() {
   try {
     const v = await app().Status();
@@ -1272,6 +1357,21 @@ async function loadSettings() {
 document.addEventListener("DOMContentLoaded", () => {
   applyTheme(); applyDensity(); applyReading(); applyIcons();
   loadManifest(); loadSettings();
-  waitBindings(() => { applyMode(); loadRegion(); loadSideFoot(); loadRegionStats(); });
+  waitBindings(async () => {
+    applyWorkspace();
+    loadRegion(); loadSideFoot(); loadRegionStats();
+    // 空库启动（新装用户）：如实落到「初始化法规库」面板，不装作浏览态正常。
+    // 读不到状态时不判定为空库（未知 ≠ 0），按当前工作区进入常规面板。
+    let v = null;
+    try { v = await app().Status(); } catch (e) { /* 面板内会再取并如实报错 */ }
+    if (v && !v.open_err && Number(v.laws || 0) === 0) {
+      ws = "main";
+      localStorage.setItem("ol-ws", ws);
+      applyWorkspace();
+      showPanel("setup");
+    } else {
+      showPanel(ws === "maint" ? "overview" : "home");
+    }
+  });
 });
 

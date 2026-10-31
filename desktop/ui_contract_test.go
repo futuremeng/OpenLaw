@@ -140,36 +140,74 @@ func TestFilterRailLivesInLeftColumn(t *testing.T) {
 // TestThreeColumnAgentReviewUI 三栏结构与智能审核面板契约：右列共享详情带一键纠正
 // 工具条；人工复核入口已由「智能审核」取代——人工只处理例外。技术操作
 // （批量署名落判、手输路径、构建签名包、重载缓存）不得回流到常规界面。
+// 工作区契约：维护项只经左列底部独立入口进入（公众/专业模式切换已撤除，不得回流）；
+// 空库有「初始化法规库」引导；离线更新包控件唯一落点在 panel-pack（collect 内不得再现）。
 func TestThreeColumnAgentReviewUI(t *testing.T) {
 	html := readFrontend(t, "index.html")
 	for _, want := range []string{`<aside id="side">`, `<main>`, `<aside id="detail"`, `id="fix-bar"`,
 		`id="panel-review"`, `id="btn-review-run"`, `id="rv-stats"`, `id="rv-channel"`,
-		`id="ex-list"`, `id="fix-confirm"`, `id="fix-reject"`, `id="btn-pack-pick"`} {
+		`id="ex-list"`, `id="fix-confirm"`, `id="fix-reject"`, `id="btn-pack-pick"`,
+		`id="nav-maintain"`, `id="nav-group-maintain"`, `id="nav-exit-maintain"`,
+		`id="panel-setup"`, `id="su-status"`, `id="su-go-pack"`, `id="su-go-collect"`, `id="su-go-home"`,
+		`id="panel-pack"`, `id="h-empty"`} {
 		if !strings.Contains(html, want) {
-			t.Errorf("缺少 %s——三栏布局与智能审核控件是界面契约", want)
+			t.Errorf("缺少 %s——三栏布局、智能审核控件、独立维护入口与初始化引导是界面契约", want)
 		}
 	}
 	for _, gone := range []string{`id="panel-confirm"`, `id="queue-list"`, `id="reviewer"`, `id="reason"`,
 		`id="btn-bulk-preview"`, `id="btn-bulk-apply"`, `id="modal"`, `id="p-dir"`, `id="p-key"`,
-		`id="btn-pack-build"`, `id="btn-risk-reload"`, `id="schema-badge"`} {
+		`id="btn-pack-build"`, `id="btn-risk-reload"`, `id="schema-badge"`,
+		`id="mode-public"`, `id="mode-pro"`, `class="modes"`, `data-mode=`} {
 		if strings.Contains(html, gone) {
-			t.Errorf("%s 重新出现——人工队列与技术操作已收进智能审核与折叠，不得回流常规界面", gone)
+			t.Errorf("%s 重新出现——模式切换已撤除、技术操作已收进 CLI 与折叠，不得回流常规界面", gone)
+		}
+	}
+	// 离线更新包控件唯一落点：panel-pack 内必须在，panel-collect 内不得再现（一处写路径，不摆两套按钮）。
+	pack := sectionOf(t, html, "panel-pack")
+	for _, want := range []string{`id="btn-pack-pick"`, `id="btn-pack-verify"`, `id="btn-pack-import"`} {
+		if !strings.Contains(pack, want) {
+			t.Errorf("panel-pack 缺少 %s——导入更新包的唯一落点必须完整", want)
+		}
+	}
+	collect := sectionOf(t, html, "panel-collect")
+	for _, gone := range []string{`id="btn-pack-pick"`, `id="btn-pack-import"`} {
+		if strings.Contains(collect, gone) {
+			t.Errorf("panel-collect 内再现 %s——更新包控件已迁至独立面板，不得两处各一套", gone)
 		}
 	}
 	js := readFrontend(t, filepath.Join("assets", "app.js"))
 	for _, want := range []string{"app().AgentStatus(", "app().StartReviewTask(", "app().AgentStats(",
 		"app().ExceptionList(", "app().CorrectDoc(", "app().PickUpdatePack(",
-		"loadReview(", "statusBadge(s, src)", `src === "agent"`, `src === "human"`} {
+		"loadReview(", "statusBadge(s, src)", `src === "agent"`, `src === "human"`,
+		"function enterMaintain(", "function exitMaintain(", "function applyWorkspace(",
+		"function loadSetup(", `showPanel("setup")`, "MAINTAIN_NAV"} {
 		if !strings.Contains(js, want) {
-			t.Errorf("前端缺少 %s——智能审核的计数、例外与一键纠正必须走同一库层路径；确认来源必须如实区分", want)
+			t.Errorf("前端缺少 %s——智能审核的计数、例外与一键纠正必须走同一库层路径；维护工作区与空库引导必须接线", want)
 		}
 	}
 	css := readFrontend(t, filepath.Join("assets", "style.css"))
-	for _, want := range []string{".badge.agent", ".badge.human", "#detail", "#fix-bar"} {
+	for _, want := range []string{".badge.agent", ".badge.human", "#detail", "#fix-bar", "#nav-maintain"} {
 		if !strings.Contains(css, want) {
-			t.Errorf("样式缺少 %s——智能体确认与人工确认必须区别显示，右列详情必须有布局规则", want)
+			t.Errorf("样式缺少 %s——智能体确认与人工确认必须区别显示，右列详情与维护入口必须有布局规则", want)
 		}
 	}
+}
+
+// sectionOf 取 <section id="name" ...> 到下一个 <section 或 </main> 之间的片段。
+func sectionOf(t *testing.T, html, name string) string {
+	t.Helper()
+	start := strings.Index(html, `<section id="`+name+`"`)
+	if start < 0 {
+		t.Fatalf("未找到面板 %s", name)
+	}
+	rest := html[start:]
+	if i := strings.Index(rest[len(`<section id="`+name+`"`):], `<section id="`); i >= 0 {
+		rest = rest[:len(`<section id="`+name+`"`)+i]
+	}
+	if i := strings.Index(rest, `</main>`); i >= 0 {
+		rest = rest[:i]
+	}
+	return rest
 }
 
 // TestFrontendWiringSmoke 跑 frontend/wiring_smoke.mjs：桩化 DOM 与 Go 绑定，把
@@ -193,7 +231,9 @@ func TestFrontendWiringSmoke(t *testing.T) {
 		"任务卡 class 含 running\": true", "筛选前后总数联动\": true", "浏览分面给出计数\": true",
 		"未标注地区如实说明\": true", "检索命中可就地收窄\": true",
 		"智能审核统计分开计数\": true", "例外队列给出没把握原因\": true", "智能审核通道回显\": true",
-		"条目徽章如实报智能体确认\": true"} {
+		"条目徽章如实报智能体确认\": true",
+		"维护入口进入独立工作区\": true", "离线更新包在维护区可达\": true", "退出维护回主导航\": true",
+		"初始化面板如实报空库\": true", "空库时不得装作可查询\": true", "库非空初始化如实报完成\": true"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("接线冒烟缺少期望产出 %q：\n%s", want, strings.TrimSpace(string(out)))
 		}

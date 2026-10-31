@@ -32,7 +32,14 @@ function mk(cls) {
   };
   return el;
 }
-const byId = new Map(); ids.forEach((i) => byId.set(i, mk()));
+const byId = new Map();
+ids.forEach((i) => {
+  // 面板显隐按 s.id 判定（showPanel 切换 main section 的 hidden）——桩元素必须带 id，
+  // 否则「面板可达」类断言在桩里永远失效。
+  const el = mk();
+  el.id = i;
+  byId.set(i, el);
+});
 const byClass = new Map(); classes.forEach((c) => byClass.set(c, [mk(c)]));
 const listeners = {};
 // documentElement 带 dataset 与 style.setProperty：外观、密度与原文字号都落在这两处。
@@ -67,8 +74,12 @@ const laws = [
   { law_id: 'L3', name: '某市养犬管理办法', level: '效力等级未标注', confirm_status: 'pending', confirm_source: '', region_source: '', region: '', issuer: '', effective_date: '' },
 ];
 const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) && (!a.kw || r.name.includes(a.kw)));
+// 空库开关：初始化面板与启动落面板的诚实展示要在冒烟里可见（0 部就说 0 部）。
+let emptyLib = false;
 const data = {
-  Status: () => ({ laws: 28952, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', pending: 30859, confirmed: 4, rejected: 1 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '4', schema_min: '3', schema_max: '4', producer_version: 'v0.1.0', open_err: '' }),
+  Status: () => emptyLib
+    ? ({ laws: 0, articles: 0, documents: 0, versions: 0, pending: 0, confirmed: 0, rejected: 0, by_level: [], last_fetch: {}, data_dir: 'data', schema_version: '5', schema_min: '3', schema_max: '5', producer_version: '无 manifest', open_err: '' })
+    : ({ laws: 28952, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', pending: 30859, confirmed: 4, rejected: 1 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '5', schema_min: '3', schema_max: '5', producer_version: 'v0.1.0', open_err: '' }),
   // 智能审核：通道就绪 + 分开计数（智能体/人工/历史来源未记录）+ 例外队列样例。
   // 例外条目必须带白话原因与建议——冒烟里要能看出「为什么需要人工」。
   AgentStatus: () => ({ configured: true, model: 'test-model', guidance: '', technical: '环境变量 OPENLAW_LLM_*' }),
@@ -118,7 +129,7 @@ for (const f of ['assets/api.js', 'assets/app.js']) vm.runInContext(fs.readFileS
 (listeners['DOMContentLoaded'] || []).forEach((f) => f());
 const g = (id) => byId.get(id);
 (async () => {
-  for (const p of ['home', 'browse', 'overview', 'search', 'review', 'region', 'collect']) {
+  for (const p of ['home', 'setup', 'browse', 'overview', 'search', 'review', 'region', 'collect', 'pack']) {
     ctx.showPanel(p);
     await new Promise((r) => setTimeout(r, 30));
   }
@@ -161,6 +172,27 @@ const g = (id) => byId.get(id);
   const densityOn = documentElement.dataset.density === 'compact';
   const readSize = documentElement.style._p['--read-size'];
   const argsAfter = JSON.stringify(vm.runInContext('browseArgs(300,0)', ctx));
+  // 维护工作区：独立入口换出维护子导航与面包屑；「离线更新包」在维护区内可达；退出回主导航。
+  ctx.enterMaintain('overview');
+  await new Promise((r) => setTimeout(r, 30));
+  const maintGroupOn = g('nav-group-maintain').hidden === false;
+  const maintCrumb = g('crumb-root').textContent + ' | ' + g('crumb-cur').textContent;
+  ctx.enterMaintain('pack');
+  const packOn = !g('panel-pack').classList.contains('hidden');
+  ctx.exitMaintain();
+  const maintGroupOff = g('nav-group-maintain').hidden === true;
+  const mainCrumbRoot = g('crumb-root').textContent;
+  // 初始化面板：空库如实报空并禁用「开始查法规」；非空如实报完成并解禁。
+  emptyLib = true;
+  await ctx.loadSetup();
+  const setupEmptyLine = g('su-status').textContent;
+  const goDisabled = g('su-go-home').disabled === true;
+  emptyLib = false;
+  await ctx.loadSetup();
+  const setupDoneLine = g('su-status').textContent;
+  const goEnabled = g('su-go-home').disabled === false;
+  // 复位顶栏/徽标态：工作区场景里总览面板重设过待复核徽标，此处恢复「为 0 即收起」的核对基线。
+  ctx.setSideFoot({ laws: 1, pending: 0 });
   const report = {
     '侧栏待复核计数': cntConfirm + ' (title: ' + cntConfirmTitle + ')',
     '待复核为 0 时清空徽标': g('cnt-review').textContent === '' && !g('cnt-review').title,
@@ -201,6 +233,12 @@ const g = (id) => byId.get(id);
     '紧凑模式落到 html 属性': densityOn,
     '原文字号可调': readSize === '17px',
     '显示偏好不改取列条件': argsBefore === argsAfter,
+    '维护入口进入独立工作区': maintGroupOn && maintCrumb === '维护法规库 | 库总览',
+    '离线更新包在维护区可达': packOn,
+    '退出维护回主导航': maintGroupOff && mainCrumbRoot === '法律法规库',
+    '初始化面板如实报空库': setupEmptyLine.includes('还是空的（0 部法规）'),
+    '空库时不得装作可查询': goDisabled,
+    '库非空初始化如实报完成': setupDoneLine.includes('初始化已完成') && goEnabled,
   };
   const failed = Object.entries(report).filter(([, v]) => v === false).map(([k]) => k);
   console.log(JSON.stringify(report, null, 1));
