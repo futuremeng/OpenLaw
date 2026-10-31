@@ -98,9 +98,10 @@ type LevelCount struct {
 // Code 为技术标识 CN/EU/US（界面文案由前端映射为「中国/欧盟/美国」）；
 // 空 Code = 法域未标注。诚实展示：CN/EU/US 三行恒常给出，0 也要如实显示。
 type JurisCount struct {
-	Code    string `json:"code"`
-	Laws    int    `json:"laws"`
-	Pending int    `json:"pending"` // 该法域待复核条文数（与「待复核」总数同口径，按法域联动）
+	Code      string `json:"code"`
+	Laws      int    `json:"laws"`
+	Documents int    `json:"documents"` // 该法域留证条文数（0 时界面不得说「均已复核」，须如实「尚无留证条文」）
+	Pending   int    `json:"pending"`   // 该法域待复核条文数（与「待复核」总数同口径，按法域联动）
 }
 
 type StatusView struct {
@@ -171,6 +172,7 @@ func (a *App) Status() (StatusView, error) {
 	// 分法域计数：CN/EU/US 三行恒常给出（缺失必须如实显示为 0，前端据此给补救指引）；
 	// 法域未标注仅在非 0 时追加一行（诚实展示纪律）。待复核按法域联动（与总待复核同口径）。
 	juris := map[string]int{}
+	jd := map[string]int{}
 	jp := map[string]int{}
 	if jrows, err := a.db.Query(`SELECT COALESCE(jurisdiction,''), COUNT(*) FROM law GROUP BY 1`); err == nil {
 		defer jrows.Close()
@@ -182,20 +184,21 @@ func (a *App) Status() (StatusView, error) {
 			}
 		}
 	}
-	if prows, err := a.db.Query(`SELECT COALESCE(l.jurisdiction,''), SUM(d.confirm_status='pending')
+	if prows, err := a.db.Query(`SELECT COALESCE(l.jurisdiction,''), COUNT(*), SUM(d.confirm_status='pending')
 		FROM document d JOIN law_version v ON v.doc_id=d.doc_id JOIN law l ON l.law_id=v.law_id GROUP BY 1`); err == nil {
 		defer prows.Close()
 		for prows.Next() {
 			var code string
-			var n int
-			if err := prows.Scan(&code, &n); err == nil {
-				jp[code] = n
+			var n, p int
+			if err := prows.Scan(&code, &n, &p); err == nil {
+				jd[code] = n
+				jp[code] = p
 			}
 		}
 	}
-	v.Juris = []JurisCount{{"CN", juris["CN"], jp["CN"]}, {"EU", juris["EU"], jp["EU"]}, {"US", juris["US"], jp["US"]}}
+	v.Juris = []JurisCount{{"CN", juris["CN"], jd["CN"], jp["CN"]}, {"EU", juris["EU"], jd["EU"], jp["EU"]}, {"US", juris["US"], jd["US"], jp["US"]}}
 	if n := juris[""]; n > 0 {
-		v.Juris = append(v.Juris, JurisCount{"", n, jp[""]})
+		v.Juris = append(v.Juris, JurisCount{"", n, jd[""], jp[""]})
 	}
 	if m, _, err := validate.LoadManifest(a.dataDir); err == nil {
 		v.ProducerVersion = m.ProducerVersion

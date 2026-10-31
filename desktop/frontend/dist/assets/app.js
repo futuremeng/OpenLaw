@@ -834,76 +834,66 @@ let kwTimer = null;
 $("#b-kw").addEventListener("input", () => { clearTimeout(kwTimer); kwTimer = setTimeout(loadLaws, 400); });
 $("#b-kw").addEventListener("keydown", (e) => { if (e.key === "Enter") { clearTimeout(kwTimer); loadLaws(); } });
 
-// renderBars：法规构成给出「形状」而不只是数字——每级一条堆叠条，段长按条目数比例，
-// 条长之间按最大等级归一（哪一级占多少一眼可辨）。精确值仍在「各等级的精确数字」折叠里。
+// 法规构成给出「形状」而不只是数字——每级一条堆叠条，段长按条目数比例，
+// 条长之间按最大等级归一（哪一级占多少一眼可辨，跨法域可比）。
+// 精确值仍在「各等级的精确数字」折叠里。
 // 法域文案映射（CN/EU/US 是技术标识，界面一律法言法语；空=法域未标注）。
 const JURIS_TEXT = { CN: "中国", EU: "欧盟", US: "美国", "": "法域未标注" };
-// renderBars：法规构成按法域分组——分法域与构成必须联动对账（同一法域上下呼应），
-// 空法域组如实说明（0 部=尚未收录；有部数但无留证条文=如实说尚无条文，不得凭空出条）。
-function renderBars(rows, juris) {
-  const el = $("#ov-bars");
-  if (!el) return;
-  const data = (rows || []).filter((r) => r && ((r.pending || 0) + (r.confirmed || 0) + (r.rejected || 0) > 0));
-  const jm = {};
-  (juris || []).forEach((r) => { if (r) jm[r.code || ""] = r; });
-  if (!data.length && !(juris || []).some((r) => r && r.laws > 0)) {
-    el.innerHTML = '<p class="muted">法规库中还没有条文。可在「获取最新法规」中从官方渠道获取。</p>';
-    return;
-  }
-  const totalOf = (r) => (r.pending || 0) + (r.confirmed || 0) + (r.rejected || 0);
-  const max = data.reduce((m, r) => Math.max(m, totalOf(r)), 0) || 1; // 全局归一：跨法域可比
-  const seg = (cls, n) => (n ? `<i class="${cls}" style="width:${((n / max) * 100).toFixed(2)}%"></i>` : "");
-  const groups = {};
-  data.forEach((r) => { const k = r.juris || ""; (groups[k] = groups[k] || []).push(r); });
-  const codes = ["CN", "EU", "US"];
-  if (groups[""] || (jm[""] && jm[""].laws > 0)) codes.push("");
-  let html = "";
-  for (const c of codes) {
-    const g = (groups[c] || []).slice().sort((a, b) => totalOf(b) - totalOf(a));
-    const laws = (jm[c] && jm[c].laws) || 0;
-    html += `<div class="bar-group"><h3>${JURIS_TEXT[c] || escapeHTML(c)}</h3>`;
-    if (g.length) {
-      html += g.map((r) => `<div class="bar-row" title="已复核确认 ${num(r.confirmed)} · 待复核 ${num(r.pending)} · 已驳回 ${num(r.rejected)}">` +
-        `<span class="nm">${escapeHTML(r.level || "效力等级未标注")}</span>` +
-        `<span class="bar">${seg("ok", r.confirmed)}${seg("pend", r.pending)}${seg("no", r.rejected)}</span>` +
-        `<span class="num">${num(totalOf(r))} 条</span></div>`).join("");
-    } else if (laws > 0) {
-      html += `<p class="muted">已收录 ${num(laws)} 部，但尚无留证原文入库，构成待原文获取后显示。</p>`;
-    } else {
-      html += '<p class="muted">尚未收录。</p>';
-    }
-    html += "</div>";
-  }
-  el.innerHTML = html;
-}
-
-/* ---------- 维护 · 库总览（数字 → 处境 → 下一步；技术信息折叠在页尾） ---------- */
-// renderJuris：分法域恒常三行（中国/欧盟/美国）——计数如实给出；0 必须如实显示
-// 「尚未收录」并给可达补救指引（诚实展示纪律：缺失不得留白、不得渲染成可用）。
-// 有内容的法域行是入口：点击带法域筛选进浏览页（数字与列表当场对上，并与下方
-// 按法域分组的构成呼应同一口径）。
-function renderJuris(rows) {
+// renderJuris：分法域与构成合并为一个区块——一个法域一个块（jgroup）：
+// 块头 = 法域名 + 部数 + 该法域待复核 + 下钻入口；块体 = 该法域按效力等级的构成条。
+// 计数与构成同一口径联动（诚实展示纪律）：0 部如实「尚未收录」+ 补救指引；
+// 有部数但无留证条文如实说明，不得凭空出条，也不得说「均已复核」（0 条文恒真是空话）。
+const JURIS_HINT = {
+  CN: "尚未收录。可在「初始化法规库」安装官方数据包，或在「获取最新法规」从官方渠道获取。",
+  EU: "尚未收录。欧盟官方通道目前经命令行开通（openlaw-eu），界面通道尚未开通。",
+  US: "尚未收录。美国官方通道尚在建设中，暂无数据。",
+  "": "请核对条目来源后补标法域。",
+};
+function renderJuris(rows, byLevel) {
   const el = $("#ov-juris");
   if (!el) return;
   const m = {};
   (rows || []).forEach((r) => { if (r) m[r.code || ""] = r; });
-  const hint = {
-    CN: "尚未收录。可在「初始化法规库」安装官方数据包，或在「获取最新法规」从官方渠道获取。",
-    EU: "尚未收录。欧盟官方通道目前经命令行开通（openlaw-eu），界面通道尚未开通。",
-    US: "尚未收录。美国官方通道尚在建设中，暂无数据。",
-    "": "请核对条目来源后补标法域。",
-  };
-  const codes = ["CN", "EU", "US"].concat(m[""] ? [""] : []);
-  el.innerHTML = codes.map((c) => {
-    const r = m[c] || { laws: 0, pending: 0 };
-    const n = r.laws || 0;
-    if (!n) {
-      return `<div class="juris-row off"><b>${JURIS_TEXT[c]}</b><span class="num">0 部</span><span class="muted">${escapeHTML(hint[c])}</span></div>`;
+  const totalOf = (r) => (r.pending || 0) + (r.confirmed || 0) + (r.rejected || 0);
+  const groups = {};
+  (byLevel || []).forEach((r) => {
+    if (r && totalOf(r) > 0) { const k = r.juris || ""; (groups[k] = groups[k] || []).push(r); }
+  });
+  const max = (byLevel || []).reduce((acc, r) => (r ? Math.max(acc, totalOf(r)) : acc), 0) || 1; // 全局归一：跨法域可比
+  const seg = (cls, n) => (n ? `<i class="${cls}" style="width:${((n / max) * 100).toFixed(2)}%"></i>` : "");
+  const codes = ["CN", "EU", "US"];
+  if (groups[""] || (m[""] && m[""].laws > 0)) codes.push("");
+  let html = "";
+  for (const c of codes) {
+    const r = m[c] || { laws: 0, documents: 0, pending: 0 };
+    const laws = r.laws || 0, docs = r.documents || 0;
+    const bars = (groups[c] || []).slice().sort((a, b) => totalOf(b) - totalOf(a));
+    let head;
+    if (laws > 0) {
+      const stat = docs > 0
+        ? ((r.pending || 0) > 0 ? `待复核 ${num(r.pending)} 条` : "均已复核")
+        : "尚无留证条文";
+      head = `<button class="jhead" data-juris="${c}" title="浏览该法域全部法规">` +
+        `<b>${JURIS_TEXT[c]}</b><span class="num">${num(laws)} 部</span>` +
+        `<span class="muted">${stat} · 点击查看全部 ›</span></button>`;
+    } else {
+      head = `<div class="jhead off"><b>${JURIS_TEXT[c]}</b><span class="num">0 部</span>` +
+        `<span class="muted">尚未收录</span></div>`;
     }
-    const pend = (r.pending || 0) > 0 ? `待复核 ${num(r.pending)} 条` : "均已复核";
-    return `<button class="juris-row" data-juris="${c}" title="浏览该法域全部法规">` +
-      `<b>${JURIS_TEXT[c]}</b><span class="num">${num(n)} 部</span><span class="muted">${pend} · 点击查看全部</span></button>`;
-  }).join("");
+    let body;
+    if (bars.length) {
+      body = bars.map((b) => `<div class="bar-row" title="已复核确认 ${num(b.confirmed)} · 待复核 ${num(b.pending)} · 已驳回 ${num(b.rejected)}">` +
+        `<span class="nm">${escapeHTML(b.level || "效力等级未标注")}</span>` +
+        `<span class="bar">${seg("ok", b.confirmed)}${seg("pend", b.pending)}${seg("no", b.rejected)}</span>` +
+        `<span class="num">${num(totalOf(b))} 条</span></div>`).join("");
+    } else if (laws > 0) {
+      body = `<p class="muted">尚无留证原文入库，构成待原文获取后显示。</p>`;
+    } else {
+      body = `<p class="muted">${escapeHTML(JURIS_HINT[c])}</p>`;
+    }
+    html += `<div class="jgroup">${head}${body}</div>`;
+  }
+  el.innerHTML = html;
   el.querySelectorAll("[data-juris]").forEach((b) => b.addEventListener("click", () => {
     browseFilter.juris = b.dataset.juris || "none"; // 未标注桶在浏览页以 none 表达
     browseFilter.level = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
@@ -937,8 +927,7 @@ async function loadOverview() {
     document.querySelectorAll("#ov-actions [data-go]").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.go)));
     $("#level-table tbody").innerHTML = (v.by_level || []).map((r) =>
       `<tr><td>${JURIS_TEXT[r.juris || ""] || escapeHTML(r.juris || "")}</td><td>${escapeHTML(r.level)}</td><td>${num(r.pending)}</td><td>${num(r.confirmed)}</td><td>${num(r.rejected)}</td></tr>`).join("");
-    renderBars(v.by_level, v.juris);
-    renderJuris(v.juris);
+    renderJuris(v.juris, v.by_level);
     const reps = (await app().RecentReports(5)) || [];
     // 失败如实说：ok=0 不得渲染成中性数字（诚实展示纪律）。
     $("#reports").innerHTML = reps.map((r) => `<div class="rep"><b>${escapeHTML(SRC_TEXT[r.source] || r.source)}</b> ${fmtWhen(r.modified_at)}<span class="muted">（本机时间）</span><br><span class="muted"${utcTitle(r.modified_at)}>${r.ok > 0 ? "获取到 " + num(r.ok) + " 条" : "本轮没有新增内容"} · 失败 ${num(r.failed)} 条${r.pages ? " · 翻页 " + num(r.pages) + " 页" : ""}</span></div>`).join("") ||
