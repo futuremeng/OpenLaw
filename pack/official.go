@@ -1,0 +1,20 @@
+// official.go 官方发布者密钥名单：发版时内置（AGENTS.md 信任与签名纪律 16.2）。
+// 空名单 = 如实现状：官方远程通道尚未发布，远程目录与包一律按「来源不可信」拒绝——
+// 门禁不因未发布而放宽。轮换用新 key ID；吊销删除旧 ID。
+package pack
+
+// officialPubkeys key ID → ed25519 公钥 hex（发版流水线填入）。
+var officialPubkeys = map[string]string{
+	// "ol-2026a": "<ed25519 公钥 hex>", // 发版时内置
+}
+
+// RegisterOfficialKeys 把官方密钥登记进受信名单（桌面启动与 CLI 入口调用；
+// 重复登记同 ID 会报错——同进程只调一次）。
+func RegisterOfficialKeys() error {
+	for id, pub := range officialPubkeys {
+		if err := RegisterTrustedPubkey(id, pub); err != nil {
+			return err
+		}
+	}
+	return nil
+}
