@@ -4,6 +4,18 @@
 
 ## Unreleased（v0.1.0 开发中）
 
+- **双智能体自审核（schema v5 · agent 包）**：「人工复核」改为「双智能体自审 → 人工只
+  纠正例外」（设计成文 docs/design-agent-review.md）。分类智能体（效力等级/发布机关/
+  公布日期/地域建议 + 置信度）与核对智能体（比对原文与著录元数据，裁决 confirm/escalate）
+  串行执行；两项置信度都达门槛（0.85）才自动确认——调用失败、输出不合格式、置信度不足
+  一律转人工（fail-closed）。默认离线：通道须显式配置 OpenAI 兼容接口
+  （OPENLAW_LLM_ENDPOINT/KEY/MODEL），未配置一律拒绝任务。schema v5 加法式：
+  document +confirm_source（agent/human；空=历史来源未记录），新表 agent_review 每次
+  审核留痕（两智能体原始 JSON 结论、置信度、模型名）。落判仍经 ingest.Confirmer 同一
+  runner（新增公开 Judge 与 LoadPending），review_log 必留痕；reset 回 pending 清空来源——
+  「未复核」不得携带已确认痕迹。测试：agent/review_test.go 桩 Chat 离线覆盖门槛降级、
+  解析失败转人工、留痕落表、中断保留；store/migrate_test.go 核对 v4→v5 真实加法式链路
+  （迁移前自动备份）。
 - **界面语言与渐进披露规范（成文）**：新增 `docs/design-ui-language.md`——用户可见文案的
   三条硬规则（目标语言、渐进披露、诚实展示）、主视图禁止清单（SQL/LIKE 通配符、命令行参数
   与环境变量名、URL/端口、ISO UTC 时间戳、schema 版本号与数据目录路径）、术语替换表
