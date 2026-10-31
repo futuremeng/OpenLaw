@@ -172,15 +172,20 @@ const g = (id) => byId.get(id);
   const densityOn = documentElement.dataset.density === 'compact';
   const readSize = documentElement.style._p['--read-size'];
   const argsAfter = JSON.stringify(vm.runInContext('browseArgs(300,0)', ctx));
-  // 维护工作区：独立入口换出维护子导航与面包屑；「离线更新包」在维护区内可达；退出回主导航。
+  // 维护工作区：完整切换——主导航整套收起、维护子导航整套出现，底部入口收起；
+  // 「离线更新包」在维护区内可达；退出后主导航整套回来。
   ctx.enterMaintain('overview');
   await new Promise((r) => setTimeout(r, 30));
   const maintGroupOn = g('nav-group-maintain').hidden === false;
   const maintCrumb = g('crumb-root').textContent + ' | ' + g('crumb-cur').textContent;
+  const mainNavHidden = g('nav-group-main').hidden === true && g('nav-home').hidden === true &&
+    g('nav-browse').hidden === true && g('nav-search').hidden === true && g('nav-maintain').hidden === true;
   ctx.enterMaintain('pack');
   const packOn = !g('panel-pack').classList.contains('hidden');
   ctx.exitMaintain();
   const maintGroupOff = g('nav-group-maintain').hidden === true;
+  const mainNavBack = g('nav-group-main').hidden === false && g('nav-home').hidden === false &&
+    g('nav-maintain').hidden === false;
   const mainCrumbRoot = g('crumb-root').textContent;
   // 初始化面板：空库如实报空并禁用「开始查法规」；非空如实报完成并解禁。
   emptyLib = true;
@@ -234,6 +239,7 @@ const g = (id) => byId.get(id);
     '原文字号可调': readSize === '17px',
     '显示偏好不改取列条件': argsBefore === argsAfter,
     '维护入口进入独立工作区': maintGroupOn && maintCrumb === '维护法规库 | 库总览',
+    '两套导航完整互斥切换': mainNavHidden && mainNavBack,
     '离线更新包在维护区可达': packOn,
     '退出维护回主导航': maintGroupOff && mainCrumbRoot === '法律法规库',
     '初始化面板如实报空库': setupEmptyLine.includes('还是空的（0 部法规）'),

@@ -147,7 +147,8 @@ func TestThreeColumnAgentReviewUI(t *testing.T) {
 	for _, want := range []string{`<aside id="side">`, `<main>`, `<aside id="detail"`, `id="fix-bar"`,
 		`id="panel-review"`, `id="btn-review-run"`, `id="rv-stats"`, `id="rv-channel"`,
 		`id="ex-list"`, `id="fix-confirm"`, `id="fix-reject"`, `id="btn-pack-pick"`,
-		`id="nav-maintain"`, `id="nav-group-maintain"`, `id="nav-exit-maintain"`,
+		`id="nav-maintain"`, `id="nav-group-main"`, `id="nav-home"`, `id="nav-browse"`, `id="nav-search"`,
+		`id="nav-group-maintain"`, `id="nav-exit-maintain"`,
 		`id="panel-setup"`, `id="su-status"`, `id="su-go-pack"`, `id="su-go-collect"`, `id="su-go-home"`,
 		`id="panel-pack"`, `id="h-empty"`} {
 		if !strings.Contains(html, want) {
@@ -180,7 +181,7 @@ func TestThreeColumnAgentReviewUI(t *testing.T) {
 		"app().ExceptionList(", "app().CorrectDoc(", "app().PickUpdatePack(",
 		"loadReview(", "statusBadge(s, src)", `src === "agent"`, `src === "human"`,
 		"function enterMaintain(", "function exitMaintain(", "function applyWorkspace(",
-		"function loadSetup(", `showPanel("setup")`, "MAINTAIN_NAV"} {
+		"function loadSetup(", `showPanel("setup")`, "MAIN_NAV", "MAINTAIN_NAV"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("前端缺少 %s——智能审核的计数、例外与一键纠正必须走同一库层路径；维护工作区与空库引导必须接线", want)
 		}
@@ -237,7 +238,7 @@ func TestFrontendWiringSmoke(t *testing.T) {
 		"未标注地区如实说明\": true", "检索命中可就地收窄\": true",
 		"智能审核统计分开计数\": true", "例外队列给出没把握原因\": true", "智能审核通道回显\": true",
 		"条目徽章如实报智能体确认\": true",
-		"维护入口进入独立工作区\": true", "离线更新包在维护区可达\": true", "退出维护回主导航\": true",
+		"维护入口进入独立工作区\": true", "两套导航完整互斥切换\": true", "离线更新包在维护区可达\": true", "退出维护回主导航\": true",
 		"初始化面板如实报空库\": true", "空库时不得装作可查询\": true", "库非空初始化如实报完成\": true"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("接线冒烟缺少期望产出 %q：\n%s", want, strings.TrimSpace(string(out)))

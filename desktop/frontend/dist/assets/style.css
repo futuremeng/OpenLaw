@@ -75,14 +75,13 @@ body {
 .brand .txt span { font-size: 12px; color: var(--muted); }
 
 /* 维护入口：左列底部的独立按钮（主导航只谈「查法规」，维护不混入浏览动线）。
-   发丝分隔 + 弱一级配色；进入维护工作区后以 active 态标出。 */
+   完整切换：进入维护工作区后本按钮收起，出口是维护子导航首位的「返回查法规」。 */
 #nav-maintain {
   margin: 10px 12px 0; padding: 8px 10px; display: flex; align-items: center; gap: 8px;
   background: none; border: 1px solid var(--side-line); border-radius: 8px;
   color: var(--muted); font-size: 13px; cursor: pointer; text-align: left;
 }
 #nav-maintain:hover { background: var(--side-hover); color: var(--ink); }
-#nav-maintain.active { background: var(--side-acc); border-color: var(--acc); color: var(--acc); font-weight: 600; }
 
 nav#nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
 /* 分组小标题：11px 大写 + 字距（参考成熟桌面端的侧栏层级，不靠字号堆叠） */

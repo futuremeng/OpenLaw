@@ -132,10 +132,12 @@ function toast(msg) {
 }
 
 /* ---------- 工作区与导航 ----------
-   主工作区（查法规）与维护工作区（维护法规库）经左列底部独立入口分隔：
-   主导航只谈「查法规」，维护项不得混入；进入维护后左列换出维护子导航，
-   并有明确的「返回查法规」出口（docs/design-ui-language.md）。 */
+   主工作区（查法规）与维护工作区（维护法规库）完整互斥切换：
+   进入维护时主导航整套收起、只留维护子导航（首位常驻「返回查法规」出口）；
+   回到查询时维护子导航整套收起。左列任何时刻只呈现一套导航
+   （docs/design-ui-language.md：主导航只谈「查法规」）。 */
 let ws = localStorage.getItem("ol-ws") === "maint" ? "maint" : "main";
+const MAIN_NAV = ["nav-group-main", "nav-home", "nav-browse", "nav-search"];
 const MAINTAIN_NAV = ["nav-group-maintain", "nav-exit-maintain", "nav-overview",
   "nav-review", "nav-region", "nav-collect", "nav-pack"];
 // 顶栏面包屑：当前位置 + 当前生效的筛选摘要。用户随时能看到「自己在哪、看的是不是筛过的」。
@@ -175,9 +177,12 @@ function reloadViewing() {
   if (cur) showPanel(cur.dataset.panel);
 }
 function applyWorkspace() {
+  // 完整切换：两套导航互斥——查询态只见主导航，维护态只见维护子导航；
+  // 底部维护入口在维护态收起（出口是子导航首位的「返回查法规」，不两处各一套）。
+  MAIN_NAV.forEach((id) => { const el = $("#" + id); if (el) el.hidden = ws === "maint"; });
   MAINTAIN_NAV.forEach((id) => { const el = $("#" + id); if (el) el.hidden = ws !== "maint"; });
   const entry = $("#nav-maintain");
-  if (entry) entry.classList.toggle("active", ws === "maint");
+  if (entry) entry.hidden = ws === "maint";
 }
 function enterMaintain(p) {
   ws = "maint";

@@ -542,7 +542,10 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   新增空库开关与 6 条工作区/初始化断言。**同日修复**：`.nav`/`.nav-group` 自带
   `display:flex` 盖过 UA 的 `[hidden]{display:none}`，收起的维护子导航原样显示在常规
   界面——样式层补全局 `[hidden]{display:none!important}`，`ui_contract_test.go` 补该
-  规则的回归断言。
+  规则的回归断言。**完整切换补全**：`applyWorkspace` 改为两套导航互斥——主导航
+  （`MAIN_NAV`：`#nav-group-main/#nav-home/#nav-browse/#nav-search`）在维护态整套收起、
+  底部入口 `#nav-maintain` 维护态收起（出口只留子导航首位「返回查法规」），左列任何
+  时刻只呈现一套导航；冒烟新增「两套导航完整互斥切换」断言。
 
 
 
