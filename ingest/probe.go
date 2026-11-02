@@ -52,7 +52,7 @@ func (c *Cellar) Probe(ctx context.Context, celex, lang string) (*ProbeResult, e
 
 	// 2) expression 层（一次 GET；robots 拒绝时不发起——不发才合规）
 	if res.RobotsAllow {
-		_, err := c.getCellar(ctx, uri, "application/rdf+xml", 16<<20, "cellar-probe")
+		_, err := c.getCellarOnce(ctx, uri, "application/rdf+xml", 16<<20, "cellar-probe") // 探测不退避：立刻如实报告窗口状态
 		if err == nil {
 			res.ExprOK, res.ExprStatus = true, http.StatusOK
 		} else {

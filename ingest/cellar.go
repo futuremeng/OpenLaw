@@ -54,6 +54,9 @@ type Cellar struct {
 	Policy      FetchPolicy
 	MinInterval time.Duration // 查询间礼貌限速，默认 2s
 	Endpoint    string        // SPARQL 端点；空 = CellarSPARQL（仅测试注入其他值）
+	// BackoffBase 429 指数退避基准（RL-3），默认 60s（60→120→240s）。
+	// 仅测试注入短值；正式抓取留 0 用默认——退避策略不是可调旋钮（护栏纪律）。
+	BackoffBase time.Duration
 	robots      *RobotsCache
 	lastQuery   time.Time
 	polCache    *FetchPolicy // policy() 惰性缓存：Transport/连接池全生命周期复用
@@ -440,10 +443,12 @@ func cellarHostAllowed(h string) bool {
 }
 
 // HTTPStatusErr Cellar HTTP 获取失败且携带状态码——调用方据此区分限流（429）
-// 与其他失败（探测 RL-2、退避 RL-3 的判据）。
+// 与其他失败（探测 RL-2、退避 RL-3 的判据）。RetryAfter 为 429 响应头
+// Retry-After（站点当前不带；出现即遵从，RL-3）。
 type HTTPStatusErr struct {
-	Status int
-	URL    string
+	Status     int
+	URL        string
+	RetryAfter time.Duration // 0 = 响应未给出
 }
 
 func (e *HTTPStatusErr) Error() string {
@@ -458,10 +463,11 @@ func (c *Cellar) robotsCache() *RobotsCache {
 	return c.robots
 }
 
-// getCellar 通用 Cellar GET（robots 强制 + 限速 + 大小上限 + import_log）。
+// getCellarOnce Cellar 单次 GET（robots 强制 + 限速 + 大小上限 + import_log）。
 // uri 为 Linked Data http URI；请求走 https（同一主机白名单），重定向锁主机。
 // logTag 为 import_log 留痕前缀（cellar-text / cellar-probe）。
-func (c *Cellar) getCellar(ctx context.Context, uri, accept string, maxBytes int64, logTag string) ([]byte, error) {
+// 429 退避在包装层 getCellar（RL-3）；本函数如实一次即返回。
+func (c *Cellar) getCellarOnce(ctx context.Context, uri, accept string, maxBytes int64, logTag string) ([]byte, error) {
 	if c.MinInterval == 0 {
 		c.MinInterval = 2 * time.Second
 	}
@@ -519,7 +525,11 @@ func (c *Cellar) getCellar(ctx context.Context, uri, accept string, maxBytes int
 	if resp.StatusCode != http.StatusOK {
 		reason := fmt.Sprintf("HTTP %d: %.200s", resp.StatusCode, string(body))
 		c.logGet(reqURL, "failed", reason, int64(len(body)), resp.Header.Get("Content-Type"), logTag)
-		return nil, fmt.Errorf("Cellar 获取失败: %w", &HTTPStatusErr{Status: resp.StatusCode, URL: reqURL})
+		he := &HTTPStatusErr{Status: resp.StatusCode, URL: reqURL}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			he.RetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
+		}
+		return nil, fmt.Errorf("Cellar 获取失败: %w", he)
 	}
 	if int64(len(body)) > maxBytes {
 		c.logGet(reqURL, "failed", fmt.Sprintf("超过大小上限 %d 字节", maxBytes), int64(len(body)), resp.Header.Get("Content-Type"), logTag)
