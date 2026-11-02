@@ -381,6 +381,55 @@ func TestFacetGroupsAreCollapsible(t *testing.T) {
 	}
 }
 
+// TestAsyncFeedbackGuards 异步反馈与按钮状态纪律（2026-11 交互评审结论）：
+// ① toast 必须能被辅助技术播报（role=status + aria-live）——读屏用户不得对全部
+//
+//	异步反馈完全静默；
+//
+// ② 取列必须有进行状态（面板头「正在取列…」）与序号守卫（lawsSeq）——改完条件
+//
+//	界面不得停在旧列表上，先发后到的旧响应不得覆盖新结果；
+//
+// ③ 离线更新包导入必须默认锁定、校验通过且来源受信才解锁——「先校验」要如实
+//
+//	反映在按钮状态上，不得只靠后端拒绝（AGENTS.md：写路径从严）；
+//
+// ④ 定位流程进行中必须锁定按钮防重入——授权与坐标获取最长一分钟，连点不得
+//
+//	产生并发轮询。
+func TestAsyncFeedbackGuards(t *testing.T) {
+	html := readFrontend(t, "index.html")
+	toast := strings.Split(html, `<div id="toast"`)[1]
+	toast = toast[:strings.Index(toast, ">")]
+	if !strings.Contains(toast, `role="status"`) || !strings.Contains(toast, `aria-live="polite"`) {
+		t.Errorf(`toast 缺 role="status"/aria-live="polite"——异步反馈必须可被辅助技术播报`)
+	}
+	if !strings.Contains(html, `id="btn-pack-import" class="warn" disabled`) {
+		t.Errorf(`导入按钮必须默认锁定——「必须先校验」要如实反映在按钮状态上`)
+	}
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	for _, want := range []string{"lawsSeq", "正在取列…", "packVerified", "btn.disabled = true", "locateFlow"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——进行/校验状态必须如实反映在界面上，不得让用户对着旧结果猜测", want)
+		}
+	}
+	// 批量处理与离线包同一纪律：执行按钮默认锁定、预览有可处理条目才解锁；
+	// 导入终态回显并入统一轮询（不得每轮导入自开计时器）。
+	if !strings.Contains(html, `id="rg-b-apply" class="ok" disabled`) {
+		t.Errorf(`批量执行按钮必须默认锁定——「先干跑再执行」要如实反映在按钮状态上`)
+	}
+	for _, want := range []string{"rgBulkLock", "packWatchID", "到条文检索查看全部"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——封顶与范围核对的出口/锁定必须在位", want)
+		}
+	}
+	// 面板命名：全库条文全文检索面板必须叫「条文检索」——与首页「关键词检索」
+	// 一字之差的旧名「法规检索」会让首次用户混用两个入口。
+	if strings.Contains(html, ">法规检索<") || strings.Contains(js, `"法规检索"`) {
+		t.Errorf(`「法规检索」旧名回流——第三个查法规入口必须叫「条文检索」（见 design-ui-language.md 术语表）`)
+	}
+}
+
 // TestRowMetaMergesMissing 条目行的缺失必须如实但只说一次：不得逐字段重复「未标注」
 // 刷屏（同一行三遍未标注是噪声，不是信息），也不得把缺失藏起来。
 func TestRowMetaMergesMissing(t *testing.T) {

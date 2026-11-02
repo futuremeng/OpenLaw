@@ -1,5 +1,5 @@
 // app.js 「开源法律法规数据库」前端逻辑：
-//   主工作区（默认）：查法规——关键词检索 / 按条件筛选 / 法规检索（修订沿革与引用核对）；
+//   主工作区（默认）：查法规——关键词检索 / 按条件筛选 / 条文检索（修订沿革与引用核对）；
 //   维护工作区：经左列底部「维护法规库」独立入口进入——库总览 / 智能审核（双智能体
 //   自审，人工只处理例外纠正）/ 地域标引 / 获取最新法规 / 离线更新包；
 //   初始化面板：空库启动默认落到「初始化法规库」，如实给出处境与两条获取路线。
@@ -143,7 +143,7 @@ const MAINTAIN_NAV = ["nav-group-maintain", "nav-exit-maintain", "nav-overview",
 // 顶栏面包屑：当前位置 + 当前生效的筛选摘要。用户随时能看到「自己在哪、看的是不是筛过的」。
 // 维护工作区内面包屑根改报「维护法规库」——位置如实反映工作区。
 const PANEL_TITLE = {
-  home: "关键词检索", browse: "按条件筛选", search: "法规检索", setup: "初始化法规库",
+  home: "关键词检索", browse: "按条件筛选", search: "条文检索", setup: "初始化法规库",
   overview: "库总览", review: "智能审核", region: "地域标引", collect: "获取最新法规",
   pack: "离线更新包",
 };
@@ -167,7 +167,7 @@ function showPanel(p) {
   if (p === "setup") loadSetup();
   if (p === "overview") loadOverview();
   if (p === "review") loadReview();
-  if (p === "region") { loadRegionStats(); loadRegionQueue(); }
+  if (p === "region") { loadRegionStats(); loadRegionQueue(); rgBulkLock(); } // 回到面板，旧预览范围作废
   if (p === "collect") { loadSources(); loadTasks(); loadTasksTick(); }
   if (p === "pack") loadPackPanel();
 }
@@ -416,6 +416,17 @@ function webviewLocate() {
 }
 
 $("#btn-locate").addEventListener("click", async () => {
+  // 进行中锁定：授权弹窗与坐标获取最长可达一分钟，连点会产生并发轮询
+  // （多套计时各自等待，界面状态反而失焦）。出口统一在 finally。
+  const btn = $("#btn-locate");
+  btn.disabled = true;
+  try {
+    await locateFlow();
+  } finally {
+    btn.disabled = false;
+  }
+});
+async function locateFlow() {
   // 先向系统申请授权（macOS 需要 bundle 身份 + plist 用途声明；Wails 自身不做这件事）。
   // 申请与定位都必须立即返回：绑定调用会占住主线程，而 CLLocationManager 只能在主队列
   // 工作，在 Go 侧阻塞等待会让弹窗和定位回调都排不到（实测踩过）。故一律「发起 → 前端轮询」。
@@ -443,7 +454,7 @@ $("#btn-locate").addEventListener("click", async () => {
   if (f.state === "ok") { await locateFrom(f); return; }
   if (f.state === "unsupported") { webviewLocate(); return; }
   toast(f.msg);
-});
+}
 // 试判定：把选定地点的中心点当作位置，跑同一条离线判定链路（明确非真实定位）。
 $("#btn-region-trial").addEventListener("click", async () => {
   const code = $("#region-city").value || $("#region-prov").value;
@@ -588,10 +599,20 @@ function regionPathOf(code) {
   return hit ? hit.name : "";
 }
 
+// lawsSeq：取列请求的序号。关键词防抖、分面连点、面板切换都可能让多份请求在途，
+// 先发后到的旧响应不得覆盖新条件的结果——终笔按序号判定（旧版会随机覆盖，
+// 用户看到「筛的是 A、列里是 B」）。
+let lawsSeq = 0;
 async function loadLaws() {
+  const seq = ++lawsSeq;
+  // 进行状态就地给出：改完条件不得让界面停在旧列表上，让人以为「筛选没生效」。
+  // 计数区是「显示 N / 共 M」的家——忙态与结果在同一处交接。
+  const pc0 = $("#b-pane-cnt");
+  if (pc0) pc0.innerHTML = "正在取列…";
   const args = browseArgs(300, 0);
   try {
     const [rows, v] = await Promise.all([app().BrowseLawList(args), app().BrowseFacets(args)]);
+    if (seq !== lawsSeq) return; // 过期响应迟到的那一份：丢弃，不覆盖新结果
     renderFacets(v || {});
     const list = rows || [];
     const pc = $("#b-pane-cnt");
@@ -610,6 +631,7 @@ async function loadLaws() {
     document.querySelectorAll("#law-list .item").forEach((el) =>
       el.addEventListener("click", () => openLaw(el.dataset.law, el.dataset.name)));
   } catch (e) {
+    if (seq !== lawsSeq) return; // 过期请求的失败同样不得覆盖新结果
     $("#law-list").innerHTML = '<p class="bad">读取失败：' + escapeHTML(e.message || e) + "</p>";
   }
 }
@@ -646,14 +668,21 @@ async function homeSearch() {
   $("#h-results").innerHTML = '<p class="muted">正在检索…</p>';
   try {
     const rows = (await app().SearchArticles(q, 20)) || [];
+    // 封顶如实显示：首页只列前 20 条——到顶必须给出出口，不得长成死路
+    // （与初始化面板「只给去处」同一精神；条文检索面板列 50 条并带收窄筛选）。
+    const more = rows.length >= 20
+      ? '<p class="muted">仅列出前 20 条命中。<button id="h-more" class="ok">到条文检索查看全部 →</button></p>'
+      : "";
     $("#h-results").innerHTML = rows.length ? rows.map((r) => `
       <div class="lawcard" data-doc="${escapeHTML(r.doc_id)}">
         <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
         <div class="snip">${escapeHTML(r.snippet)}</div>
         <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""} · <b class="view">查看原文 →</b></div>
-      </div>`).join("") : '<p class="muted">没有找到相关条文，试试更短的关键词。</p>';
+      </div>`).join("") + more : '<p class="muted">没有找到相关条文，试试更短的关键词。</p>';
     document.querySelectorAll("#h-results .lawcard").forEach((el) =>
       el.addEventListener("click", () => openPreview(el.dataset.doc)));
+    const hm = $("#h-results").querySelector("#h-more");
+    if (hm) hm.addEventListener("click", () => { $("#q").value = q; showPanel("search"); doSearch(); });
   } catch (e) {
     $("#h-results").innerHTML = '<p class="bad">检索失败：' + escapeHTML(e.message || e) + "</p>";
   }
@@ -992,7 +1021,7 @@ async function loadSideFoot() {
 }
 
 
-/* ---------- 主工作区 · 法规检索 ---------- */
+/* ---------- 主工作区 · 条文检索 ---------- */
 // 检索命中后就地按维度收窄：计数按本次命中统计（全文检索不重排序、不额外查库），
 // 点选即筛、再点取消——所见计数与所见列表始终同源。
 let lastHits = [];
@@ -1326,11 +1355,22 @@ $("#rg-confirm").addEventListener("click", () => judgeRegion("confirm"));
 $("#rg-reject").addEventListener("click", () => judgeRegion("reject"));
 $("#rg-clear").addEventListener("click", () => judgeRegion("clear"));
 
-async function rgBulkPreview() {
+// 批量流程锁定：执行按钮只在「预览成功且有可处理条目」后解锁——「先干跑再执行」
+// 如实反映在按钮状态上，不靠 expected 校验在事后兜底（AGENTS.md 人工复核纪律）。
+// 预览条件一改动即失效重锁：范围核对针对的是刚才那个条件，不得张冠李戴。
+function rgBulkLock(note) {
   rgBulkN = -1;
+  const b = $("#rg-b-apply");
+  if (b) b.disabled = true;
+  if (note) $("#rg-b-info").textContent = note;
+}
+async function rgBulkPreview() {
+  rgBulkLock("");
   try {
     const n = await app().RegionBulkPreview($("#rg-b-prov").value, $("#rg-b-verdict").value);
     rgBulkN = n;
+    const btn = $("#rg-b-apply");
+    if (btn) btn.disabled = !(n > 0); // 0 条可处理时执行没有意义，保持锁定并如实说明
     $("#rg-b-info").textContent = n > 0
       ? `会影响 ${num(n)} 条。核对无误后再点「执行批量处理」。`
       : "按所选条件没有可处理的条目，无需执行。";
@@ -1343,17 +1383,17 @@ async function rgBulkApply() {
   try {
     const sum = await app().RegionBulkApply($("#rg-b-prov").value, $("#rg-b-verdict").value, reviewer, reason, rgBulkN);
     toast(`批量完成：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除标注 ${num(sum.cleared)}`);
-    rgBulkN = -1;
-    $("#rg-b-info").textContent = "已执行；若要再处理一批，请重新查看范围。";
+    rgBulkLock("已执行；若要再处理一批，请重新查看范围。");
     loadRegionStats(); loadRegionQueue();
   } catch (e) {
-    rgBulkN = -1;
-    $("#rg-b-info").textContent = "已中止：条目有变动或条件不符，请重新查看范围。";
+    rgBulkLock("已中止：条目有变动或条件不符，请重新查看范围。");
     toast("批量失败：" + (e.message || e));
   }
 }
 $("#rg-b-preview").addEventListener("click", rgBulkPreview);
 $("#rg-b-apply").addEventListener("click", rgBulkApply);
+["rg-b-prov", "rg-b-verdict"].forEach((id) =>
+  $("#" + id).addEventListener("change", () => rgBulkLock("条件已改动，请重新查看范围后再执行。")));
 
 /* ---------- 维护 · 获取最新法规（状态 → 常用参数 → 高级参数 → 高级设置） ---------- */
 async function loadSources() {
@@ -1390,7 +1430,22 @@ function renderTasks(tasks) {
   // 不会误以为界面卡住或数据没变。
   const chip = $("#t-task");
   if (chip) chip.classList.toggle("hidden", !running);
+  // 更新包导入终态：在这一处统一渲染入口就地回显并刷新本机计数（初始化面板
+  // 在显示时一并刷新）——packWatch 不再自开计时器，结果只有一处产出。
+  if (packWatchID != null) {
+    const t = (tasks || []).find((x) => x.id === packWatchID);
+    if (t && t.state !== "running") {
+      packWatchID = null;
+      const label = { done: "完成", failed: "失败", cancelled: "已取消" }[t.state] || t.state;
+      toast("更新包导入" + label + "：" + (t.progress || t.detail || "") + "（新条目一律进入待复核）");
+      loadSideFoot();
+      const sp = $("#panel-setup");
+      if (sp && !sp.classList.contains("hidden")) loadSetup();
+    }
+  }
 }
+// packWatchID：正在跟踪的更新包导入任务号（null = 无）。
+let packWatchID = null;
 async function loadTasks() { try { renderTasks(await app().TaskList()); } catch (e) { /* 绑定未就绪 */ } }
 function loadTasksTick() {
   if (taskTimer) return;
@@ -1443,11 +1498,26 @@ $("#btn-check").addEventListener("click", async () => {
 // 离线更新包：文件夹经系统选择器选取（手输路径属技术操作，不进界面）；
 // 必须先校验，校验通过且来源受信才导入（后端强制），新条目一律进入待审核。
 let packDir = "";
-// loadPackPanel：回到面板时回显已选文件夹（不让用户重选），未选保持「尚未选择」。
+// packVerified：导入只在「校验通过且来源受信」后解锁——「必须先校验」如实反映在
+// 按钮状态上，不靠后端拒绝来教用户（AGENTS.md：离线包一处写路径，先校验后导入）。
+// Go 侧 PackVerify 以「校验通过（来源可信…）」开头表示可导入；
+// 「校验通过，但签名公钥不在受信发布者名单——导入将被拒绝」必须保持锁定。
+let packVerified = false;
+function setPackVerified(ok, note) {
+  packVerified = ok;
+  const btn = $("#btn-pack-import");
+  if (btn) btn.disabled = !ok;
+  if (note) $("#p-dir-name").textContent = note;
+}
+// loadPackPanel：回到面板时回显已选文件夹与校验态（不让用户重选、也不装作仍未校验），
+// 未选保持「尚未选择」。
 function loadPackPanel() {
+  const btn = $("#btn-pack-import");
+  if (btn) btn.disabled = !packVerified;
   if (packDir) {
     const nm = packDir.split(/[\\/]/).filter(Boolean).pop() || packDir;
-    $("#p-dir-name").textContent = "已选择更新包文件夹：" + nm + "（请先校验，再导入）";
+    $("#p-dir-name").textContent = "已选择更新包文件夹：" + nm +
+      (packVerified ? "（校验已通过，可导入）" : "（请先校验，再导入）");
   }
   loadTasks();
 }
@@ -1457,33 +1527,35 @@ $("#btn-pack-pick").addEventListener("click", async () => {
     if (!dir) return; // 用户取消选择：保持原状，不谎报
     packDir = dir;
     const nm = dir.split(/[\\/]/).filter(Boolean).pop() || dir;
-    $("#p-dir-name").textContent = "已选择更新包文件夹：" + nm + "（请先校验，再导入）";
+    setPackVerified(false, "已选择更新包文件夹：" + nm + "（请先校验，再导入）");
   } catch (e) { toast("无法打开文件夹选择器：" + (e.message || e)); }
 });
-$("#btn-pack-verify").addEventListener("click", async () => {
+async function packVerify() {
   if (!packDir) return toast("请先点「选择更新包文件夹」");
-  const out = await app().PackVerify(packDir);
-  $("#p-dir-name").textContent = "校验结果：" + out;
-  toast("校验结果：" + out.slice(0, 120));
-});
+  let out = "";
+  try {
+    out = await app().PackVerify(packDir);
+  } catch (e) {
+    // 绑定抛错同样要如实回显并锁住导入——静默失败会让人以为校验做过。
+    setPackVerified(false, "校验失败：" + (e.message || e));
+    return;
+  }
+  const ok = !out || out.indexOf("校验通过（") === 0;
+  setPackVerified(ok, (out || "校验通过（来源可信），可以导入。") + (ok ? "" : "——导入保持锁定。"));
+  toast((out || "校验通过（来源可信），可以导入。").slice(0, 160));
+}
+$("#btn-pack-verify").addEventListener("click", packVerify);
 $("#btn-pack-import").addEventListener("click", async () => {
-  if (!packDir) return toast("请先选择并校验更新包文件夹");
+  if (!packDir) return toast("请先点「选择更新包文件夹」");
+  if (!packVerified) return toast("请先校验：校验通过且来源受信才能导入");
   try { const t = await app().StartPackImportTask(packDir); toast(`更新包导入 #${t.id} 已开始（新条目进入待审核，由智能审核处理）`); loadTasks(); packWatch(t.id); } catch (e) { toast("无法开始：" + (e.message || e)); }
 });
-// packWatch：跟踪一轮导入任务到终态，如实回显结果并刷新本机计数（初始化面板在显示时一并刷新）。
+// packWatch：把一轮导入任务挂到统一任务轮询（loadTasksTick → renderTasks）跟踪到终态——
+// 不再每轮导入自开计时器（旧版并发导入会叠加轮询，离开面板后仍在跑）。
+// 终态回显在 renderTasks 内统一产出。
 function packWatch(id) {
-  const iv = setInterval(async () => {
-    let tasks = [];
-    try { tasks = (await app().TaskList()) || []; } catch (e) { return; }
-    const t = tasks.find((x) => x.id === id);
-    if (!t || t.state === "running") return;
-    clearInterval(iv);
-    const label = { done: "完成", failed: "失败", cancelled: "已取消" }[t.state] || t.state;
-    toast("更新包导入" + label + "：" + (t.progress || t.detail || "") + "（新条目一律进入待复核）");
-    loadSideFoot();
-    const sp = $("#panel-setup");
-    if (sp && !sp.classList.contains("hidden")) loadSetup();
-  }, 1500);
+  packWatchID = id;
+  loadTasks(); loadTasksTick();
 }
 async function loadSettings() {
   try {

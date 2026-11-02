@@ -18,7 +18,7 @@
       <div class="nav-group" id="nav-group-main" data-icon="search">查法规</div>
       <button class="nav active" id="nav-home" data-panel="home" data-icon="search">关键词检索</button>
       <button class="nav" id="nav-browse" data-panel="browse" data-icon="filter">按条件筛选</button>
-      <button class="nav" id="nav-search" data-panel="search" data-icon="file">法规检索</button>
+      <button class="nav" id="nav-search" data-panel="search" data-icon="file">条文检索</button>
       <!-- 维护子导航：默认收起，只经左列底部「维护法规库」入口进入（独立工作区）。 -->
       <div class="nav-group" id="nav-group-maintain" data-icon="wrench" hidden>维护法规库</div>
       <button class="nav" id="nav-exit-maintain" data-icon="back" hidden>返回查法规</button>
@@ -196,7 +196,7 @@
       </div>
       <div class="panehd">
         <span data-icon="list" aria-hidden="true"></span><span class="pt">条目</span>
-        <span class="pc" id="b-pane-cnt"></span>
+        <span class="pc" id="b-pane-cnt" aria-live="polite"></span>
       </div>
       <div id="law-list" class="list"><p class="muted">全部条目将列于此处；用左侧条件收窄。</p></div>
     </section>
@@ -220,10 +220,10 @@
       </details>
     </section>
 
-    <!-- 查法规 · 法规检索（FTS5 结果不重排序，保持可复现）；条文预览在右列 -->
+    <!-- 查法规 · 条文检索（FTS5 结果不重排序，保持可复现）；条文预览在右列 -->
     <section id="panel-search" class="panel hidden">
       <header class="page-head">
-        <h1>法规检索</h1>
+        <h1>条文检索</h1>
         <p class="lead">在全库条文中找条文，并与官方留证原文逐字核对。检索结果按语料原样给出，不做重排序。</p>
       </header>
       <div class="toolbar">
@@ -244,7 +244,7 @@
       </div>
       <div class="panehd">
         <span data-icon="search" aria-hidden="true"></span><span class="pt">命中</span>
-        <span class="pc" id="s-pane-cnt"></span>
+        <span class="pc" id="s-pane-cnt" aria-live="polite"></span>
       </div>
       <div id="search-list" class="list"></div>
       <div class="cite">
@@ -327,7 +327,7 @@
           </select></label>
           <div class="rowbtns">
             <button id="rg-b-preview">先看看会影响多少条</button>
-            <button id="rg-b-apply" class="ok">执行批量处理</button>
+            <button id="rg-b-apply" class="ok" disabled>执行批量处理</button>
           </div>
           <span id="rg-b-info" class="muted"></span>
           <p class="muted small">一次最多处理 500 条；预览与执行之间条目有变动即中止，请重新预览。复核人自动记为本机用户。</p>
@@ -408,7 +408,7 @@
         <div class="rowbtns">
           <button id="btn-pack-pick">选择更新包文件夹</button>
           <button id="btn-pack-verify">校验</button>
-          <button id="btn-pack-import" class="warn">导入（新条目进入待审核）</button>
+          <button id="btn-pack-import" class="warn" disabled>导入（新条目进入待审核）</button>
         </div>
         <span id="p-dir-name" class="muted small">尚未选择更新包文件夹。</span>
         <p class="muted small">导入前必须先校验；校验通过且来源受信才会导入。手输路径属技术操作，不进界面——文件夹一律经系统选择器选取。</p>
@@ -437,7 +437,7 @@
     </div>
   </aside>
 </div>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 <script src="./assets/api.js"></script>
 <script src="./assets/app.js"></script>
 </body>

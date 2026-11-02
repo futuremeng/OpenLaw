@@ -92,6 +92,8 @@ const data = {
   RecentReviews: () => [{ reviewer: '张三', action: 'confirm', doc_id: 'D1', law_name: '工伤保险条例', juris: 'CN', created_at: '2026-10-27T01:00:00Z' }],
   RegionReviewStats: () => ({ total: 28952, suggest_pending: 83, confirmed: 5, left_blank: 2, unmarked: 900 }),
   RegionReviewList: () => [{ law_id: 'L1', name: '北京市某规定', state: 'suggest', region_source: 'auto', region_path: '北京市' }],
+  // 批量干跑：按真实形状返回计数（解锁执行按钮的判定按它来）。
+  RegionBulkPreview: () => 7,
   RegionOptions: () => [{ code: '110000', name: '北京市', level: 1, parent: '' }],
   CurrentRegion: () => ({ code: '', path: '', source: '', at: '', note: '' }),
   // 浏览：一份小语料，列表与分面计数都按同一条件计算——冒烟里也要能看出「筛选变了、计数跟着变」。
@@ -125,6 +127,8 @@ const data = {
     { pack_id: 'base-cn-2026', kind: 'base', regions: ['CN'], since: '', until: '', doc_count: 12345, size: 10485760 },
     { pack_id: 'delta-20260101-20260331', kind: 'delta', regions: [], since: '2026-01-01', until: '2026-03-31', doc_count: 88, size: 1048576 },
   ] }),
+  // 更新包校验：按 Go 侧真实形状返回「校验通过（来源可信…）」——导入解锁判定按它来。
+  PackVerify: () => '校验通过（来源可信：受信发布者 test-key）',
   SearchArticles: () => [{ doc_id: 'D1', law_name: '工伤保险条例', level: '行政法规', confirm_status: 'pending', snippet: '…工伤…', article_no: '第一条' }],
 };
 const App = new Proxy({}, { get: (t, k) => async (...args) => (k in data ? data[k](...args) : []) });
@@ -165,6 +169,21 @@ const g = (id) => byId.get(id);
   const jurisFiltered = g('f-total').textContent;
   const jurisEcho = g('b-stats').textContent;
   vm.runInContext('browseFilter.juris = "";', ctx);
+  // 进行状态就地给出：loadLaws 发起的一刻，面板头先如实报「正在取列…」，
+  // 完成后才换成列出/共计——改条件后界面不得停在旧列表上让人以为筛选没生效。
+  vm.runInContext('loadLaws()', ctx);
+  const busyLine = g('b-pane-cnt').innerHTML;
+  await new Promise((r) => setTimeout(r, 60));
+  // 首页搜索封顶出口：命中 20 条（首页上限）必须给「到条文检索查看全部」，
+  // 不得长成死路（与初始化面板「只给去处」同一精神）。
+  const homeStub = data.SearchArticles;
+  data.SearchArticles = () => Array.from({ length: 20 }, (_, i) =>
+    ({ doc_id: 'D' + i, law_name: '测试法规' + i, level: '行政法规', confirm_status: 'confirmed', snippet: '…测试…', article_no: '第一条' }));
+  ctx.showPanel('home');
+  g('hq').value = '测试';
+  await ctx.homeSearch();
+  const homeMore = g('h-results').innerHTML.includes('到条文检索查看全部');
+  data.SearchArticles = homeStub;
   const cntConfirm = g('cnt-review').textContent, cntConfirmTitle = g('cnt-review').title;
   // 待复核确实为 0 时不得留「0」徽标（无需提醒），面板内另有如实说明。
   ctx.setSideFoot({ laws: 1, pending: 0 });
@@ -194,8 +213,22 @@ const g = (id) => byId.get(id);
   const maintCrumb = g('crumb-root').textContent + ' | ' + g('crumb-cur').textContent;
   const mainNavHidden = g('nav-group-main').hidden === true && g('nav-home').hidden === true &&
     g('nav-browse').hidden === true && g('nav-search').hidden === true && g('nav-maintain').hidden === true;
+  ctx.enterMaintain('region');
+  // 批量处理：执行按钮如实反映「先看范围再执行」——进面板即锁定，预览有可处理条目才解锁。
+  const bulkLocked = g('rg-b-apply').disabled === true;
+  await ctx.rgBulkPreview();
+  const bulkOpen = g('rg-b-apply').disabled === false;
   ctx.enterMaintain('pack');
   const packOn = !g('panel-pack').classList.contains('hidden');
+  // 离线更新包：导入按钮如实反映「必须先校验」——loadPackPanel 后仍锁定，
+  // 校验通过且来源受信才解锁（不靠后端拒绝来教用户）。
+  vm.runInContext('packDir = "/tmp/pk"', ctx);
+  ctx.loadPackPanel();
+  const importLocked = g('btn-pack-import').disabled === true;
+  await ctx.packVerify();
+  const importOpen = g('btn-pack-import').disabled === false;
+  const verifyEcho = g('p-dir-name').textContent;
+  vm.runInContext('packDir = ""; packVerified = false;', ctx);
   ctx.exitMaintain();
   const maintGroupOff = g('nav-group-maintain').hidden === true;
   const mainNavBack = g('nav-group-main').hidden === false && g('nav-home').hidden === false &&
@@ -256,6 +289,8 @@ const g = (id) => byId.get(id);
     '长维度默认收起': yearClosed === 'false' && yearOpen === 'true',
     '长维度给出显示全部': moreChip,
     '面板头如实报列出/共计': paneCnt.includes('显示') && paneCnt.includes('共'),
+    '取列进行时就地提示': busyLine.includes('正在取列'),
+    '首页搜索封顶给出路': homeMore,
     '缺失合并成一个标记': rowHTML.includes('未标注 3 项') && !rowHTML.includes('效力等级未标注 · 地域未标注'),
     '缺失不被当作已知值回显': !rowHTML.includes('效力等级未标注'),
     '待复核条目行有强调类': rowHTML.includes('item pend'),
@@ -270,6 +305,10 @@ const g = (id) => byId.get(id);
     '维护入口进入独立工作区': maintGroupOn && maintCrumb === '维护法规库 | 库总览',
     '两套导航完整互斥切换': mainNavHidden && mainNavBack,
     '离线更新包在维护区可达': packOn,
+    '导入须先校验（校验前锁定）': importLocked,
+    '校验通过且来源受信才解锁导入': importOpen && verifyEcho.includes('校验通过（来源可信'),
+    '批量执行须先预览（进面板锁定）': bulkLocked,
+    '预览有可处理条目才解锁执行': bulkOpen,
     '退出维护回主导航': maintGroupOff && mainCrumbRoot === '法律法规库',
     '初始化面板如实报空库': setupEmptyLine.includes('还是空的（0 部法规）'),
     '空库时不得装作可查询': goDisabled,
