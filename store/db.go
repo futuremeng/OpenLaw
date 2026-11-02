@@ -27,7 +27,10 @@ import (
 // v7（2026-10）：多法域（docs/design-multi-jurisdiction.md）——law +jurisdiction
 // （CN|EU|US，空=未标注）；effect_level CHECK 扩展美国类别（美国宪法/联邦法律/
 // 联邦规章/行政命令/联邦条约）。改 CHECK 须重建表（同 v2/v3 十二步法，迁移前已自动备份）。
-const SchemaVersion = "7"
+// v8（2026-11）：element +confirm_status（OL-2，docs/tasks-opencourt-bridge.md）——
+// 要件导入一律 pending，人工确认后才 confirmed；加法式：不加 CHECK、纯 ALTER。
+// 只读消费方读 v7 语料时该列缺失，element 加载层按「未确认」如实处理（不被迫升级）。
+const SchemaVersion = "8"
 
 // OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
 //   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、
@@ -156,6 +159,9 @@ func migrate(db *sql.DB) error {
 	}
 	if err := upgradeToV7(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v6→v7）: %w", err)
+	}
+	if err := upgradeToV8(db); err != nil {
+		return fmt.Errorf("数据库迁移失败（v7→v8）: %w", err)
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
@@ -383,6 +389,22 @@ func upgradeToV7(db *sql.DB) error {
 	}
 	_, err = db.Exec(`PRAGMA foreign_keys=ON`)
 	return err
+}
+
+// upgradeToV8 要件确认列（OL-2）：element 加法式 +confirm_status，存量一律 pending
+// （旧库要件从未有过确认状态记录，按「未确认」如实处理，不得默认视为已确认）。
+// 判定依据：element 表是否已有 confirm_status 列（全新库由 schemaSQL 直接建 v8 结构）。
+func upgradeToV8(db *sql.DB) error {
+	if ok, _ := hasColumn(db, "element", "element_id"); !ok {
+		return nil // 全新库（或空库），schemaSQL 直接建 v8 结构
+	}
+	if ok, _ := hasColumn(db, "element", "confirm_status"); ok {
+		return nil // 已是 v8
+	}
+	if _, err := db.Exec(`ALTER TABLE element ADD COLUMN confirm_status TEXT NOT NULL DEFAULT 'pending'`); err != nil {
+		return fmt.Errorf("加列 confirm_status 失败: %w", err)
+	}
+	return nil
 }
 
 // CheckVersionOverlap 版本时效区间重叠检查（开发文档 13.3）。

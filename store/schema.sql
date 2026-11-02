@@ -87,13 +87,17 @@ CREATE TABLE IF NOT EXISTS article (
 );
 
 -- element 构成要件表
+-- v8（OL-2，docs/tasks-opencourt-bridge.md）：+confirm_status——导入的要件一律 pending，
+-- 人工确认后才 confirmed（机器不裁决）。刻意不加 CHECK（同 v4/v7 策略：取值合法性放
+-- 应用层与门禁测试，加列走纯 ALTER 不重建表）。取值 pending|confirmed|rejected。
 CREATE TABLE IF NOT EXISTS element (
   element_id TEXT PRIMARY KEY,
   article_id TEXT NOT NULL REFERENCES article(article_id),
   case_type TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
-  how_to_attack TEXT
+  how_to_attack TEXT,
+  confirm_status TEXT NOT NULL DEFAULT 'pending'
 );
 
 -- case_fact 案件事实表（状态：已支撑/缺证据/相互矛盾）

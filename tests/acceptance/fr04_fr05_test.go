@@ -80,8 +80,12 @@ func TestFR05AnalyzeElements(t *testing.T) {
 	if h, _ := missing[0]["how_to_attack"].(string); h == "" {
 		t.Fatal("缺失要件必须给出突破方向 how_to_attack")
 	}
-	if len(res.Warnings) == 0 || !strings.Contains(res.Warnings[0], "不构成胜诉") {
+	if !strsContain(res.Warnings, "不构成胜诉") {
 		t.Fatalf("必须带「风险假设清单，不构成胜诉结论」告警: %v", res.Warnings)
+	}
+	// OL-2：未经人工确认的要件必须提示待复核（直插库的要件默认 pending）。
+	if !strsContain(res.Warnings, "待人工确认") {
+		t.Fatalf("未确认要件必须提示待人工确认: %v", res.Warnings)
 	}
 
 	// 案由无要件 → not_found，提示先人工导入
@@ -133,4 +137,13 @@ func TestFR04FindRelation(t *testing.T) {
 	if len(res2.Warnings) != 0 {
 		t.Fatalf("confirmed 关系不应告警: %v", res2.Warnings)
 	}
+}
+
+func strsContain(ws []string, sub string) bool {
+	for _, w := range ws {
+		if strings.Contains(w, sub) {
+			return true
+		}
+	}
+	return false
 }

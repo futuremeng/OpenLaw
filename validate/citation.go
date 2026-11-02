@@ -44,6 +44,7 @@ type CitationResult struct {
 type ResolveVersionRow struct {
 	VersionID     string
 	VersionNo     string
+	LawID         string
 	EffectiveDate string
 	ExpireDate    string
 	DocID         string
@@ -55,7 +56,7 @@ type ResolveVersionRow struct {
 // 返回 sql.ErrNoRows 表示该日期无生效版本；law 是否存在由调用方另行判断。
 func ResolveVersion(db *store.DB, lawName, atDate string) (*ResolveVersionRow, error) {
 	row := db.QueryRow(`
-		SELECT v.version_id, v.version_no, v.effective_date, COALESCE(v.expire_date, ''),
+		SELECT v.version_id, v.version_no, v.law_id, v.effective_date, COALESCE(v.expire_date, ''),
 		       d.doc_id, d.file_path, d.confirm_status
 		FROM law_version v
 		JOIN document d ON d.doc_id = v.doc_id
@@ -67,7 +68,7 @@ func ResolveVersion(db *store.DB, lawName, atDate string) (*ResolveVersionRow, e
 		LIMIT 1`,
 		sql.Named("law_name", lawName), sql.Named("at_date", atDate))
 	var r ResolveVersionRow
-	if err := row.Scan(&r.VersionID, &r.VersionNo, &r.EffectiveDate, &r.ExpireDate,
+	if err := row.Scan(&r.VersionID, &r.VersionNo, &r.LawID, &r.EffectiveDate, &r.ExpireDate,
 		&r.DocID, &r.PDFPath, &r.ConfirmStatus); err != nil {
 		return nil, err
 	}

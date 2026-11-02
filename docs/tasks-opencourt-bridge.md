@@ -15,8 +15,8 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 |---|---|---|---|
 | OL-7 | sdk 只读入口 `OpenReadOnly` | **P0**（✅ 2026-10-28 完成） | 一并安装时的数据完整性（隐患 H1） |
 | OL-8 | schema 版本协商（不匹配即拒） | **P0**（✅ 2026-10-28 完成） | schema 版本被消费方回写降级（隐患 H2） |
-| OL-2 | 构成要件导入 CLI（`openlaw-element`） | **P0** | OpenCourt v0.2 M4 全部（`element` 表当前 **0 行**） |
-| OL-1 | 显式 `effect_status` 字段 | **P0** | OpenCourt 停止自行推导法条效力（违例 V1） |
+| OL-2 | 构成要件导入 CLI（`openlaw-element`） | **P0**（✅ 2026-11-02 完成：schema v8 element +confirm_status、民间借贷样板端到端） | OpenCourt v0.2 M4 全部（`element` 表当前 **0 行**） |
+| OL-1 | 显式 `effect_status` 字段 | **P0**（✅ 2026-11-02 完成：Search/GetArticle/ResolveVersion 三出口） | OpenCourt 停止自行推导法条效力（违例 V1） |
 | OL-3 | 要件名封闭候选集查询 | P1 | OpenCourt 阅卷抽取的要件归属（违例 V3） |
 | OL-4 | 法名规范化/别名解析 + 候选列表 | P1 | 文书引用核验可用性（简称引用极常见） |
 | OL-5 | 程序期限规则查询（带法条引用） | P2 | OpenCourt 程序守护的规则溯源（违例 V4，v0.3） |
@@ -616,6 +616,31 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   块体 = 该法域构成条（全局归一）；`JurisCount` 补 documents——0 条文法域不得说
   「均已复核」（空话），如实「尚无留证条文」；`.bar i { min-width:3px }` 让极小等级
   （宪法 7 条）不再渲染成不可见。冒烟断言改 jgroup/诚实文案，契约改 jgroup 约定。
+- **契约补齐 · OL-1 + OL-2（P0，2026-11-02）**：阶段一两项 P0 契约全部落地。
+  ① **OL-1 显式 `effect_status`**：`sdk.EffectStatus`（`sdk/effectstatus.go`）只依据
+  law_version 链 + relation 判定五值（EFFECTIVE/AMENDED/REPEALED/REPEALED_PENDING/
+  UNKNOWN），仅 `confirmed` 关系参与裁决（10 章：机器不自动判定废止——pending 关系
+  一律 REPEALED_PENDING，绝不 REPEALED；到期无关系佐证/尚未生效一律 UNKNOWN，不猜）；
+  `Search` 每条命中、`GetArticle`、`ResolveVersion` 的 Data 携带 `effect_status`，
+  effective_date/expire_date 原字段保留（向后兼容）；`validate.ResolveVersionRow` 带出
+  LawID。OpenCourt 侧违例 V1（上层自行按 expire_date 推导）自此有了正确出口。
+  ② **OL-2 构成要件导入**：schema **v8**——element 加法式 +confirm_status（默认
+  pending，不加 CHECK；迁移前自动备份，存量要件如实 pending——旧库从未记录确认状态，
+  不得默认视为已确认）；库层 `element.Import/Confirm`（`element/import.go`）+
+  CLI `openlaw-element import|confirm|stats`（默认 dry-run、`-apply` 写库；CSV 陌生
+  表头拒绝、article_id 关联不到条文的行如实拒绝并报告；幂等 upsert——人工已落判的
+  confirm_status 不被重导入顶掉；落判必须署名 + 依据，流转与 review_log 原子写入，
+  doc_id=要件所依条文文档、reason 带 element/case 前缀）；`AnalyzeElements` 对未确认
+  要件给出「待人工确认」warning，covered/missing 携带 confirm_status。民间借贷样板
+  端到端打通（导入 → AnalyzeElements 非空 covered/missing → 落判后提示消失）。
+  只读消费方读 v7 语料时 `LoadElements` 按「未确认」如实处理（SchemaMin 保持 3，
+  不被迫升级）。测试：`store/migrate_test.go` v7→v8 真实链路、`element/import_test.go`
+  （干跑不写库/拒绝不可溯源/幂等保人工结论/落判审计与护栏/CSV 表头门禁）、
+  `sdk/effectstatus_test.go`（五值表驱动 + 三出口接线 + pending 绝不 REPEALED）、
+  `sdk/element_test.go`（样板端到端）、验收测试 FR-05 补未确认提示断言。
+  docs/api.md §3 字段表与 effect_status 判定表、§6 CLI 清单同步。**下一步**：
+  阶段二（美国全文解析入库、欧盟通道桌面接线、`BuildOptions.Jurisdictions`）。
+
 
 
 

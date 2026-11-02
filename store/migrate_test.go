@@ -440,3 +440,44 @@ func TestMigrateV6ToV7(t *testing.T) {
 	}
 	db3.Close()
 }
+
+// TestMigrateV7ToV8 v7 库（element 无 confirm_status）自动升级：加法式加列、
+// 存量要件一律 pending（旧库从未记录确认状态，不得默认视为已确认）。
+func TestMigrateV7ToV8(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "openlaw.db")
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+		CREATE TABLE element (
+		  element_id TEXT PRIMARY KEY, article_id TEXT NOT NULL,
+		  case_type TEXT NOT NULL, name TEXT NOT NULL,
+		  description TEXT, how_to_attack TEXT);
+		INSERT INTO meta(key,value) VALUES('schema_version','7');
+		INSERT INTO element(element_id,article_id,case_type,name) VALUES('e1','a1','民间借贷','借贷合意');
+	`); err != nil {
+		t.Fatalf("构造 v7 库失败: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("v7→v8 迁移失败: %v", err)
+	}
+	defer db.Close()
+	if ok, _ := hasColumn(db.DB, "element", "confirm_status"); !ok {
+		t.Fatal("confirm_status 列未出现")
+	}
+	var cs string
+	if err := db.QueryRow(`SELECT confirm_status FROM element WHERE element_id='e1'`).Scan(&cs); err != nil {
+		t.Fatal(err)
+	}
+	if cs != "pending" {
+		t.Errorf("存量要件必须如实 pending（未确认≠已确认），实际 %q", cs)
+	}
+	if got := getVersion(t, path); got != SchemaVersion {
+		t.Errorf("schema_version 应为 %s，实际 %q", SchemaVersion, got)
+	}
+}

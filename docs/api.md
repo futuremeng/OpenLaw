@@ -38,7 +38,7 @@ type Result struct {
 
 ### ResolveVersion(lawName, atDate string) Result
 按时间点解析当时生效版本（左闭右开）。
-Data：version_id、version_no、effective_date、expire_date、confirm_status。
+Data：version_id、version_no、effective_date、expire_date、confirm_status、effect_status。
 错误：OL-1001（名称不存在）、OL-1002（该日期无生效版本）；断链 → broken_chain。
 confirm_status=pending → ok + 人工确认提示（仅提示不报错）。
 
@@ -48,8 +48,10 @@ Data：hit、similarity（0~1，互相包含=1.0，否则字符二元组 Dice）
 错误：OL-1001/1002/1003；OL-1004（相似度 < 0.60，返回原文供人工比对）；OL-1005（expired + current_version）；溯源失败 → broken_chain + OL-1006/OL-1007（禁止输出判错结论）。
 
 ### AnalyzeElements(caseType string, facts []string) Result
-Data：covered[]、missing_elements[]（name + how_to_attack）。
+Data：covered[]、missing_elements[]（name + how_to_attack + confirm_status）。
 输出为风险假设清单，附「不构成胜诉/败诉结论」警告。案由无要件 → not_found（提示先人工导入）。
+未确认要件（confirm_status≠confirmed）另附「待人工确认」警告（OL-2：导入要件一律
+pending，人工确认后才视为定论；导入经 `openlaw-element`，见 §6）。
 
 ### FindRelation(lawID string) Result
 Data：relations[]（src/dst/type/based_on_doc_id/confirm_status）。
@@ -65,18 +67,32 @@ Data：text（脱敏后）、restore_map（本地还原映射，**不得写入�
 
 ### Search(query string, topK int) Result
 Data：query、hits[]（article_id/article_no/doc_id/law_name/version_id/version_no/
-effective_date/expire_date/confirm_status/lang/snippet）。
+effective_date/expire_date/confirm_status/effect_status/lang/snippet）。
 FTS5 优先，零命中 LIKE 兜底；中文多词（空格分词）走多词 AND 路径
 （unicode61 不切 CJK，FTS 短语必失败）；topK 上限 50。
 零命中不是错误：status=ok + warning。pending 命中附人工确认警告（12.3）。
-OpenCourt LawSourcePlugin.SearchLaw 对接面（expire_date 非空 → AMENDED，
-绝不自动判 REPEALED）。
+OpenCourt LawSourcePlugin.SearchLaw 对接面。**效力判定已在语料层完成**（OL-1）：
+上层直接消费 effect_status，禁止再由 expire_date 自行推导。
 
 ### GetArticle(articleID string) Result
 Data：article_id/article_no/content（全文）/doc_id/law_name/version_id/version_no/
-effective_date/expire_date/confirm_status/lang；Trace 携带 doc_id/pdf_path。
+effective_date/expire_date/confirm_status/effect_status/lang；Trace 携带 doc_id/pdf_path。
 断链（OL-1006）时 status=broken_chain 但 data 照常完整返回供人工核对。
 OpenCourt LawSourcePlugin.GetLawDetail 对接面（lawID = article_id 约定）。
+
+### effect_status（OL-1 效力状态字段）
+`Search` 每条命中、`GetArticle`、`ResolveVersion` 的 Data 均携带，取值：
+
+| 值 | 判定依据 |
+|---|---|
+| `EFFECTIVE` | 版本区间覆盖当下，且无废止/接续关系证据 |
+| `AMENDED` | 被后续版本接续（expire_date 已到期）且有 `confirmed` 的修改关系 |
+| `REPEALED` | 存在 `confirmed` 的废止关系（relation 为 pending 时绝不出现） |
+| `REPEALED_PENDING` | 存在废止/接续关系但未经人工确认 |
+| `UNKNOWN` | 版本链不完整或关系缺失（判不出不猜） |
+
+判定只依据 `law_version` 链 + `relation`，且仅 `confirm_status=confirmed` 的关系参与
+裁决（10 章纪律：机器不自动判定废止）。effective_date/expire_date 原字段保留不变。
 
 ## 4. 错误码（5.4）
 
@@ -112,6 +128,9 @@ OpenCourt LawSourcePlugin.GetLawDetail 对接面（lawID = article_id 约定）�
 | `openlaw-fetch -batch <candidates.csv>` | 批量②：逐条限速下载进暂存区（默认 2s/条），单条失败不中断，全部写 import_log | 0 全部成功 / 1 有失败 |
 | `openlaw-compare -a FILE -b FILE` | 跨来源同一法律一致性核验：字节级（SHA-256）+ 文本级（去空白/部首折叠/正文容器提取/句段覆盖）；支持 .pdf/.html/.htm/.md/.txt，`-json` 输出报告；扫描版 PDF（无文本层）报错并给出替代路径（flk 在线浏览页手动存 .txt / 公报单文档 HTML / OCR） | 0 文本一致 / 1 实质差异 / 2 错误 |
 | `openlaw-eu -celex <CELEX>` | 欧盟元数据导入（Cellar SPARQL，官方开放入口）：ELI/CELEX/生效+适用日/公报出处/废止与依据关系 → law 主表 upsert + pending 关系（仅挂已入库目标）；原始三元组留证 incoming，限速 2s、import_log 全记 | 0 成功 / 2 错误 |
+| `openlaw-element import -in <csv\|json> [-apply]` | 构成要件导入（OL-2）：默认 dry-run 计数；article_id 关联不到条文的行如实拒绝并报告；导入一律 pending（机器不裁决） | 0 / 1 |
+| `openlaw-element confirm -ids <id,…> -verdict confirm\|reject -reviewer <署名> -reason <依据>` | 要件人工落判：署名 + 依据必填，流转与复核记录原子写入 | 0 / 1 |
+| `openlaw-element stats` | 按案由统计要件数与确认状态 | 0 / 1 |
 
 **数据源策略（18/19 章，2026-10 复核）**：
 - `flk.npc.gov.cn`（国家法律法规数据库）robots.txt 全文 `Disallow: /` 且明确「禁止使用任何自动化工具、脚本、爬虫程序采集或复制网站数据」→ **硬禁止名单**，任何配置下不得自动抓取；需要其文本时人工下载放入 `data/incoming/`

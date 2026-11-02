@@ -81,6 +81,7 @@ func (o *OpenLaw) ResolveVersion(lawName, atDate string) Result {
 		"version_id": rv.VersionID, "version_no": rv.VersionNo,
 		"effective_date": rv.EffectiveDate, "expire_date": rv.ExpireDate,
 		"confirm_status": rv.ConfirmStatus,
+		"effect_status":  o.effectStatusFor(rv.LawID, rv.EffectiveDate, rv.ExpireDate), // OL-1
 	}
 	if !trace.ChainOK {
 		return brokenChain(data, trace)
@@ -161,21 +162,30 @@ func (o *OpenLaw) AnalyzeElements(caseType string, facts []string) Result {
 	matches := element.MatchFacts(elements, facts)
 	covered := []map[string]any{}
 	missing := []map[string]any{}
+	unconfirmed := 0
 	for _, m := range matches {
+		if m.Element.ConfirmStatus != "confirmed" {
+			unconfirmed++
+		}
 		if m.Matched {
 			covered = append(covered, map[string]any{
 				"element_id": m.Element.ElementID, "name": m.Element.Name, "fact": m.Fact,
+				"confirm_status": m.Element.ConfirmStatus,
 			})
 		} else {
 			missing = append(missing, map[string]any{
 				"element_id": m.Element.ElementID, "name": m.Element.Name,
-				"how_to_attack": m.MissHint,
+				"how_to_attack": m.MissHint, "confirm_status": m.Element.ConfirmStatus,
 			})
 		}
 	}
 	res := ok(map[string]any{
 		"case_type": caseType, "covered": covered, "missing_elements": missing,
 	}, nil)
+	if unconfirmed > 0 {
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("%d 项要件待人工确认（导入要件一律 pending，确认后才视为定论；本清单仍如实给出）", unconfirmed))
+	}
 	res.Warnings = append(res.Warnings, "本结果为风险假设清单，不构成胜诉/败诉结论（2.3）")
 	return res
 }
@@ -272,26 +282,31 @@ func (o *OpenLaw) Search(query string, topK int) Result {
 	}
 	items := make([]map[string]any, 0, len(hits))
 	pending := 0
+	today := time.Now().Format("2006-01-02")
 	for _, h := range hits {
-		var name, versionID, versionNo, eff, exp, cs, lang string
+		var name, versionID, versionNo, eff, exp, cs, lang, lawID string
 		err := o.db.QueryRow(`SELECT l.name, v.version_id, v.version_no, v.effective_date,
-			COALESCE(v.expire_date,''), d.confirm_status, d.lang
+			COALESCE(v.expire_date,''), d.confirm_status, d.lang, l.law_id
 			FROM article a
 			JOIN law_version v ON v.version_id = a.version_id
 			JOIN law l ON l.law_id = v.law_id
 			JOIN document d ON d.doc_id = a.doc_id
-			WHERE a.article_id = ?`, h.ArticleID).Scan(&name, &versionID, &versionNo, &eff, &exp, &cs, &lang)
+			WHERE a.article_id = ?`, h.ArticleID).Scan(&name, &versionID, &versionNo, &eff, &exp, &cs, &lang, &lawID)
 		if err != nil {
 			continue // 条文存在但关联缺失（理论上不该发生）：跳过而非中断
 		}
 		if cs != "confirmed" {
 			pending++
 		}
+		es, err := EffectStatus(o.db, lawID, eff, exp, today) // OL-1：判不出如实 UNKNOWN
+		if err != nil {
+			es = EffectUnknown
+		}
 		items = append(items, map[string]any{
 			"article_id": h.ArticleID, "article_no": h.ArticleNo, "doc_id": h.DocID,
 			"law_name": name, "version_id": versionID, "version_no": versionNo,
 			"effective_date": eff, "expire_date": exp, "confirm_status": cs,
-			"lang": lang, "snippet": h.Snippet,
+			"effect_status": es, "lang": lang, "snippet": h.Snippet,
 		})
 	}
 	res := ok(map[string]any{"query": query, "hits": items}, nil)
@@ -343,16 +358,16 @@ func hasCJK(s string) bool {
 // GetArticle 条文详情（按 article_id）：全文 + 法规名 + 版本区间 + 确认状态 +
 // 溯源（trace.doc_id/pdf_path）。OpenCourt GetLawDetail 对接面。
 func (o *OpenLaw) GetArticle(articleID string) Result {
-	var docID, versionID, versionNo, name, artNo, content, eff, exp, cs, lang string
+	var docID, versionID, versionNo, name, artNo, content, eff, exp, cs, lang, lawID string
 	err := o.db.QueryRow(`SELECT a.doc_id, a.version_id, a.article_no, a.content,
 		v.version_no, v.effective_date, COALESCE(v.expire_date,''), d.confirm_status,
-		l.name, d.lang
+		l.name, d.lang, l.law_id
 		FROM article a
 		JOIN law_version v ON v.version_id = a.version_id
 		JOIN law l ON l.law_id = v.law_id
 		JOIN document d ON d.doc_id = a.doc_id
 		WHERE a.article_id = ?`, articleID).
-		Scan(&docID, &versionID, &artNo, &content, &versionNo, &eff, &exp, &cs, &name, &lang)
+		Scan(&docID, &versionID, &artNo, &content, &versionNo, &eff, &exp, &cs, &name, &lang, &lawID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fail(StatusNotFound, CodeArticleNotFound, ErrorHints[CodeArticleNotFound])
 	} else if err != nil {
@@ -365,6 +380,7 @@ func (o *OpenLaw) GetArticle(articleID string) Result {
 		"article_id": articleID, "article_no": artNo, "content": content, "doc_id": docID,
 		"law_name": name, "version_id": versionID, "version_no": versionNo,
 		"effective_date": eff, "expire_date": exp, "confirm_status": cs, "lang": lang,
+		"effect_status": o.effectStatusFor(lawID, eff, exp), // OL-1
 	}
 	if !trace.ChainOK {
 		return brokenChain(data, trace)
@@ -374,6 +390,15 @@ func (o *OpenLaw) GetArticle(articleID string) Result {
 		res.Warnings = append(res.Warnings, "该文本确认状态为待人工确认，仅提示不报错（12.3）")
 	}
 	return res
+}
+
+// effectStatusFor OL-1：按当下日期计算效力状态；查询失败如实返回 UNKNOWN（不装懂）。
+func (o *OpenLaw) effectStatusFor(lawID, effectiveDate, expireDate string) string {
+	es, err := EffectStatus(o.db, lawID, effectiveDate, expireDate, time.Now().Format("2006-01-02"))
+	if err != nil {
+		return EffectUnknown
+	}
+	return es
 }
 
 // traceFor 构建溯源信息并顺带执行断链检测（所有输出必须携带 doc_id）。
