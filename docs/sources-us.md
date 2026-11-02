@@ -50,8 +50,9 @@
 2. 联邦法律 → govinfo Statute Compilations（beta，格式观察期）；USCODE 批量
    旁路若出现再切换。
 3. 行政命令 → govinfo FR/PPP 批量（后续）。
-4. 骨架第一步只做**清单拉取与留证**（sitemapindex → 包清单），不碰全文：
-   `openlaw-us -sitemap -collection ECFR`；全文解析入库属写路径高风险变更，
-   另行按阶段实施（见 design-multi-jurisdiction.md §6）。
+4. 第一步做**清单拉取与留证**（sitemapindex → 包清单）：
+   `openlaw-us -collection ECFR`；全文解析入库已开通（写路径从严，带真实链路
+   测试）：`openlaw-us -ingest <批量包解出的 USLM XML> -doc-id … -effective …`，
+   新条目一律待复核（见 design-multi-jurisdiction.md §6）。
 5. 限速 ≥2s/请求、robots 前置 fail-closed、原始响应落 `incoming/` 留证、
    每次访问进 import_log——与中国/欧盟通道同一纪律。
