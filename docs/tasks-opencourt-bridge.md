@@ -668,6 +668,27 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   docs/design-multi-jurisdiction.md §5/§6、docs/sources-us.md §5、README 同步。
   **下一步**：阶段三（欧盟限速任务卡 RL-3/RL-5）、阶段四（发版 v0.1.0 信任链路）。
 
+- **欧盟限流任务卡 · RL-3/RL-5/RL-4 骨架（阶段三，2026-11-02）**：
+  ① RL-3 抓取内建退避：`getCellar` 包装层（`ingest/backoff.go`）对 429 指数退避
+  60s→120s→240s 封顶 3 次、单次等待封顶 10 分钟（绝不无上限等待）、
+  `Retry-After` 出现即遵从（`HTTPStatusErr.RetryAfter` 解析 delta-seconds/HTTP-date）、
+  退避等待点响应 ctx 取消；每次尝试照常一条 import_log（退避不重复计数）；
+  探测改走 `getCellarOnce` 不退避——探测的意义是立刻如实报告窗口状态。
+  测试 `ingest/backoff_test.go`（429,429,200 恢复且日志计数正确 / 429×4 封顶失败 /
+  Retry-After 遵从 / 退避中取消即时返回 / 策略表 60→120→240+取大+封顶）。
+  ② RL-5 限流可观测：`ingest.EUQuotaStats` + `openlaw-stats eu`（只读，绝不联网；
+  按日 europa.eu 通道请求数/成功/失败/429 率/字节 + CELEX 归因；对现有 import_log
+  出正确报表——2026-10-25 爆发段如实呈现；`ingest/stats_test.go` 合成日志）。
+  ③ RL-4 批量骨架：`ingest.RunEUBatch` + `openlaw-eu-text -batch <队列.json>
+  [-circuit N] [-report 路径]`——队列 JSON 数组驱动、每部即时原子回写（tmp+rename）、
+  重跑只处理 pending、done 零请求、failed 保留待人工不静默重跑、连续 ≥circuit 部
+  退避后仍 429 整批熔断中止（剩余如实 pending，退出码 3）、CSV 批次报告、
+  语言纪律默认 eng。测试 `ingest/eubatch_test.go`（熔断演练 + 中断-恢复演练 +
+  入库 pending 闸口 + done 零请求断言）。**仍待实网**：小样本测速与分批窗口
+  （M2 执行期）；RL-1 GDPR pilot 待配额窗口（`-probe` 判窗后执行，代码已就绪）。
+  docs/tasks-eu-rate-limit.md 任务卡与编排建议同步。**下一步**：阶段四
+  （发版 v0.1.0：签名信任链路 + 分法域基础包发布）。
+
 
 ## 明确不在本清单内（不扩散）
 

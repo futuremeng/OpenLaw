@@ -66,7 +66,8 @@ OpenLaw/
                       #   落判必须署名+依据，全程 review_log；导入一律 pending）
     openlaw-level/    # CLI：flk 存量效力等级保守名称规则补标（默认 dry-run，-apply 写库留痕）
     openlaw-region/   # CLI：法规地域标引（名称/机关保守推导；默认 dry-run 出分类报告，-apply 只写高置信，-undo 按批次撤销，-check 一致性自检只报告，-stats/-review/-bulk 人工落判）
-    openlaw-eu-text/  # CLI：欧盟全文导入（Cellar representation 层 FORMEX XML 结构化条文，默认 dry-run）
+    openlaw-eu-text/  # CLI：欧盟全文导入（Cellar representation 层 FORMEX XML 结构化条文，默认 dry-run；-probe 配额探测；-batch 队列批量：断点续传+连续限流熔断+CSV 批次报告）
+    openlaw-stats/    # CLI：欧盟通道限流报表（只读聚合 import_log：按日 429 率/成功率/字节 + CELEX 归因；绝不联网）
     openlaw-us/       # CLI：美国官方通道（govinfo 批量清单拉取与留证 + USLM 全文解析入库 -ingest；robots fail-closed、限速 ≥2s；新条目待复核）
     openlaw-govcn/    # CLI：gov.cn 官方法规库导入（行政法规库 + 国家规章库；人工清单 + 详情页合规抓取 + TRS 正文解析，默认离线）
     openlaw-govlist/  # CLI：国家规章库清单浏览采集（经本机 BrowserOS neo 人在环代理浏览官方列表页；默认离线、回环硬校验、限速护栏）
