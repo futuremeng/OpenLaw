@@ -311,6 +311,11 @@ function openPreview(docID, articleNo, back) {
   });
 }
 $("#detail-close").addEventListener("click", hideDetail);
+// 窄窗口下详情是浮层（≤1150，见 style.css 响应式分档）——Esc 必须能关，
+// 浮层不得只有 ✕ 一个出口。
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#detail").classList.contains("hidden")) hideDetail();
+});
 
 
 /* ---------- 地区（坐标取自系统定位服务 · 判定全部在本机离线完成） ---------- */

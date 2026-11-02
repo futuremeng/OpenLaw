@@ -430,6 +430,30 @@ func TestAsyncFeedbackGuards(t *testing.T) {
 	}
 }
 
+// TestResponsiveTiers 响应式分档门禁（2026-11 响应式评审）：
+// ① 详情列必须按「每列最小可用宽」收窄并在 ≤1150 起浮层——旧实现浮层太晚（≤860），
+//
+//	861–1150 段主列被挤到约 270px；
+//
+// ② 双列表单必须 ≤1240 单列——旧断点（≤1080）在 1081–1235 段留下横向溢出带；
+// ③ 浮层必须给键盘出口（Esc）；
+// ④ browse-split 是筛选栏迁入左列后的死规则，不得回流。
+func TestResponsiveTiers(t *testing.T) {
+	css := readFrontend(t, filepath.Join("assets", "style.css"))
+	for _, want := range []string{"@media (max-width: 1150px)", "@media (max-width: 1240px)", "@media (max-width: 1439px)"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("样式缺少 %s 分档——窄窗口必须按每列最小可用宽退化，不得回到整段溢出/挤没的旧断点", want)
+		}
+	}
+	if strings.Contains(css, "browse-split") {
+		t.Errorf("browse-split 死规则回流——筛选栏已常驻左列，浏览页没有第三套分栏")
+	}
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	if !strings.Contains(js, `"Escape"`) || !strings.Contains(js, "hideDetail()") {
+		t.Errorf("详情浮层缺少 Esc 出口——浮层不得只有 ✕ 一个关闭方式")
+	}
+}
+
 // TestRowMetaMergesMissing 条目行的缺失必须如实但只说一次：不得逐字段重复「未标注」
 // 刷屏（同一行三遍未标注是噪声，不是信息），也不得把缺失藏起来。
 func TestRowMetaMergesMissing(t *testing.T) {

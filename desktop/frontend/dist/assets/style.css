@@ -300,20 +300,10 @@ button.jhead:hover b { text-decoration: underline; }
 .fhd.static { cursor: default; }
 .fhd.static:hover { color: var(--muted); }
 
-/* 窄窗口：三栏先退化为两栏（原文列整行铺开），再退化为单列堆叠。
-   筛选栏始终是面板内容，不因窗口变窄而搬回侧栏。 */
-@media (max-width: 1180px) {
-  .browse-split { grid-template-columns: 224px minmax(260px, 1fr); }
-  .browse-split > .pane:last-child { grid-column: 1 / -1; }
-}
-@media (max-width: 860px) {
-  #side { width: 190px; }
-  .split, .browse-split { grid-template-columns: 1fr; }
-  .filters { max-height: none; }
-}
+/* 窄窗口：三栏按「每列最小可用宽」分档退化（分档总表见文件末尾「响应式分档」）。
+   筛选栏始终留在左列，不因窗口变窄而搬进面板或藏起来。 */
 
 /* ---------- 筛选栏：维度分面 + 计数（可折叠；每选一项，计数与条目同时更新） ---------- */
-.browse-split { grid-template-columns: 240px minmax(280px, 1fr) minmax(320px, 1.05fr); }
 .filters { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 2px 12px 10px; box-shadow: var(--shadow); max-height: calc(100vh - 124px); overflow: auto; }
 .fsum { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); padding: 11px 2px 10px; border-bottom: 1px solid var(--line-2); }
 .fsum b { font-size: 19px; color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -445,13 +435,46 @@ tbody tr:hover { background: var(--surface-2); }
 #toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: var(--r-s); font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .25s; max-width: 80vw; }
 #toast.show { opacity: .97; }
 
-/* ---------- 窄窗口兜底（低于桌面最小宽时不横向挤压）：
-   右列先收窄，再改为浮层覆盖（详情是临时阅读面，不该挤没列表列）。 ---------- */
+/* ---------- 响应式分档（2026-11 评审修复：消除窄窗口下各列互相挤没的溢出带） ----------
+   按「每列最小可用宽」分档，不按设备断点猜：
+   - 详情列 440（≥1440）→ 380（1151–1439）→ ≤1150 起浮层——详情是临时阅读面，
+     窄窗口不该占布局宽度；旧实现 861–1150 段主列被挤到约 270px。
+   - 双列表单（.cols）≤1240 单列：详情列打开时 1081–1235 段放不下两列——
+     旧断点（≤1080）在这一段留下横向溢出带。
+   - ≤1080 地域页 .split 单列；≤860 侧栏收窄、筛选栏紧凑、表格横向滚动、
+     首页搜索框堆叠。筛选栏始终留在左列（design-ui-language.md），不得藏或搬。 */
+@media (max-width: 1439px) {
+  #detail { width: 380px; }
+}
+@media (max-width: 1240px) {
+  .cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 1150px) {
+  #detail { position: fixed; right: 0; top: 0; bottom: 0; height: 100vh; width: min(92vw, 430px); z-index: 40; box-shadow: var(--shadow); }
+  #topbar { padding: 8px 14px; gap: 6px; }
+  #crumb .cf { max-width: 30ch; }
+}
 @media (max-width: 1080px) {
-  .split, .cols { grid-template-columns: 1fr; }
+  .split { grid-template-columns: 1fr; }
   main { padding: 20px 18px 60px; }
-  #detail { width: 360px; }
 }
 @media (max-width: 860px) {
-  #detail { position: fixed; right: 0; top: 0; bottom: 0; width: min(92vw, 430px); z-index: 40; box-shadow: var(--shadow); }
+  #side { width: 190px; }
+  .filters { max-height: none; padding: 2px 8px 10px; }
+  .fchip { padding: 3px 8px; font-size: 12px; }
+  .bar-row { grid-template-columns: 104px 1fr auto; }
+  .hero { padding: 18px 16px; }
+  .hero h1 { font-size: 22px; }
+  .bigsearch { flex-wrap: wrap; }
+  .bigsearch input { min-width: 220px; }
+  .bigsearch button { flex: 1; }
+  .tbtools .sep-v { display: none; }
+  table { display: block; overflow-x: auto; }
+}
+@media (max-width: 720px) {
+  .form label { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .form input, .form select { max-width: none; width: 100%; }
+  .toolbar input { min-width: 150px; flex: 1; }
+  .tchip { font-size: 11px; padding: 2px 7px; }
+  #crumb { font-size: 12px; }
 }
