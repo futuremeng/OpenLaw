@@ -67,7 +67,7 @@ OpenLaw/
     openlaw-level/    # CLI：flk 存量效力等级保守名称规则补标（默认 dry-run，-apply 写库留痕）
     openlaw-region/   # CLI：法规地域标引（名称/机关保守推导；默认 dry-run 出分类报告，-apply 只写高置信，-undo 按批次撤销，-check 一致性自检只报告，-stats/-review/-bulk 人工落判）
     openlaw-eu-text/  # CLI：欧盟全文导入（Cellar representation 层 FORMEX XML 结构化条文，默认 dry-run）
-    openlaw-us/       # CLI：美国官方通道骨架（govinfo 批量清单拉取与留证；robots fail-closed、限速 ≥2s；全文入库尚未开通）
+    openlaw-us/       # CLI：美国官方通道（govinfo 批量清单拉取与留证 + USLM 全文解析入库 -ingest；robots fail-closed、限速 ≥2s；新条目待复核）
     openlaw-govcn/    # CLI：gov.cn 官方法规库导入（行政法规库 + 国家规章库；人工清单 + 详情页合规抓取 + TRS 正文解析，默认离线）
     openlaw-govlist/  # CLI：国家规章库清单浏览采集（经本机 BrowserOS neo 人在环代理浏览官方列表页；默认离线、回环硬校验、限速护栏）
     openlaw-check/    # 每日哈希重算 + 签名校验 + 断链清单
@@ -181,7 +181,7 @@ case sdk.StatusBrokenChain: // 无法溯源，禁止输出判错结论
 - 礼貌约束：即便手动，也应按类别/年份分批、控制频次，不要连续高频连点。
 - **共享**：法律法规官方文本为公有领域作品，下载后共享/分发合法（前提：获取方式正当）。推荐以签名更新包（`openlaw-pack build/verify/import`）形式共享，接收方可独立验证哈希与签名，防篡改防版本混乱；共享自有 schema 的客观事实字段（法名/日期/效力状态）无碍，但勿整套镜像来源方的数据库编排结构（汇编权益）。
 - **欧盟（EUR-Lex/Cellar）**：EUR-Lex 网页有 WAF 挑战，只能人工浏览；但 Cellar（publications.europa.eu）是官方开放的程序化入口——SPARQL 元数据 + representation 层全文（expression→manifestation→item 四步链，GDPR 全文 XML 实测可下载，2026-10-25）均可自动化，须保守限速。EU 数据重使用须署名（© European Union）。详见 `docs/sources-eu.md`（元数据核实）与 `docs/sources-eu-text.md`（全文通道设计草案）。
-- **美国（govinfo/eCFR/OLRC）**：联邦政府作品不受版权保护（17 U.S.C. §105）。govinfo（GPO）批量数据目录对自动化开放（robots 未禁 `/bulkdata`、`/content/` 并显式公布 sitemap 入口，2026-10-31 核实）；eCFR 网页有 CAPTCHA 墙、官方指定走开发者 API（其 robots 又禁全文端点——规章现行全文因此改走 govinfo ECFR 批量包）；uscode.house.gov 批量页对自动抓取 403（未证实前不开采集）。当前仅骨架：`openlaw-us -collection ECFR` 拉清单留证，全文解析入库未开通。详见 `docs/sources-us.md`（源核实）与 `docs/design-multi-jurisdiction.md`（多法域设计）。
+- **美国（govinfo/eCFR/OLRC）**：联邦政府作品不受版权保护（17 U.S.C. §105）。govinfo（GPO）批量数据目录对自动化开放（robots 未禁 `/bulkdata`、`/content/` 并显式公布 sitemap 入口，2026-10-31 核实）；eCFR 网页有 CAPTCHA 墙、官方指定走开发者 API（其 robots 又禁全文端点——规章现行全文因此改走 govinfo ECFR 批量包）；uscode.house.gov 批量页对自动抓取 403（未证实前不开采集）。当前清单通道为 `openlaw-us -collection ECFR` 拉清单留证；全文经 `openlaw-us -ingest` 从批量包解出的 USLM 文件解析入库（法域 US、一律待复核）。详见 `docs/sources-us.md`（源核实）与 `docs/design-multi-jurisdiction.md`（多法域设计）。
 - **国家行政法规库（www.gov.cn/zhengce/xzfgk/）与国家规章库（www.gov.cn/zhengce/xxgk/gjgzk/）**：主站 robots 允许抓详情页（`/zhengce/` 不在 Disallow，站点并以 sitemap 欢迎机器索引），但检索/清单入口不得程序发现——sousuo.www.gov.cn robots `Disallow: /`，规章库 Athena 接口（sousuoht）另带 RSA 鉴权（**不得逆向**）。清单由用户浏览器浏览时经 `tools/govcn-xzfgk-export.user.js` / `tools/govgz-export.user.js` 导出（只整理已浏览页面），`openlaw-govcn -source xzfgk|gzk` 按清单合规抓取（限速 2s/页起、主机锁、import_log、HTML 留证、pending 人工闸口）。规章库条目按清单分类页签定 `部门规章`/`地方政府规章`（缺分类按发布机关保守归类，皆缺转人工）。法规/规章原文公有领域（著作权法第 5 条），不镜像站点汇编。详见 `docs/sources-govcn.md`。
 
 ## 项目边界（不做的事）

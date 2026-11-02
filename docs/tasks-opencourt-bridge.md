@@ -645,6 +645,29 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
 
 
 ---
+- **多法域 · 第七步（阶段二：美国全文入库 + 欧盟桌面接线 + 法域切分包，2026-11-02）**：
+  ① 美国全文解析入库开通：`parse.ParseUSLM`（USLM XML 通用节点树，编号 div
+  SECTION/PART/CHAPTER/SUBPART 为条文边界，结构即证据零猜测；零条文如实失败；
+  纯标题节点只留 num+head 不造正文）+ 共享 runner `ingest.RunUSLMImport`
+  （law.jurisdiction=US 由效力等级经 DeriveJurisdiction 真实推导、
+  confirm_status=pending 人工闸口、lang=eng、原始 XML 归档 xml/ 层记 SHA-256、
+  生效日期必填来自批量包元数据不得猜、parser_version=openlaw-parse/0.1.0+uslm-us）+
+  `openlaw-us -ingest` 全文模式（默认清单模式不变；批量包本体下载仍不代做——
+  体积与配额纪律）。测试：`parse/uslm_test.go`（嵌套结构/纯标题节点/零条文拒绝）、
+  `ingest/usimport_test.go`（真实链路：dry-run 不写库、缺生效日期拒绝、法域推导、
+  pending 闸口、xml 归档、同 doc_id 重导拒绝）。② 欧盟全文通道桌面接线：逻辑收敛到
+  共享 runner `ingest.RunEUText`（CLI openlaw-eu-text 改走同一路径；dry-run 绝不多发
+  元数据请求的配额纪律保留），桌面 `StartEUTextTask` 经单槽 TaskManager 提交
+  （kind=eu-text、限速钳 ≥2s、context 取消贯穿），「获取最新法规」新增
+  「获取欧盟官方全文」卡片（编号/语言/先试取；护栏参数程序固定不进界面）；
+  法域空态文案改如实指向新入口。`desktop/binding_test.go` 契约门禁保持绿。
+  ③ 基础包按法域切分：`BuildOptions.Jurisdictions`（CN/EU/US/none；名单外拒绝
+  ErrBadJurisdiction；与 Regions 交集）+ manifest `jurisdictions` 字段（随签名保护）+
+  `openlaw-pack build -jurisdictions`。测试 `pack/split_test.go`（EU/US/CN 桶、并集、
+  none 空桶如实失败、manifest 身份；US 桶经 importer 真实推导链路）。
+  docs/design-multi-jurisdiction.md §5/§6、docs/sources-us.md §5、README 同步。
+  **下一步**：阶段三（欧盟限速任务卡 RL-3/RL-5）、阶段四（发版 v0.1.0 信任链路）。
+
 
 ## 明确不在本清单内（不扩散）
 

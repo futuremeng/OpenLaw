@@ -1,7 +1,10 @@
 # 多法域设计（中国 / 欧盟 / 美国）
 
-> 状态：第一、二步已实施（schema v7 + 界面如实展示）；第三步（美国采集通道）仅有
-> 骨架（`ingest/usgovinfo.go`、`cmd/openlaw-us`），全文入库与复核链路未开通。
+> 状态：第一、二步已实施（schema v7 + 界面如实展示）；第三步（美国采集通道）
+> 清单骨架（`ingest/usgovinfo.go`）+ 全文解析入库已开通（`parse.ParseUSLM` +
+> `ingest.RunUSLMImport`，`openlaw-us -ingest`，人工闸口 pending）；欧盟全文通道
+> 已接入桌面「获取最新法规」（`ingest.RunEUText` + `StartEUTextTask`）；
+> 基础包按法域切分已开通（`BuildOptions.Jurisdictions`）。
 > 美国官方数据源实况见 docs/sources-us.md（2026-10-31 实网核实）。
 
 ## 1. 为什么要法域维度
@@ -53,16 +56,22 @@ v6 及以前，中国/欧盟全靠 `effect_level` 取值隐式区分，美国无
 
 ## 5. 更新包与发版（后续）
 
-- 基础包按法域切分已有承载：`pack_id`（如 `base-eu-2026`、`base-us-2026`）+
-  `kind=base`；`regions` 字段现用中国 GB/T 2260 区划码，欧盟/美国包 `regions` 留空
-  （= 全部地域）——按法域过滤打包属下一增量（`BuildOptions` 加 `Jurisdictions`）。
+- 基础包按法域切分已开通：`BuildOptions.Jurisdictions`（CN/EU/US/none=法域未标注，
+  名单外取值拒绝）+ manifest `jurisdictions` 字段（随签名保护）+
+  `openlaw-pack build -jurisdictions EU`；`pack_id`（如 `base-eu-2026`）承载包身份，
+  `regions` 字段仍用中国 GB/T 2260 区划码，欧盟/美国包留空。
 - 签名目录、受信名单、幂等台账对多法域包原样适用，无需改动。
 
-## 6. 美国通道（第三步，骨架）
+## 6. 美国通道（第三步）
 
-- 骨架：`ingest/usgovinfo.go`（govinfo 批量清单拉取：robots 前置 fail-closed、
+- 清单：`ingest/usgovinfo.go`（govinfo 批量清单拉取：robots 前置 fail-closed、
   ≥2s 礼貌限速、原始留证落 `incoming/`、import_log 留痕、partial 如实报告）+
   `cmd/openlaw-us`（显式触发；未配置/未联网时如实拒绝）。
-- 未做（如实交代）：全文解析入库（USLM/USC 结构化 → law/law_version/article）、
-  联邦规章逐条切分、生效/废止关系（Statute ↔ CFR）建立、桌面端采集接线。
-  这些属写路径高风险变更，按阶段推进并各自带真实链路测试。
+- 全文解析入库已开通：`parse.ParseUSLM`（USLM XML 结构即证据：编号 div
+  SECTION/PART 为条文边界，零猜测；零条文如实失败）+ `ingest.RunUSLMImport`
+  （law.jurisdiction=US 由效力等级推导、confirm_status=pending 人工闸口、
+  原始 XML 归档 xml/ 层、生效日期必须由批量包元数据提供不得猜）+
+  `openlaw-us -ingest <USLM XML>`（与桌面共用同一 runner）。批量包本体下载
+  仍由用户经官方渠道自行完成（体积与配额纪律），本命令不代下载。
+- 未做（如实交代）：生效/废止关系（Statute ↔ CFR）建立、批量包自动下载、
+  行政命令（Executive Orders）FR/PPP 旁路。这些按阶段推进并各自带真实链路测试。
