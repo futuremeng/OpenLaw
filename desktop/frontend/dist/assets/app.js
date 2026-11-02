@@ -230,7 +230,7 @@ function setNavCount(id, n, warn) {
 
 /* ---------- 共享组件：徽章 / 法规要素 / 预览 / 引用格式 ---------- */
 const FLAG_TEXT = { inferred_date: "公布日期由文本推断", whole_text: "全文未分条", no_publish_date: "缺少公布日期" };
-const KIND_TEXT = { "govcn-import": "获取官方原文", "govlist-browse": "获取官方规章目录", "pack-build": "生成数据包", "pack-verify": "校验数据包", "pack-import": "导入数据包", "pack-install": "安装数据包", "agent-review": "智能审核" };
+const KIND_TEXT = { "govcn-import": "获取官方原文", "govlist-browse": "获取官方规章目录", "eu-text": "获取欧盟官方全文", "pack-build": "生成数据包", "pack-verify": "校验数据包", "pack-import": "导入数据包", "pack-install": "安装数据包", "agent-review": "智能审核" };
 const SRC_TEXT = { govcn: "国家行政法规库", govgz: "国家规章库", govlocal: "地方规章", govlist: "规章目录", batch: "批量导入" };
 
 // statusBadge：复核状态徽章。确认来源必须区分显示（诚实展示纪律）：
@@ -879,8 +879,8 @@ const JURIS_TEXT = { CN: "中国", EU: "欧盟", US: "美国", "": "法域未标
 // 有部数但无留证条文如实说明，不得凭空出条，也不得说「均已复核」（0 条文恒真是空话）。
 const JURIS_HINT = {
   CN: "尚未收录。可在「初始化法规库」安装官方数据包，或在「获取最新法规」从官方渠道获取。",
-  EU: "尚未收录。欧盟官方通道目前经命令行开通（openlaw-eu），界面通道尚未开通。",
-  US: "尚未收录。美国官方通道尚在建设中，暂无数据。",
+  EU: "尚未收录。可在「获取最新法规 → 获取欧盟官方全文」按法规编号获取（条目须先经欧盟官方出版通道建立）。",
+  US: "尚未收录。美国联邦法规可经命令行从官方批量数据包导入（openlaw-us），界面通道尚未开通。",
   "": "请核对条目来源后补标法域。",
 };
 function renderJuris(rows, byLevel, reps, revs) {
@@ -1473,6 +1473,16 @@ $("#btn-govlist").addEventListener("click", async () => {
       cat: $("#l-cat").value, max_pages: Number($("#l-pages").value) || 10,
       // 起始页、限速与空页停止属护栏参数：由程序固定，不在界面暴露（去技术化）。
       start_page: 1, delay_ms: 2500, empty_stop: 10
+    });
+    toast(`任务 #${info.id} 已开始`); loadTasks();
+  } catch (e) { toast("无法开始：" + (e.message || e)); }
+});
+$("#btn-eu-text").addEventListener("click", async () => {
+  try {
+    const info = await app().StartEUTextTask({
+      celex: $("#e-celex").value.trim(), lang: $("#e-lang").value,
+      // 限速属护栏参数：由程序固定（不低于 2 秒），不在界面暴露。
+      delay_sec: 2, dry_run: $("#e-dry").checked
     });
     toast(`任务 #${info.id} 已开始`); loadTasks();
   } catch (e) { toast("无法开始：" + (e.message || e)); }

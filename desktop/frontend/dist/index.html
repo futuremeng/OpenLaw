@@ -377,6 +377,16 @@
             <div id="browser-tech" class="kv"></div>
           </details>
         </div>
+        <div>
+          <h2>获取欧盟官方全文<span class="sub">按法规编号获取</span></h2>
+          <div class="form">
+            <label>欧盟法规编号 <input id="e-celex" placeholder="如 32016R0679"/></label>
+            <label>正文语言 <select id="e-lang"><option value="eng">英文</option><option value="deu">德文</option><option value="fra">法文</option></select></label>
+            <label class="chk"><input id="e-dry" type="checkbox" checked/> 先试取（只获取与解析，不写入法规库）</label>
+            <button id="btn-eu-text" class="ok">开始获取</button>
+            <p class="muted small">仅已收录进法规库的欧盟法规可获取全文（条目经欧盟官方出版通道建立）；获取按官方可接受的速度自动限速，是程序固定的护栏。</p>
+          </div>
+        </div>
       </div>
       <h2>数据自检<span class="sub">只读 · 不改法规库</span></h2>
       <div class="toolbar">

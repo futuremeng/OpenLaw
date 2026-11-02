@@ -684,6 +684,51 @@ func (a *App) StartGovcnTask(o GovcnTaskOptions) (TaskInfo, error) {
 	})
 }
 
+// EUTextTaskOptions 欧盟全文导入任务参数（与 openlaw-eu-text CLI flag 同语义）。
+type EUTextTaskOptions struct {
+	Celex    string `json:"celex"`
+	Lang     string `json:"lang"` // 空 = eng
+	DelaySec int    `json:"delay_sec"`
+	DryRun   bool   `json:"dry_run"`
+}
+
+// StartEUTextTask 提交欧盟全文导入任务（ingest.RunEUText——与 CLI 同路径）。
+// 元数据先行纪律：CELEX 对应的法必须已由欧盟元数据通道建立，否则任务如实失败。
+func (a *App) StartEUTextTask(o EUTextTaskOptions) (TaskInfo, error) {
+	celex := strings.ToUpper(strings.TrimSpace(o.Celex))
+	if celex == "" {
+		return TaskInfo{}, errors.New("请先提供 CELEX 编号（如 32016R0679；须先经欧盟元数据通道建立条目）")
+	}
+	if o.Lang == "" {
+		o.Lang = "eng"
+	}
+	if o.DelaySec < 2 {
+		o.DelaySec = 2 // 礼貌限速纪律，与 CLI 同样钳制
+	}
+	params := fmt.Sprintf("celex=%s lang=%s dry_run=%v delay=%ds", celex, o.Lang, o.DryRun, o.DelaySec)
+	return a.tm.Submit("eu-text", params, func(ctx context.Context, progress func(string)) error {
+		db, err := store.Open(filepath.Join(a.dataDir, "db", "openlaw.db"))
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		progress("获取全文（官方出版局通道，礼貌限速）…")
+		c := &ingest.Cellar{DataDir: a.dataDir, DB: db,
+			Policy: ingest.FetchPolicy{Timeout: 60 * time.Second}, MinInterval: time.Duration(o.DelaySec) * time.Second}
+		res, err := ingest.RunEUText(ctx, a.dataDir, db, c, ingest.EUTextOptions{
+			Celex: celex, Lang: o.Lang, DryRun: o.DryRun,
+		})
+		if res != nil {
+			if res.DryRun {
+				progress(fmt.Sprintf("试采完成：%d 条（未入库）", res.Articles))
+			} else {
+				progress(fmt.Sprintf("已入库待复核：%d 条（%s）", res.Articles, res.DocID))
+			}
+		}
+		return err
+	})
+}
+
 // GovListTaskOptions govlist 清单浏览任务参数（与 openlaw-govlist CLI flag 同语义）。
 type GovListTaskOptions struct {
 	Cat       string `json:"cat"` // 空 | 部门规章 | 地方政府规章
