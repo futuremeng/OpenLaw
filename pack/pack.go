@@ -53,13 +53,15 @@ type Manifest struct {
 	ToolVersion string   `json:"tool_version"`
 	License     string   `json:"license,omitempty"`
 	Attribution string   `json:"attribution,omitempty"`
-	PackID      string   `json:"pack_id,omitempty"`   // 台账主键（同一发布者内唯一）
-	Kind        string   `json:"kind,omitempty"`      // base=基础包 | delta=增量包 | 空=旧整包
-	Regions     []string `json:"regions,omitempty"`   // 覆盖地域（区划码；CN=国家级；空=全部地域）
-	Since       string   `json:"since,omitempty"`     // 增量窗口起（publish_date，含）
-	Until       string   `json:"until,omitempty"`     // 增量窗口止（含）
-	DocCount    int      `json:"doc_count,omitempty"` // changes.csv 条目数
-	Files       []Entry  `json:"files"`
+	PackID      string   `json:"pack_id,omitempty"` // 台账主键（同一发布者内唯一）
+	Kind        string   `json:"kind,omitempty"`    // base=基础包 | delta=增量包 | 空=旧整包
+	Regions     []string `json:"regions,omitempty"` // 覆盖地域（区划码；CN=国家级；空=全部地域）
+	// Jurisdictions：覆盖法域（CN|EU|US；none=法域未标注）；空=全部法域（多法域设计 §5）。
+	Jurisdictions []string `json:"jurisdictions,omitempty"`
+	Since         string   `json:"since,omitempty"`     // 增量窗口起（publish_date，含）
+	Until         string   `json:"until,omitempty"`     // 增量窗口止（含）
+	DocCount      int      `json:"doc_count,omitempty"` // changes.csv 条目数
+	Files         []Entry  `json:"files"`
 }
 
 // Change changes.csv 的一条变更（action 目前仅支持 add）。
@@ -109,9 +111,15 @@ type BuildOptions struct {
 	PackID  string   // 台账主键（同一发布者内唯一）；空 = 导入侧回退 "pack:"+generated_at
 	Kind    string   // base=基础包 | delta=增量包；空=旧整包；其余取值拒绝
 	Regions []string // 按 law.region_code 过滤；"CN"=国家级（区划码为空）；多个取并集
-	Since   string   // 按 document.publish_date 过滤（含）；空=无下限。publish_date 为空的条目
-	Until   string   // 同上为上限（含）。——不落入任何日期窗口（如实处理，不得猜日期）
+	// Jurisdictions：按 law.jurisdiction 过滤（CN|EU|US；"none"=法域未标注），多个取并集
+	// （多法域设计 §5：base-eu/base-us 基础包按法域切分；与 Regions 同时给出时取交集）。
+	Jurisdictions []string
+	Since         string // 按 document.publish_date 过滤（含）；空=无下限。publish_date 为空的条目
+	Until         string // 同上为上限（含）。——不落入任何日期窗口（如实处理，不得猜日期）
 }
+
+// ErrBadJurisdiction 法域过滤名单外的取值（拒绝而非静默空包——空包必须是真的没有数据）。
+var ErrBadJurisdiction = errors.New("法域取值只能是 CN/EU/US/none")
 
 // BuildWithOptions 构建基础包/增量包：先按选项导出 changes.csv，再只复制清单引用到的
 // 原始层文件（增量包体积正比于内容，未被引用的文件不进包），最后生成 manifest 并用
@@ -126,6 +134,13 @@ func BuildWithOptions(db *store.DB, dataDir, outDir, keyPath, license, attributi
 	}
 	if opts.Kind != "" && opts.Kind != "base" && opts.Kind != "delta" {
 		return fmt.Errorf("%w: %q", ErrBadPackKind, opts.Kind)
+	}
+	for _, j := range opts.Jurisdictions {
+		switch j {
+		case "CN", "EU", "US", "none":
+		default:
+			return fmt.Errorf("%w: %q", ErrBadJurisdiction, j)
+		}
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
@@ -182,6 +197,18 @@ func writeChanges(db *store.DB, path string, opts BuildOptions) (map[string]bool
 			}
 			ors = append(ors, "l.region_code LIKE ?")
 			args = append(args, r+"%")
+		}
+		where = append(where, "("+strings.Join(ors, " OR ")+")")
+	}
+	if len(opts.Jurisdictions) > 0 {
+		ors := make([]string, 0, len(opts.Jurisdictions))
+		for _, j := range opts.Jurisdictions {
+			if j == "none" {
+				ors = append(ors, "(l.jurisdiction IS NULL OR l.jurisdiction = '')")
+				continue
+			}
+			ors = append(ors, "l.jurisdiction = ?")
+			args = append(args, j)
 		}
 		where = append(where, "("+strings.Join(ors, " OR ")+")")
 	}
@@ -340,7 +367,8 @@ func seal(packDir, keyPath, license, attribution string, opts BuildOptions, docC
 	m := Manifest{GeneratedAt: time.Now().UTC().Format(time.RFC3339), ToolVersion: ToolVersion,
 		License: license, Attribution: attribution,
 		PackID: opts.PackID, Kind: opts.Kind, Regions: opts.Regions,
-		Since: opts.Since, Until: opts.Until, DocCount: docCount,
+		Jurisdictions: opts.Jurisdictions,
+		Since:         opts.Since, Until: opts.Until, DocCount: docCount,
 		Files: entries}
 	body, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {

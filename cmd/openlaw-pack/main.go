@@ -32,6 +32,7 @@ func main() {
 		packID         = fs.String("pack-id", "", "build：包标识（台账主键，基础包/增量包必填）")
 		kind           = fs.String("kind", "", "build：包种类 base=基础包 | delta=增量包（留空=旧整包）")
 		regions        = fs.String("regions", "", "build：地域过滤，逗号分隔区划码前缀；CN=国家级（如 CN,44）")
+		jurisdictions  = fs.String("jurisdictions", "", "build：法域过滤，逗号分隔（CN/EU/US/none=法域未标注；如 EU）")
 		since          = fs.String("since", "", "build：发布日期窗口起（含，如 2026-01-01）")
 		until          = fs.String("until", "", "build：发布日期窗口止（含）")
 		indexDir       = fs.String("index", "", "index：目录输出目录（index.json + index.sig）")
@@ -65,6 +66,13 @@ func main() {
 			for _, r := range strings.Split(*regions, ",") {
 				if r = strings.TrimSpace(r); r != "" {
 					opts.Regions = append(opts.Regions, r)
+				}
+			}
+		}
+		if *jurisdictions != "" {
+			for _, j := range strings.Split(*jurisdictions, ",") {
+				if j = strings.TrimSpace(j); j != "" {
+					opts.Jurisdictions = append(opts.Jurisdictions, j)
 				}
 			}
 		}

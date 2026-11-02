@@ -134,6 +134,93 @@ func TestBuildSplitByRegion(t *testing.T) {
 	}
 }
 
+// TestBuildSplitByJurisdiction 基础包按法域切分（多法域设计 §5）：EU 桶只含欧盟条目、
+// US 桶经 importer 按效力等级真实推导、none 桶如实为空、manifest 携带法域身份；
+// 名单外取值拒绝（不得静默产出空包）。
+func TestBuildSplitByJurisdiction(t *testing.T) {
+	dir, db, key := setupMultiSource(t)
+	// 模拟欧盟通道的显式落 EU（真实链路为 cellar 通道 UpsertLaw 显式写 EU）。
+	if _, err := db.Exec(`UPDATE law SET jurisdiction='EU' WHERE law_id='law_gd'`); err != nil {
+		t.Fatal(err)
+	}
+	// 美国联邦规章经真实写路径入库——法域由效力等级推导（判不出留空，此处应为 US）。
+	im := &ingest.Importer{DataDir: dir, DB: db}
+	if _, err := im.Import(ingest.Request{
+		DocID: "law_us", LawID: "law_us", LawName: "测试联邦规章", Issuer: "Test Agency",
+		EffectLevel: "联邦规章", VersionNo: "2025版", EffectiveDate: "2025-01-01",
+		PublishDate: "2025-01-01", SourceType: "us-govinfo",
+		PDFPath: filepath.Join("..", "testdata", "fake_law.pdf"),
+		MDPath:  filepath.Join("..", "testdata", "law_company_2018.md"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var jur string
+	if err := db.QueryRow(`SELECT jurisdiction FROM law WHERE law_id='law_us'`).Scan(&jur); err != nil {
+		t.Fatal(err)
+	}
+	if jur != "US" {
+		t.Fatalf("联邦规章应推导法域 US，实际 %q", jur)
+	}
+
+	cases := []struct {
+		juris []string
+		want  map[string]bool
+	}{
+		{[]string{"EU"}, map[string]bool{"law_gd": true}},
+		{[]string{"US"}, map[string]bool{"law_us": true}},
+		{[]string{"CN"}, map[string]bool{"law_cn": true, "law_bj": true}},
+		{[]string{"EU", "US"}, map[string]bool{"law_gd": true, "law_us": true}},
+	}
+	for _, c := range cases {
+		out := filepath.Join(t.TempDir(), "base")
+		if err := BuildWithOptions(db, dir, out, key, "", "",
+			BuildOptions{PackID: "base-x-2026", Kind: "base", Jurisdictions: c.juris}); err != nil {
+			t.Fatal(err)
+		}
+		got := changeDocIDs(t, out)
+		if len(got) != len(c.want) {
+			for k := range c.want {
+				if !got[k] {
+					t.Errorf("法域 %v 缺条目 %s", c.juris, k)
+				}
+			}
+			for k := range got {
+				if !c.want[k] {
+					t.Errorf("法域 %v 多出条目 %s", c.juris, k)
+				}
+			}
+		}
+	}
+
+	// manifest 携带法域身份（随签名保护），none 桶空包也如实记空清单。
+	out := filepath.Join(t.TempDir(), "base-eu")
+	if err := BuildWithOptions(db, dir, out, key, "", "",
+		BuildOptions{PackID: "base-eu-2026", Kind: "base", Jurisdictions: []string{"EU"}}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(out, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m Manifest
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Jurisdictions) != 1 || m.Jurisdictions[0] != "EU" || m.PackID != "base-eu-2026" {
+		t.Errorf("manifest 法域身份缺失: %+v", m)
+	}
+
+	if err := BuildWithOptions(db, dir, filepath.Join(t.TempDir(), "bad"), key, "", "",
+		BuildOptions{Kind: "base", Jurisdictions: []string{"JP"}}); !errors.Is(err, ErrBadJurisdiction) {
+		t.Errorf("名单外法域必须拒绝，got %v", err)
+	}
+	// none 桶（法域未标注）在本语料为空——空包必须如实失败，不得产出「看起来成功」的空包。
+	if err := BuildWithOptions(db, dir, filepath.Join(t.TempDir(), "none"), key, "", "",
+		BuildOptions{Kind: "base", Jurisdictions: []string{"none"}}); err == nil {
+		t.Error("法域过滤后无条目必须如实失败，不得打空包")
+	}
+}
+
 // TestBuildDeltaWindow 增量包按发布日期窗口切分（闭区间）；窗口外条目不进包；
 // 非法包种类必须拒绝。
 func TestBuildDeltaWindow(t *testing.T) {
