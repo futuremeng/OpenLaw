@@ -689,6 +689,25 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   docs/tasks-eu-rate-limit.md 任务卡与编排建议同步。**下一步**：阶段四
   （发版 v0.1.0：签名信任链路 + 分法域基础包发布）。
 
+- **发版 v0.1.0 · 信任链路 + 首发基础包（阶段四，2026-11-03）**：
+  ① 官方密钥 ol-2026a 生成（私钥落 `~/OpenLaw-keys/`——仓库与数据目录之外，
+  只经路径引用；公钥内置 `pack/official.go` 受信名单，门禁测试
+  `pack/official_test.go`：名单非空、命中、名单外拒收）。② 首发基础包
+  `base-cn-20261102`（kind=base、jurisdictions=[CN]、36,109 条、108,328 文件、
+  zip 约 1.1GB）：build→verify（签名+来源可信）→archive→index/index-verify
+  全链绿。EU 桶（GDPR law 无全文文档，RL-1 pilot 待配额窗口）与 US 桶（批量包
+  全文未导入）**空桶如实失败不产包**——发版不假装三法域齐备。③ 端到端信任
+  安装演练：空库 `openlaw-pack import` → 36,109 条全部 pending（人工闸口）、
+  pack_log=applied、FTS 与源库一致、file_path 落 docx/html 双层。演练暴露并
+  修复真实缺陷：pack build 原始层清单与导入候选曾漏 html 层（govlist 通道
+  产物），含 html 的包导入 partial 中止——`fix(pack)` 补齐并加闭环回归测试。
+  ④ 已知边界（如实标注，未擅自扩写路径）：pack 安装后的数据目录不含 manifest
+  巡检层；对包巡检用 `openlaw-pack verify`，数据目录 manifest 属生产者流程。
+  发布资产在 `dist/packs-20261102/`（zip + index/ + index.sig），GitHub Releases
+  上传与 push 由维护人执行（16.2：发布说明含四数——见 CHANGELOG v0.1.0 节）。
+  **下一步**：RL-1 pilot 出 EU 包、US 批量包导入出 US 包、P1 契约清理
+  （ListElements/法名别名）。
+
 
 ## 明确不在本清单内（不扩散）
 
