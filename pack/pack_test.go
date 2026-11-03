@@ -238,6 +238,63 @@ func TestBuildVerifyImportDocxLayer(t *testing.T) {
 	}
 }
 
+// TestBuildVerifyImportHtmlLayer html 原始层（govlist 通道产物）必须走 pack 闭环：
+// manifest 收录 html/<doc_id>.html、包内复制、导入空目录后 file_path 落 html 层。
+// 真实链路缺陷回归：导入器候选目录曾漏 html，导致含 html 层的包 partial 中止。
+func TestBuildVerifyImportHtmlLayer(t *testing.T) {
+	dir, db, key := setupSource(t)
+
+	src := filepath.Join(t.TempDir(), "html测试条例_20210101.html")
+	if err := os.WriteFile(src, []byte("<html><body><p>第一条　html 正文测试。</p></body></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	md := filepath.Join(t.TempDir(), "html测试条例.md")
+	if err := os.WriteFile(md, []byte("第一条　html 正文测试。\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	im := &ingest.Importer{DataDir: dir, DB: db}
+	if _, err := im.Import(ingest.Request{
+		DocID: "law_packhtml_2021", LawID: "law_packhtml", LawName: "html测试条例",
+		EffectLevel: "地方性法规", VersionNo: "2021版", EffectiveDate: "2021-01-01",
+		SourceType: "测试样例", PDFPath: src, MDPath: md,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	packDir := filepath.Join(t.TempDir(), "pack-html")
+	if err := Build(db, dir, packDir, key, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(packDir, "html/law_packhtml_2021.html")); err != nil {
+		t.Fatalf("包内应收录 html 原始文件: %v", err)
+	}
+	if err := Verify(packDir); err != nil {
+		t.Fatalf("html 层完整包应校验通过: %v", err)
+	}
+
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, "db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tdb, err := store.Open(filepath.Join(target, "db", "openlaw.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.Close()
+	trustPack(t, packDir)
+	if _, err := Import(tdb, target, packDir); err != nil {
+		t.Fatalf("html 包导入失败: %v", err)
+	}
+	var fp string
+	if err := tdb.QueryRow(`SELECT file_path FROM document WHERE doc_id='law_packhtml_2021'`).Scan(&fp); err != nil || fp != "html/law_packhtml_2021.html" {
+		t.Fatalf("file_path 应为 html 层，实际 %q (%v)", fp, err)
+	}
+	var n int
+	if err := tdb.QueryRow(`SELECT COUNT(*) FROM article WHERE doc_id='law_packhtml_2021'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("html 包条文应入库 1 条，实际 %d (%v)", n, err)
+	}
+}
+
 func writeMinimalDocx(t *testing.T, path, para string) {
 	t.Helper()
 	docXML := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +

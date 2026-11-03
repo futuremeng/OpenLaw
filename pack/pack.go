@@ -158,7 +158,7 @@ func BuildWithOptions(db *store.DB, dataDir, outDir, keyPath, license, attributi
 			return err
 		}
 	}
-	for _, sub := range []string{"docx", "txt", "xml"} { // 可选原始层（docx 存量/xml EU 通道出现）
+	for _, sub := range []string{"docx", "html", "txt", "xml"} { // 可选原始层（docx 存量/html govlist 通道/xml EU 通道出现）
 		src := filepath.Join(dataDir, sub)
 		if _, err := os.Stat(src); err != nil {
 			continue
@@ -550,6 +550,7 @@ func importVerified(db *store.DB, targetDataDir, packDir string, trusted bool) (
 		for _, cand := range []string{
 			filepath.Join(packDir, "pdf", c.DocID+".pdf"),
 			filepath.Join(packDir, "docx", c.DocID+".docx"),
+			filepath.Join(packDir, "html", c.DocID+".html"),
 			filepath.Join(packDir, "txt", c.DocID+".txt"),
 			filepath.Join(packDir, "xml", c.DocID+".xml"),
 		} {
@@ -560,7 +561,7 @@ func importVerified(db *store.DB, targetDataDir, packDir string, trusted bool) (
 		}
 		if srcFile == "" {
 			_ = writePackLog(db, rep, keyID, "partial")
-			return rep, fmt.Errorf("包内缺少 %s 的原始文件（pdf/docx/txt/xml 均无）", c.DocID)
+			return rep, fmt.Errorf("包内缺少 %s 的原始文件（pdf/docx/html/txt/xml 均无）", c.DocID)
 		}
 		md := filepath.Join(packDir, "md", c.DocID+".md")
 		for _, f := range []string{md, filepath.Join(packDir, "provenance", c.DocID+".json")} {
