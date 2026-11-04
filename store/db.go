@@ -5,8 +5,11 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -33,7 +36,12 @@ import (
 // v9（2026-11）：新表 law_alias（OL-4 法名规范化：全称 ↔ 简称/别名，来源必须语料内可溯源）。
 // 加法式：仅新表经 schemaSQL IF NOT EXISTS 自动补齐，无需结构迁移。只读消费方读 v8 语料时
 // 该表不存在，法名解析按「无别名」如实处理并给出构建指引（不被迫升级）。
-const SchemaVersion = "9"
+// v10（2026-11）：新表 usage_event（本机使用事件台账，产品评审「度量体系」）。
+// 加法式：仅新表经 schemaSQL IF NOT EXISTS 自动补齐，无需结构迁移。台账只记计数与结论，
+// 不记检索词与案件内容，且只在写入入口记录（只读消费方不写本机台账）。
+// 自 v10 起，每次真实结构迁移都在 meta.migration_report 留下「从哪个版本来、备份在哪」，
+// 界面据此如实说明本机数据被升级过（不再只有内部人才看得到）。
+const SchemaVersion = "10"
 
 // OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
 //   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、
@@ -77,20 +85,22 @@ func Open(path string) (*DB, error) {
 		sqlDB.Close()
 		return nil, err
 	}
-	if ver > SchemaMax {
+	if versionLess(SchemaMax, ver) {
 		sqlDB.Close()
 		return nil, fmt.Errorf("法规库数据格式版本 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不迁移、不回写标记）。%s", ver, SchemaMax, VersionGuidance)
 	}
 	// 结构迁移前自动备份（release-process.md §4 承诺的机制；store/backup.go 实现）。
 	// ver=="" 是空库/未初始化，无数据可失，不备份；版本一致不备份（避免每次启动产文件）。
 	// 备份失败一律 fail-closed：不迁移、不改结构，原库保持原样。
+	backupPath := ""
 	if ver != "" && ver != SchemaVersion {
-		if _, err := backupBeforeMigration(sqlDB, path, ver); err != nil {
+		backupPath, err = backupBeforeMigration(sqlDB, path, ver)
+		if err != nil {
 			sqlDB.Close()
 			return nil, fmt.Errorf("迁移前自动备份失败，迁移已中止（库未改动）: %w", err)
 		}
 	}
-	if err := migrate(sqlDB); err != nil {
+	if err := migrate(sqlDB, ver, backupPath); err != nil {
 		sqlDB.Close()
 		return nil, err
 	}
@@ -118,14 +128,25 @@ func OpenReadOnly(path string) (*DB, error) {
 	case ver == "":
 		sqlDB.Close()
 		return nil, fmt.Errorf("法规库数据缺少 schema_version 标记（空库或未初始化）——只读入口不代跑迁移。%s", VersionGuidance)
-	case ver > SchemaMax:
+	case versionLess(SchemaMax, ver):
 		sqlDB.Close()
 		return nil, fmt.Errorf("法规库数据格式版本 schema_version=%s 高于本版本支持上限 %s——拒绝打开（不部分读、不猜）。%s", ver, SchemaMax, VersionGuidance)
-	case ver < SchemaMin:
+	case versionLess(ver, SchemaMin):
 		sqlDB.Close()
 		return nil, fmt.Errorf("法规库数据格式版本 schema_version=%s 低于本版本只读下限 %s——数据过旧，请用新版 OpenLaw 升级法规库数据后重试（消费方不代跑迁移）", ver, SchemaMin)
 	}
 	return &DB{sqlDB}, nil
+}
+
+// versionLess 按数值比较 schema 版本（双位数起字符串序失真："10" < "3"）。
+// 任一侧不是纯十进制整数时回退字符串序——保持对异常值的保守行为。
+func versionLess(a, b string) bool {
+	ai, aerr := strconv.Atoi(a)
+	bi, berr := strconv.Atoi(b)
+	if aerr == nil && berr == nil {
+		return ai < bi
+	}
+	return a < b
 }
 
 // readSchemaVersion 读取 meta.schema_version（只读查询，绝不写）。
@@ -146,8 +167,33 @@ func readSchemaVersion(db *sql.DB) (string, error) {
 	return strings.TrimSpace(ver), nil
 }
 
-// migrate 幂等迁移：先升级旧结构（v1→v2→v3→v4→v5），再执行内嵌 schema（IF NOT EXISTS 补齐）。
-func migrate(db *sql.DB) error {
+// MigrationReport 一次真实结构迁移的留痕（meta.migration_report，界面如实展示用）。
+// 没有发生过迁移时 ok=false——「没升级过」与「读不到」必须区分（诚实展示）。
+type MigrationReport struct {
+	OK     bool   `json:"ok"`
+	From   string `json:"from,omitempty"`
+	To     string `json:"to,omitempty"`
+	At     string `json:"at,omitempty"`
+	Backup string `json:"backup,omitempty"`
+}
+
+// LoadMigrationReport 读取迁移留痕；meta 表缺失或无该键 → ok=false。
+func LoadMigrationReport(db *sql.DB) MigrationReport {
+	var raw string
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key='migration_report'`).Scan(&raw); err != nil || raw == "" {
+		return MigrationReport{}
+	}
+	var r MigrationReport
+	if err := json.Unmarshal([]byte(raw), &r); err != nil || !r.OK {
+		return MigrationReport{}
+	}
+	return r
+}
+
+// migrate 幂等迁移：先升级旧结构（v1→v2→…→v8），再执行内嵌 schema（IF NOT EXISTS 补齐）。
+// from/backup 来自调用方（Open 在迁移前读到的版本与自动备份位置）：真实发生过迁移时
+// 把「从哪个版本来、备份在哪」写进 meta，界面据此如实说明本机数据被升级过。
+func migrate(db *sql.DB, from, backup string) error {
 	if err := upgradeToV2(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v1→v2）: %w", err)
 	}
@@ -169,9 +215,23 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
-	_, err := db.Exec(`INSERT INTO meta(key, value) VALUES('schema_version', ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, SchemaVersion)
-	return err
+	if _, err := db.Exec(`INSERT INTO meta(key, value) VALUES('schema_version', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, SchemaVersion); err != nil {
+		return err
+	}
+	// 真实发生过迁移（旧版本 → 当前版本）才留迁移报告；空库首建与版本一致都不写。
+	if from != "" && from != SchemaVersion {
+		raw, err := json.Marshal(MigrationReport{OK: true, From: from, To: SchemaVersion,
+			At: time.Now().UTC().Format(time.RFC3339), Backup: backup})
+		if err != nil {
+			return err
+		}
+		if _, err := db.Exec(`INSERT INTO meta(key, value) VALUES('migration_report', ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(raw)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // hasColumn 判断表是否存在某列（表不存在返回 false）。

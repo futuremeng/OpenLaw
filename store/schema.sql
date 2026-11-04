@@ -241,6 +241,18 @@ CREATE TABLE IF NOT EXISTS validate_log (
   created_at TEXT NOT NULL
 );
 
+-- usage_event 本机使用事件台账（schema v10，产品评审「度量体系」）。
+-- 隐私与纪律：只记**计数与结论**，不记检索词、不记案件内容、不记原文；默认离线，
+-- 绝不上传（AGENTS.md 默认离线）。只读消费方读 v9 及更早语料时本表不存在——
+-- 度量层必须如实报「本机尚未记录」，不得把「没有记录」渲染成「0%」。
+CREATE TABLE IF NOT EXISTS usage_event (
+  event_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,           -- app_open|setup_route|pack_install|search|verify|review_run
+  outcome    TEXT NOT NULL DEFAULT '',-- ok|zero|fail|installed|…（结论，不含内容）
+  detail     TEXT NOT NULL DEFAULT '',-- 白话细节（不含检索词与案件内容）
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_version_law_date ON law_version(law_id, effective_date, expire_date);
 CREATE INDEX IF NOT EXISTS idx_article_version ON article(version_id);
 CREATE INDEX IF NOT EXISTS idx_article_doc ON article(doc_id);      -- 按文档反查条文（复核清单/断链检测热点）
