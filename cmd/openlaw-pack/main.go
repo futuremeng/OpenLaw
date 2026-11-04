@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/futuremeng/OpenLaw/ingest"
 	"github.com/futuremeng/OpenLaw/pack"
 	"github.com/futuremeng/OpenLaw/store"
 )
@@ -35,6 +36,7 @@ func main() {
 		jurisdictions  = fs.String("jurisdictions", "", "build：法域过滤，逗号分隔（CN/EU/US/none=法域未标注；如 EU）")
 		since          = fs.String("since", "", "build：发布日期窗口起（含，如 2026-01-01）")
 		until          = fs.String("until", "", "build：发布日期窗口止（含）")
+		core           = fs.Bool("core", false, "build：精简核心包——只导出常用法规参考清单内的法规（首启用；与 -regions/-jurisdictions 取交集）")
 		indexDir       = fs.String("index", "", "index：目录输出目录（index.json + index.sig）")
 		urlBase        = fs.String("url-base", "", "index：下载直链前缀（与归档文件名拼接，如 GitHub Release 资产目录）")
 		outPath        = fs.String("out", "", "archive：归档输出路径（默认 <pack 目录>.zip）")
@@ -62,6 +64,10 @@ func main() {
 		db := openDB(*dataDir)
 		defer db.Close()
 		opts := pack.BuildOptions{PackID: *packID, Kind: *kind, Since: *since, Until: *until}
+		if *core {
+			opts.Names = ingest.PriorityLawNames()
+			fmt.Fprintf(os.Stderr, "精简核心包：按常用法规参考清单过滤，共 %d 个名称（清单为项目整理，非官方认定）\n", len(opts.Names))
+		}
 		if *regions != "" {
 			for _, r := range strings.Split(*regions, ",") {
 				if r = strings.TrimSpace(r); r != "" {
@@ -198,6 +204,7 @@ func openDB(dataDir string) *store.DB {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "用法: openlaw-pack keygen|build|verify|import|archive|index|index-verify [-pack <dir>] [-data <dir>] [-key <path>] [-allow-untrusted]")
+	fmt.Fprintln(os.Stderr, "  build 可选: -pack-id/-kind 必填于基础包与增量包；-regions/-jurisdictions/-since/-until 切分；-core 精简核心包（只导出常用法规参考清单内的法规）")
 	fmt.Fprintln(os.Stderr, "  archive: -pack <包目录> [-out <zip>]；index: -index <目录> -key <私钥> -url-base <直链前缀> <zip>…；index-verify: -index <目录>")
 	os.Exit(1)
 }

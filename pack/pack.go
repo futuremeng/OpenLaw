@@ -116,6 +116,10 @@ type BuildOptions struct {
 	Jurisdictions []string
 	Since         string // 按 document.publish_date 过滤（含）；空=无下限。publish_date 为空的条目
 	Until         string // 同上为上限（含）。——不落入任何日期窗口（如实处理，不得猜日期）
+	// Names：按法规名称精确过滤（全称或简称命中即入包）。用途是**精简核心包**——
+	// 首启用不到 1.1GB 全量库，先装日常高频法规（清单由调用方给出，本包不认清单内容）。
+	// 与 Regions/Jurisdictions 同时给出时取交集；名单为空 = 不过滤。
+	Names []string
 }
 
 // ErrBadJurisdiction 法域过滤名单外的取值（拒绝而非静默空包——空包必须是真的没有数据）。
@@ -211,6 +215,26 @@ func writeChanges(db *store.DB, path string, opts BuildOptions) (map[string]bool
 			args = append(args, j)
 		}
 		where = append(where, "("+strings.Join(ors, " OR ")+")")
+	}
+	if len(opts.Names) > 0 {
+		names := make([]string, 0, len(opts.Names))
+		for _, n := range opts.Names {
+			if n = strings.TrimSpace(n); n != "" {
+				names = append(names, n)
+			}
+		}
+		if len(names) > 0 {
+			ph := make([]string, 0, len(names))
+			for _, n := range names {
+				ph = append(ph, "?")
+				args = append(args, n) // 全称一次、简称一次（两个 IN 列表共用同一名单）
+			}
+			list := strings.Join(ph, ",")
+			for _, n := range names {
+				args = append(args, n)
+			}
+			where = append(where, "(l.name IN ("+list+") OR l.short_name IN ("+list+"))")
+		}
 	}
 	if opts.Since != "" {
 		where = append(where, "d.publish_date >= ?")

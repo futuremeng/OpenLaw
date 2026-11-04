@@ -358,3 +358,48 @@ func TestImportDocConflict(t *testing.T) {
 		t.Errorf("冲突中止台账应记 partial（实际 %q, %v）", status, err)
 	}
 }
+
+// TestBuildCoreByNameFilter 精简核心包（产品评审 P0-3）：按名称名单过滤——
+// 全称与简称都算命中；与其他过滤取交集；名单一条不中必须如实失败（不得产出空包）。
+func TestBuildCoreByNameFilter(t *testing.T) {
+	dir, db, key := setupMultiSource(t)
+	if _, err := db.Exec(`UPDATE law SET short_name='中央法' WHERE law_id='law_cn'`); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "core")
+	if err := BuildWithOptions(db, dir, out, key, "", "",
+		BuildOptions{PackID: "core-2026", Kind: "base", Names: []string{"中央测试法", "广东测试条例"}}); err != nil {
+		t.Fatal(err)
+	}
+	if ids := changeDocIDs(t, out); len(ids) != 2 || !ids["law_cn"] || !ids["law_gd"] {
+		t.Errorf("核心包应只含名单内两条，实际 %v", ids)
+	}
+
+	// 简称命中：名单里写简称也应命中同一部法（命中口径 = 全称 OR 简称）。
+	out2 := filepath.Join(t.TempDir(), "core-short")
+	if err := BuildWithOptions(db, dir, out2, key, "", "",
+		BuildOptions{PackID: "core-short-2026", Kind: "base", Names: []string{"中央法"}}); err != nil {
+		t.Fatal(err)
+	}
+	if ids := changeDocIDs(t, out2); len(ids) != 1 || !ids["law_cn"] {
+		t.Errorf("简称应命中 law_cn，实际 %v", ids)
+	}
+
+	// 与地域过滤取交集：名单含两部，地域限定广东 → 只剩 law_gd。
+	out3 := filepath.Join(t.TempDir(), "core-44")
+	if err := BuildWithOptions(db, dir, out3, key, "", "",
+		BuildOptions{PackID: "core-44-2026", Kind: "base",
+			Names: []string{"中央测试法", "广东测试条例"}, Regions: []string{"44"}}); err != nil {
+		t.Fatal(err)
+	}
+	if ids := changeDocIDs(t, out3); len(ids) != 1 || !ids["law_gd"] {
+		t.Errorf("名单与地域应取交集，实际 %v", ids)
+	}
+
+	// 名单一条不中：如实失败，不得产出「看起来成功」的空包。
+	if err := BuildWithOptions(db, dir, filepath.Join(t.TempDir(), "core-none"), key, "", "",
+		BuildOptions{Kind: "base", Names: []string{"不存在的法规"}}); err == nil {
+		t.Error("名单过滤后无条目必须如实失败，不得打空包")
+	}
+}
