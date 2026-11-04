@@ -84,6 +84,59 @@ func articleNoValue(s string) (int, bool) {
 	return total + cur, seenAny && total+cur > 0
 }
 
+// ArticleNumber 把条号标记（「第二百六十四条」「第264条」，含 Kangxi 部首码位）
+// 解析为整数；无法确定时返回 ok=false（调用方保守处理，不得猜）。
+// 只认「第…条」完整标记：裸数字或省掉「条」的片段可能是章/节/款，不得当条号解析。
+//
+// 导出理由：用户手写的引用与库内写法常不一致（阿拉伯数字 vs 中文数字），
+// 引用核验必须按**数字**比对条号，否则会把「库里找得到」错报成「找不到条文」。
+func ArticleNumber(marker string) (int, bool) {
+	s := FoldKangxi(strings.TrimSpace(marker))
+	if !strings.HasPrefix(s, "第") || !strings.HasSuffix(s, "条") {
+		return 0, false
+	}
+	// 标记内部不留空白（「第 584 条」这类手写排版常见）；库内条号从无空白。
+	s = strings.Join(strings.Fields(strings.TrimSuffix(strings.TrimPrefix(s, "第"), "条")), "")
+	if s == "" {
+		return 0, false
+	}
+	return articleNoValue(s)
+}
+
+// ChineseNumber 把 1..9999 写成中文条号用字（第五百八十四条）。
+// 只用于**显示与检索建议**（把用户写的「第584条」提示成库内可能的写法），
+// 不参与判定：判定一律走 ArticleNumber 的数字比对。
+func ChineseNumber(n int) string {
+	if n <= 0 || n > 9999 {
+		return ""
+	}
+	digits := []rune("零一二三四五六七八九")
+	units := []string{"", "十", "百", "千"}
+	var b strings.Builder
+	s := strconv.Itoa(n)
+	zero := false
+	for i, r := range s {
+		d := int(r - '0')
+		pos := len(s) - i - 1
+		if d == 0 {
+			if b.Len() > 0 {
+				zero = true
+			}
+			continue
+		}
+		if zero {
+			b.WriteString("零")
+			zero = false
+		}
+		// 「一十X」按通行写法省作「十X」
+		if !(d == 1 && pos == 1 && b.Len() == 0) {
+			b.WriteRune(digits[d])
+		}
+		b.WriteString(units[pos])
+	}
+	return b.String()
+}
+
 func isASCIIDigits(s string) bool {
 	if s == "" {
 		return false
