@@ -156,6 +156,9 @@ go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0  # CLI 版本与 go.mo
 make dev-desktop        # 等价于 cd desktop && wails dev
 ```
 
+> `go install` 的产物落在 `$(go env GOPATH)/bin`；该目录不在 `PATH` 里时
+> `make dev-desktop` 也会自行定位，无需手动导出 `PATH`。
+
 - 前端直接从 `desktop/frontend/dist/` 磁盘直读：HTML/JS/CSS 改动即时热重载窗口；
 - `desktop/` 下 `.go` 改动自动重编译并重启应用（重启而非热替换，内存状态不保留）；
 - dev 模式自动开启 devtools；也可用浏览器访问 `http://localhost:34115` 调同一应用；

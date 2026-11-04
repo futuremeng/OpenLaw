@@ -52,6 +52,10 @@ coverage:
 
 # 桌面端开发模式（热更新）：前端改动即时热重载、Go 改动自动重编译重启。
 # 需要 wails CLI（版本与 go.mod 对齐）：go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
+# go install 的产物落在 $(go env GOPATH)/bin；该目录常不在 PATH 里，故两处都找，
+# 避免「CLI 明明装了却报缺少」。
+WAILS ?= $(shell command -v wails 2>/dev/null || echo "$(shell go env GOPATH)/bin/wails")
+
 dev-desktop:
-	@command -v wails >/dev/null 2>&1 || { echo "缺少 wails CLI：go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0"; exit 1; }
-	cd desktop && wails dev
+	@test -x "$(WAILS)" || { echo "缺少 wails CLI：go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0（装好后在 $(shell go env GOPATH)/bin，可加入 PATH）"; exit 1; }
+	cd desktop && $(WAILS) dev

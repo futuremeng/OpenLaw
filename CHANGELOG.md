@@ -17,6 +17,12 @@ US 基础包待官方批量包全文导入——空桶如实不产包。
 
 ## Unreleased（v0.2.0 开发中）
 
+- **修复：`make dev-desktop` 报「缺少 wails CLI」（其实已装）**：`go install` 的产物落在
+  `$(go env GOPATH)/bin`，该目录常常不在 `PATH` 里，旧目标只查 `PATH` 便直接退出——
+  装了 CLI 也起不了开发模式。现改为 `PATH` 与 `$(go env GOPATH)/bin` 两处都找，
+  真正缺失时才报错并在提示里给出该目录位置。桌面端调试链路（`wails dev` 热更新、
+  VS Code/dlv 带 `-tags desktop,production,devtools` 断点）本机实测可起窗口与 dev server。
+
 - **契约补齐 · OpenCourt 对接 OL-3/OL-4（P1）**：① 新增 `sdk.ListElements(caseType)`——
   按案由返回**已复核确认**的构成要件（`element_id`/`name`），供上层作为封闭候选集
   （模型只能从中选一或留空）；待复核要件一律不进候选。案由未登记 → `not_found`；
