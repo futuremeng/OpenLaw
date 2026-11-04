@@ -35,6 +35,8 @@ type TaskManager struct {
 	history []TaskInfo // 最近在前
 	nextID  int
 	emit    func(event string, payload ...interface{})
+	// onDone 任务终态回调（本机台账用；只给种类与状态，不给参数内容）。
+	onDone func(kind, state string)
 }
 
 func NewTaskManager(emit func(event string, payload ...interface{})) *TaskManager {
@@ -91,6 +93,9 @@ func (m *TaskManager) run(ctx context.Context, info *TaskInfo, fn func(context.C
 	snap := *info
 	m.mu.Unlock()
 	m.emitTask(snap)
+	if m.onDone != nil {
+		m.onDone(info.Kind, snap.State)
+	}
 }
 
 // Cancel 请求取消当前任务；返回是否有任务被取消请求。

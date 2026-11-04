@@ -25,7 +25,7 @@ function mk(cls) {
       toggle(c, on) { if (on === undefined) { this._s.has(c) ? this._s.delete(c) : this._s.add(c); } else { on ? this._s.add(c) : this._s.delete(c); } },
       contains(c) { return this._s.has(c); },
     },
-    addEventListener() {}, setAttribute() {}, scrollIntoView() {},
+    addEventListener() {}, setAttribute() {}, scrollIntoView() {}, focus() {}, blur() {},
     removeAttribute(k) { if (k === 'title') el.title = ''; },
     insertAdjacentHTML(p, h) { el.innerHTML = p === 'afterbegin' ? h + el.innerHTML : el.innerHTML + h; },
     querySelector() { return mk(); }, querySelectorAll() { return []; }, appendChild() {},
@@ -79,7 +79,7 @@ let emptyLib = false;
 const data = {
   Status: () => emptyLib
     ? ({ laws: 0, articles: 0, documents: 0, versions: 0, pending: 0, confirmed: 0, rejected: 0, by_level: [], juris: [{ code: 'CN', laws: 0, documents: 0, pending: 0 }, { code: 'EU', laws: 0, documents: 0, pending: 0 }, { code: 'US', laws: 0, documents: 0, pending: 0 }], last_fetch: {}, data_dir: 'data', schema_version: '7', schema_min: '3', schema_max: '7', producer_version: '无 manifest', open_err: '' })
-    : ({ laws: 28953, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', juris: 'CN', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', juris: 'CN', pending: 30859, confirmed: 4, rejected: 1 }], juris: [{ code: 'CN', laws: 28952, documents: 28952, pending: 36109 }, { code: 'EU', laws: 1, documents: 0, pending: 0 }, { code: 'US', laws: 0, documents: 0, pending: 0 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '7', schema_min: '3', schema_max: '7', producer_version: 'v0.1.0', open_err: '' }),
+    : ({ laws: 28953, articles: 412345, documents: 28952, versions: 30000, pending: 36109, confirmed: 12, rejected: 1, by_level: [{ level: '行政法规', juris: 'CN', pending: 1200, confirmed: 8, rejected: 0 }, { level: '部门规章', juris: 'CN', pending: 30859, confirmed: 4, rejected: 1 }], juris: [{ code: 'CN', laws: 28952, documents: 28952, pending: 36109 }, { code: 'EU', laws: 1, documents: 0, pending: 0 }, { code: 'US', laws: 0, documents: 0, pending: 0 }], last_fetch: { govcn: '2026-10-28T02:28:32Z' }, data_dir: 'data', data_src: '命令行 -data', schema_version: '10', schema_min: '3', schema_max: '10', producer_version: 'v0.1.0', license: '公有领域文本；转发须署名出处', edition: 'full', edition_note: '本机为数据维护版：除查法规外，还可进行人工复核、地域标引、从官方渠道逐条获取与数据自检。', migration_note: '本机数据已从格式版本 9 升级到 10（2026-11-04T01:00:00Z）；升级前已自动备份：data/db/openlaw.db.bak-v9', open_err: '' }),
   // 智能审核：通道就绪 + 分开计数（智能体/人工/历史来源未记录）+ 例外队列样例。
   // 例外条目必须带白话原因与建议——冒烟里要能看出「为什么需要人工」。
   AgentStatus: () => ({ configured: true, model: 'test-model', guidance: '', technical: '环境变量 OPENLAW_LLM_*' }),
@@ -130,6 +130,36 @@ const data = {
   // 更新包校验：按 Go 侧真实形状返回「校验通过（来源可信…）」——导入解锁判定按它来。
   PackVerify: () => '校验通过（来源可信：受信发布者 test-key）',
   SearchArticles: () => [{ doc_id: 'D1', law_name: '工伤保险条例', level: '行政法规', confirm_status: 'pending', snippet: '…工伤…', article_no: '第一条' }],
+  // 检索的诚实出路（P1-4）：结果 + 说明同一批数据；零命中必须带原因与下一步。
+  SearchGuided: (q, k) => ({
+    rows: data.SearchArticles().slice(0, k),
+    guidance: { query: q, hits: 1, capped: false, zero_result: false, reasons: [], suggestions: [], alias_of: [] },
+  }),
+  // 发行版档位（P1-1）与复核兑现（P0-1）、本机度量：冒烟里按维护版 + 有缺口如实给出。
+  AppEdition: () => ({ code: 'full', note: '本机为数据维护版：除查法规外，还可进行人工复核、地域标引、从官方渠道逐条获取与数据自检。' }),
+  ReviewCoverage: () => ({
+    priority_total: 99, priority_in_corpus: 12, priority_confirmed: 4, priority_unreviewed: 8, priority_missing: 87,
+    missing_names: ['中华人民共和国海商法'], unreviewed_names: ['中华人民共和国劳动法'],
+    truncated: true, corpus_laws: 3, corpus_docs: 3, corpus_confirmed: 1, confirmed_pct: 33.3,
+    headline: '已复核确认 1 / 3 条（33.3%）；常用法规参考清单 99 部中已收录 12 部、已复核 4 部。',
+    list_note: '常用法规参考清单由本项目按实务高频领域整理，用于显示复核兑现进度；它不是官方认定，也不代表清单内法规更重要。',
+  }),
+  UsageReport: () => ({
+    available: true, since: '2026-10-05T00:00:00Z', window_days: 30,
+    funnel: [{ kind: 'app_open', label: '打开本应用', count: 3, done: true }, { kind: 'search', label: '完成一次检索', count: 5, done: true }],
+    search_total: 5, search_zero: 1, zero_rate: 20, verify_total: 2,
+    human_reviews: 4, human_per_day: 0.1, exception_backlog: 2, fetch_runs: 1,
+    chain_total: 3, chain_fail: 1, fail_rate: 33.3,
+    headline: '最近 30 天：检索 5 次（其中 1 次没有命中）、引用核验 2 次、人工复核 4 次（平均每天 0.1 次）、待您纠正 2 条。',
+    note: '以下数字全部来自本机留痕（不上传、不含检索词与案件内容）；「没有记录」与「记录为 0」是两回事，未记录时不会显示比率。',
+  }),
+  // 粘贴即核验（P0-2）：按 Go 侧 VerifyResult 形状桩「命中且一致」的结论。
+  VerifyCitationText: () => ({
+    parsed: { raw: '', law_name: '工伤保险条例', law_name_from: 'corpus-name', article_no: '第一条', article_written: '第1条', article_number: 1, at_date: '', quote: '', recognized: ['法规名称《工伤保险条例》（库内法规名命中）', '条款号 第一条'], missing: [] },
+    verdict: 'verified',
+    citation: { hit: true, law_name: '工伤保险条例', article_no: '第一条', doc_id: 'D1', version_no: '现行', similarity: 0.98, confirm_status: 'confirmed', content: '工伤保险条例第一条 为了保障工伤职工，制定本条例。', chain_issues: [], candidates: [], resolved_from: 'full_name' },
+    next_steps: ['可在右侧查看留证原文并复制；引用时请附条目编号与版本，便于他人复验。'],
+  }),
 };
 const App = new Proxy({}, { get: (t, k) => async (...args) => (k in data ? data[k](...args) : []) });
 const storage = { _m: new Map(), getItem(k) { return this._m.get(k) ?? null; }, setItem(k, v) { this._m.set(k, v); } };
@@ -140,7 +170,7 @@ for (const f of ['assets/api.js', 'assets/app.js']) vm.runInContext(fs.readFileS
 (listeners['DOMContentLoaded'] || []).forEach((f) => f());
 const g = (id) => byId.get(id);
 (async () => {
-  for (const p of ['home', 'setup', 'browse', 'overview', 'search', 'review', 'region', 'collect', 'pack']) {
+  for (const p of ['home', 'setup', 'browse', 'overview', 'search', 'verify', 'review', 'region', 'collect', 'pack']) {
     ctx.showPanel(p);
     await new Promise((r) => setTimeout(r, 30));
   }
@@ -176,14 +206,35 @@ const g = (id) => byId.get(id);
   await new Promise((r) => setTimeout(r, 60));
   // 首页搜索封顶出口：命中 20 条（首页上限）必须给「到条文检索查看全部」，
   // 不得长成死路（与初始化面板「只给去处」同一精神）。
-  const homeStub = data.SearchArticles;
-  data.SearchArticles = () => Array.from({ length: 20 }, (_, i) =>
-    ({ doc_id: 'D' + i, law_name: '测试法规' + i, level: '行政法规', confirm_status: 'confirmed', snippet: '…测试…', article_no: '第一条' }));
+  const homeStub = data.SearchGuided;
+  data.SearchGuided = (q, k) => ({
+    rows: Array.from({ length: 20 }, (_, i) =>
+      ({ doc_id: 'D' + i, law_name: '测试法规' + i, level: '行政法规', confirm_status: 'confirmed', snippet: '…测试…', article_no: '第一条' })),
+    guidance: { query: q, hits: 20, capped: true, zero_result: false, reasons: [], suggestions: ['本次只显示前 20 条命中，库里可能还有更多。'], alias_of: [] },
+  });
   ctx.showPanel('home');
   g('hq').value = '测试';
   await ctx.homeSearch();
   const homeMore = g('h-results').innerHTML.includes('到条文检索查看全部');
-  data.SearchArticles = homeStub;
+  data.SearchGuided = homeStub;
+  // 粘贴即核验（P0-2）：结论、认出的要素、下一步必须同时给出，且留证原文可查。
+  ctx.showPanel('verify');
+  g('v-text').value = '《工伤保险条例》第一条';
+  await ctx.doVerify();
+  const verifyOut = g('v-out').innerHTML;
+  // 零命中必须给出「为什么 + 可以怎么做」，不得只剩一句「没有找到」。
+  const guidedStub = data.SearchGuided;
+  data.SearchGuided = (q) => ({
+    rows: [],
+    guidance: { query: q, hits: 0, capped: false, zero_result: true, reasons: ['条文原文里没有这段文字。'], suggestions: ['换成更短的词后再试。'], alias_of: [] },
+  });
+  ctx.showPanel('search');
+  g('q').value = '一个库里没有的词';
+  await ctx.doSearch();
+  const zeroGuide = g('search-guide').innerHTML;
+  data.SearchGuided = guidedStub;
+  // 恢复常规命中样本后再跑一次：后面的断言看的是正常命中下的就地收窄控件。
+  await ctx.doSearch();
   const cntConfirm = g('cnt-review').textContent, cntConfirmTitle = g('cnt-review').title;
   // 待复核确实为 0 时不得留「0」徽标（无需提醒），面板内另有如实说明。
   ctx.setSideFoot({ laws: 1, pending: 0 });
@@ -212,7 +263,8 @@ const g = (id) => byId.get(id);
   const maintGroupOn = g('nav-group-maintain').hidden === false;
   const maintCrumb = g('crumb-root').textContent + ' | ' + g('crumb-cur').textContent;
   const mainNavHidden = g('nav-group-main').hidden === true && g('nav-home').hidden === true &&
-    g('nav-browse').hidden === true && g('nav-search').hidden === true && g('nav-maintain').hidden === true;
+    g('nav-browse').hidden === true && g('nav-search').hidden === true &&
+    g('nav-verify').hidden === true && g('nav-maintain').hidden === true;
   ctx.enterMaintain('region');
   // 批量处理：执行按钮如实反映「先看范围再执行」——进面板即锁定，预览有可处理条目才解锁。
   const bulkLocked = g('rg-b-apply').disabled === true;
@@ -231,6 +283,21 @@ const g = (id) => byId.get(id);
   vm.runInContext('packDir = ""; packVerified = false;', ctx);
   ctx.exitMaintain();
   const maintGroupOff = g('nav-group-maintain').hidden === true;
+  // 只读查询版（P1-1）：维护入口与写路径面板入口收起；上次留下的维护态必须回落查询态，
+  // 否则两套导航都被收起，用户会卡在没有任何导航的界面上。
+  const edStub = data.AppEdition;
+  data.AppEdition = () => ({ code: 'reader', note: '本机为只读查询版：不提供人工复核、地域标引与逐条采集。' });
+  ctx.enterMaintain('overview');
+  await ctx.applyEdition();
+  const readerHidden = g('nav-maintain').hidden === true && g('nav-review').hidden === true &&
+    g('nav-region').hidden === true && g('nav-collect').hidden === true;
+  const readerBackToMain = g('nav-home').hidden === false && g('nav-verify').hidden === false;
+  ctx.showPanel('overview');
+  await new Promise((r) => setTimeout(r, 40));
+  const readerOverviewActs = g('ov-actions').innerHTML;
+  data.AppEdition = edStub;
+  await ctx.applyEdition();
+  ctx.exitMaintain();
   const mainNavBack = g('nav-group-main').hidden === false && g('nav-home').hidden === false &&
     g('nav-maintain').hidden === false;
   const mainCrumbRoot = g('crumb-root').textContent;
@@ -291,6 +358,16 @@ const g = (id) => byId.get(id);
     '面板头如实报列出/共计': paneCnt.includes('显示') && paneCnt.includes('共'),
     '取列进行时就地提示': busyLine.includes('正在取列'),
     '首页搜索封顶给出路': homeMore,
+    '粘贴即核验给出结论与下一步': verifyOut.includes('引用正确') && verifyOut.includes('认出：') && verifyOut.includes('留证'),
+    '零命中给出为什么与出路': zeroGuide.includes('为什么') && zeroGuide.includes('可以怎么做'),
+    '复核兑现如实报进度': g('ov-coverage').textContent.includes('已复核确认 1 / 3') && g('ov-coverage-bar').innerHTML.includes('bar-row'),
+    '复核缺口点名并声明清单性质': g('ov-coverage-list').innerHTML.includes('中华人民共和国海商法') && g('ov-coverage-list').innerHTML.includes('不是官方认定'),
+    '数据来源与可信度常驻': g('ov-cred').innerHTML.includes('官方渠道') && g('ov-cred').innerHTML.includes('不构成法律意见'),
+    '发行版与迁移留痕可见': g('ov-edition').innerHTML.includes('数据维护版') && g('ov-edition').innerHTML.includes('迁移留痕'),
+    '本机使用情况如实（含不上传声明）': g('ov-usage').textContent.includes('最近 30 天') && g('ov-usage-funnel').innerHTML.includes('不上传'),
+    '实验通道如实标注': g('ov-juris').innerHTML.includes('实验通道'),
+    '只读查询版收起写路径入口': readerHidden && readerBackToMain,
+    '只读查询版下一步不给写路径去处': !readerOverviewActs.includes('data-go="collect"') && !readerOverviewActs.includes('data-go="review"') && readerOverviewActs.includes('data-go="pack"'),
     '缺失合并成一个标记': rowHTML.includes('未标注 3 项') && !rowHTML.includes('效力等级未标注 · 地域未标注'),
     '缺失不被当作已知值回显': !rowHTML.includes('效力等级未标注'),
     '待复核条目行有强调类': rowHTML.includes('item pend'),

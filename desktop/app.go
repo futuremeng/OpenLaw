@@ -34,6 +34,13 @@ type App struct {
 	db      *store.DB
 	openErr string
 
+	// 发行版分档（产品评审 P1-1）：full=数据维护版（默认，含复核/标引/采集）；
+	// reader=只读查询版（查法规 + 取数，不暴露复核与采集控件）。档位由启动参数决定，
+	// 前端据此裁剪导航——不是隐藏功能，是**不给只读用户写路径的入口**。
+	edition       string
+	editionWarn   string // 启动参数里档位无法识别等异常（必须随档位说明一起给出）
+	migrationNote string // 本机数据被升级过的如实说明（meta.migration_report）
+
 	// 风险标记缓存：LoadRiskSetFromProvenance 要扫数千 provenance JSON，
 	// 不能每次刷队列都扫。TTL 5 分钟；只影响读侧展示，不影响写纪律。
 	riskMu   sync.Mutex
@@ -49,12 +56,14 @@ type App struct {
 }
 
 func NewApp(dataDir string) *App {
-	a := &App{dataDir: dataDir}
+	a := &App{dataDir: dataDir, edition: EditionFull}
 	a.tm = NewTaskManager(func(ev string, data ...interface{}) {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, ev, data...)
 		}
 	})
+	// 任务终态写本机台账（度量体系；只记种类与结论，不记参数内容）。
+	a.tm.onDone = a.logTaskEvent
 	return a
 }
 
@@ -73,6 +82,12 @@ func (a *App) Open() error {
 		return err
 	}
 	a.db = db
+	// 迁移留痕如实带出（产品评审 P1-6：数据被升级过必须让用户看见，不只是内部人知道）。
+	if mr := store.LoadMigrationReport(db.DB); mr.OK {
+		a.migrationNote = fmt.Sprintf("本机数据已从格式版本 %s 升级到 %s（%s）；升级前已自动备份：%s",
+			mr.From, mr.To, mr.At, mr.Backup)
+	}
+	a.logUsage(store.EventAppOpen, "ok", "")
 	return nil
 }
 
@@ -126,6 +141,11 @@ type StatusView struct {
 	ByLevel         []LevelCount      `json:"by_level"`
 	Juris           []JurisCount      `json:"juris"`                // 分法域计数（CN/EU/US 恒常三行，0 也如实显示）
 	LastFetch       map[string]string `json:"last_fetch,omitempty"` // 各渠道最近抓取报告时间（数据源状态卡）
+	// 产品评审落地三项（随状态一并给出，避免面板各自多跑一次查询而口径不一）：
+	Edition          string `json:"edition"`                  // full=数据维护版 / reader=只读查询版
+	EditionNote      string `json:"edition_note"`             // 该档位的白话说明（含能做什么、不能做什么）
+	MigrationNote    string `json:"migration_note,omitempty"` // 本机数据被升级过的如实说明（无迁移则空）
+	CoverageHeadline string `json:"coverage_headline"`        // 复核兑现一行白话（P0-1，缺失必须直说）
 }
 
 func (a *App) count(q string, args ...any) int {
@@ -216,6 +236,15 @@ func (a *App) Status() (StatusView, error) {
 		if cur, ok := v.LastFetch[r.Source]; !ok || r.ModifiedAt > cur {
 			v.LastFetch[r.Source] = r.ModifiedAt
 		}
+	}
+	// 发行版档位与迁移留痕（界面据此如实说明本机是哪一档、数据是否被升级过）。
+	v.Edition, v.EditionNote = a.editionInfo()
+	v.MigrationNote = a.migrationNote
+	// 复核兑现一行白话（P0-1）：读不到时如实说明，不得留空让界面渲染成中性数字。
+	if cov, err := ingest.ReviewCoverage(a.db, 0); err == nil {
+		v.CoverageHeadline = cov.Headline()
+	} else {
+		v.CoverageHeadline = "本机暂时读不到复核进度：" + err.Error()
 	}
 	return v, nil
 }

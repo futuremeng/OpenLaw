@@ -44,6 +44,7 @@ const AppTitle = "开源法律法规数据库"
 
 func main() {
 	dataDir := flag.String("data", "data", "数据目录（db/、md/、incoming/、manifest/）")
+	edition := flag.String("edition", EditionFull, "发行版：full=数据维护版（含复核/标引/采集）；reader=只读查询版（不给写路径入口）")
 	flag.Parse()
 	flagSet := false
 	flag.Visit(func(f *flag.Flag) {
@@ -60,6 +61,8 @@ func main() {
 
 	app := NewApp(dir)
 	app.dataSrc = src
+	app.SetEdition(*edition)
+	log.Printf("发行版：%s", *edition)
 	if err := app.Open(); err != nil {
 		// 启动失败也开窗：错误在界面内如实显示（fail-visible，不静默）
 		log.Printf("打开法规库失败: %v", err)

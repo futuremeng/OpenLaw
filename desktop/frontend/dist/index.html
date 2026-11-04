@@ -19,6 +19,7 @@
       <button class="nav active" id="nav-home" data-panel="home" data-icon="search">关键词检索</button>
       <button class="nav" id="nav-browse" data-panel="browse" data-icon="filter">按条件筛选</button>
       <button class="nav" id="nav-search" data-panel="search" data-icon="file">条文检索</button>
+      <button class="nav" id="nav-verify" data-panel="verify" data-icon="shield">核验引用</button>
       <!-- 维护子导航：默认收起，只经左列底部「维护法规库」入口进入（独立工作区）。 -->
       <div class="nav-group" id="nav-group-maintain" data-icon="wrench" hidden>维护法规库</div>
       <button class="nav" id="nav-exit-maintain" data-icon="back" hidden>返回查法规</button>
@@ -138,6 +139,7 @@
           <input id="hq" placeholder="想知道什么规定？直接输入关键词"/>
           <button id="btn-hsearch">搜索</button>
         </div>
+        <p class="hint">手头已有一段引用（判决书、合同里的「《……》第几条」）？ <button id="h-verify" class="ok">粘贴过来，核验它 →</button></p>
         <p id="h-empty" class="muted hidden">法规库还是空的，搜索不会有任何结果。<button id="h-setup" class="ok">去初始化法规库</button></p>
       </div>
       <div id="h-cards" class="cards"></div>
@@ -210,6 +212,12 @@
       <div id="status-err" class="err"></div>
       <p id="ov-datadir" class="muted small"></p>
       <div id="ov-hero" class="hero-cards"></div>
+      <h2>复核兑现<span class="sub">常用法规参考清单的进度；清单由本项目整理，不是官方认定</span></h2>
+      <p id="ov-coverage" class="muted"></p>
+      <div id="ov-coverage-bar" class="bars"></div>
+      <div id="ov-coverage-list" class="kv"></div>
+      <div id="ov-cred" class="kv"></div>
+      <p id="ov-edition" class="muted small"></p>
       <div id="ov-actions" class="actions"></div>
       <h2>法规库分法域与构成<span class="sub">中国 / 欧盟 / 美国，一个法域一个块；尚未收录的如实标注；色块长短表示各等级占多少</span></h2>
       <div id="ov-juris" class="juris"></div>
@@ -217,6 +225,8 @@
       <details class="disclose">
         <summary>技术信息（数据存放位置 · 数据格式版本）</summary>
         <div id="ov-tech" class="kv"></div>
+        <p id="ov-usage" class="muted small"></p>
+        <div id="ov-usage-funnel" class="kv"></div>
       </details>
     </section>
 
@@ -247,15 +257,39 @@
         <span class="pc" id="s-pane-cnt" aria-live="polite"></span>
       </div>
       <div id="search-list" class="list"></div>
-      <div class="cite">
-        <h3>引用核对（与官方留证原文比对）</h3>
-        <input id="c-law" placeholder="法规名称"/>
-        <input id="c-art" placeholder="条款号（如 第一条）"/>
-        <textarea id="c-quote" placeholder="您手头的引用文本"></textarea>
-        <input id="c-date" placeholder="引用时点 YYYY-MM-DD（空=今天）"/>
-        <button id="btn-cite">核对</button>
-        <pre id="cite-out" class="muted"></pre>
+      <div id="search-guide" class="guide hidden"></div>
+    </section>
+
+    <!-- 查法规 · 核验引用（招牌动作）：粘贴一段自由文字 → 认出要素 → 六环节判定 → 下一步。
+         判定一律走与 CLI 相同的 CheckCitation 链路；界面只翻译结论，不另判一套。 -->
+    <section id="panel-verify" class="panel hidden">
+      <header class="page-head">
+        <h1>核验引用</h1>
+        <p class="lead">把判决书、合同或备忘录里的一段引用原样贴进来。系统认出其中的法规名称、条款号与引用时点，与本机留证的官方原文逐字比对，再告诉你这条引用现在站不站得住。</p>
+      </header>
+      <div class="form">
+        <textarea id="v-text" placeholder="例如：依据《中华人民共和国民法典》第五百八十四条（2021年1月1日施行）：当事人一方不履行合同义务……"></textarea>
+        <div class="rowbtns">
+          <input id="v-date" placeholder="引用时点 YYYY-MM-DD（空=按文中日期，文中也没有则按今天）"/>
+          <button id="btn-verify" class="ok">核验</button>
+        </div>
       </div>
+      <div id="v-out" class="verdict"></div>
+      <details class="disclose">
+        <summary>已经知道法规名称和条款号：逐项核对</summary>
+        <div class="cite">
+          <input id="c-law" placeholder="法规名称"/>
+          <input id="c-art" placeholder="条款号（如 第一条）"/>
+          <textarea id="c-quote" placeholder="您手头的引用文本"></textarea>
+          <input id="c-date" placeholder="引用时点 YYYY-MM-DD（空=今天）"/>
+          <button id="btn-cite">核对</button>
+          <pre id="cite-out" class="muted"></pre>
+        </div>
+      </details>
+      <details class="disclose">
+        <summary>核验会给出哪几种结果</summary>
+        <p class="muted small">引用正确／条文找到了但文字不一致／未找到对应条文／同名法规需人工确认／所引版本已失效／来源链有断点（此时不给结论）。每种结果都会说明下一步该做什么；系统不替人裁决，同名多法一律交人工。</p>
+      </details>
     </section>
 
     <!-- 维护 · 智能审核：双智能体自审 → 人工只处理例外（确认/驳回一键完成，署名自动） -->
@@ -266,6 +300,8 @@
       </header>
       <div id="rv-stats" class="hero-cards"></div>
       <p id="rv-channel" class="muted small"></p>
+      <!-- 期望管理（产品评审 P2-8）：机器确认的语义必须常驻，不能只写在折叠里。 -->
+      <p class="warnbox">智能审核只是把有把握的条目自动标记为「已复核」，<b>不等于官方认定</b>；拿不准的一律留给人工，自动标记的条目在列表里会标明「智能体确认」。</p>
       <div class="toolbar">
         <button id="btn-review-run" class="ok">开始智能审核</button>
         <label>本轮最多审核 <input id="rv-limit" type="number" value="50" min="1"/> 条</label>

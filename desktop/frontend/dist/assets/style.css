@@ -478,3 +478,24 @@ tbody tr:hover { background: var(--surface-2); }
   .tchip { font-size: 11px; padding: 2px 7px; }
   #crumb { font-size: 12px; }
 }
+
+/* ---------- 检索的诚实出路（P1-4）与核验引用（P0-2） ----------
+   说明块必须与结果区分得出来（不是又一条结果），也不能长得像报错。 */
+.guide {
+  margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line);
+  border-left: 3px solid var(--warn, #b8860b); border-radius: 8px;
+  background: var(--panel, rgba(128, 128, 128, .06)); font-size: 13px;
+}
+.guide .t { margin: 0 0 6px; font-weight: 600; }
+.guide .k { margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
+.guide ul { margin: 0; padding-left: 18px; }
+.guide li { margin: 2px 0; }
+.verdict { margin-top: 12px; }
+.vresult { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; font-weight: 600; border: 1px solid var(--line); }
+.vresult.ok { border-color: var(--ok, #2e7d32); color: var(--ok, #2e7d32); }
+.vresult.warn { border-color: var(--warn, #b8860b); color: var(--warn, #b8860b); }
+.vresult.bad { border-color: var(--bad, #b3261e); color: var(--bad, #b3261e); }
+.vlist, .vnext { margin: 6px 0; padding-left: 20px; font-size: 13px; }
+.vlist li { margin: 2px 0; }
+.vlist li.miss { color: var(--muted); }
+.vnext { border-top: 1px dashed var(--line); padding-top: 8px; }

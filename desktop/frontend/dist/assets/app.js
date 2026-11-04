@@ -137,13 +137,13 @@ function toast(msg) {
    回到查询时维护子导航整套收起。左列任何时刻只呈现一套导航
    （docs/design-ui-language.md：主导航只谈「查法规」）。 */
 let ws = localStorage.getItem("ol-ws") === "maint" ? "maint" : "main";
-const MAIN_NAV = ["nav-group-main", "nav-home", "nav-browse", "nav-search"];
+const MAIN_NAV = ["nav-group-main", "nav-home", "nav-browse", "nav-search", "nav-verify"];
 const MAINTAIN_NAV = ["nav-group-maintain", "nav-exit-maintain", "nav-overview",
   "nav-review", "nav-region", "nav-collect", "nav-pack"];
 // 顶栏面包屑：当前位置 + 当前生效的筛选摘要。用户随时能看到「自己在哪、看的是不是筛过的」。
 // 维护工作区内面包屑根改报「维护法规库」——位置如实反映工作区。
 const PANEL_TITLE = {
-  home: "关键词检索", browse: "按条件筛选", search: "条文检索", setup: "初始化法规库",
+  home: "关键词检索", browse: "按条件筛选", search: "条文检索", verify: "核验引用", setup: "初始化法规库",
   overview: "库总览", review: "智能审核", region: "地域标引", collect: "获取最新法规",
   pack: "离线更新包",
 };
@@ -164,6 +164,7 @@ function showPanel(p) {
   if (flt) flt.classList.toggle("hidden", p !== "browse");
   if (p === "home") loadHome();
   if (p === "browse") loadLaws();
+  if (p === "verify") { const t = $("#v-text"); if (t && !t.value) t.focus(); }
   if (p === "setup") loadSetup();
   if (p === "overview") loadOverview();
   if (p === "review") loadReview();
@@ -182,7 +183,29 @@ function applyWorkspace() {
   MAIN_NAV.forEach((id) => { const el = $("#" + id); if (el) el.hidden = ws === "maint"; });
   MAINTAIN_NAV.forEach((id) => { const el = $("#" + id); if (el) el.hidden = ws !== "maint"; });
   const entry = $("#nav-maintain");
-  if (entry) entry.hidden = ws === "maint";
+  if (entry) entry.hidden = ws === "maint" || edition === "reader";
+  // 只读查询版：不给写路径的入口（复核/标引/采集面板在维护组内，整组收起；
+  // 取数与库总览仍可达——只读用户同样要能装包与查看本机数据状态）。
+  if (edition === "reader") {
+    ["nav-review", "nav-region", "nav-collect"].forEach((id) => { const el = $("#" + id); if (el) el.hidden = true; });
+  }
+}
+// 发行版档位（-edition reader|full）：reader 隐藏维护入口，full 全量。
+// 隐藏的是入口不是能力——后端方法仍在，CLI 与消费方 SDK 不受影响。
+let edition = "full";
+async function applyEdition() {
+  try {
+    const e = await app().AppEdition();
+    edition = (e && e.code) || "full";
+    // 只读查询版没有维护工作区：上次留下的维护态必须回落查询态，
+    // 否则两套导航都被收起，用户会卡在没有任何导航的界面上。
+    if (edition === "reader" && ws === "maint") {
+      ws = "main";
+      localStorage.setItem("ol-ws", ws);
+    }
+    applyWorkspace();
+    return e;
+  } catch (e) { return null; }
 }
 function enterMaintain(p) {
   ws = "maint";
@@ -672,7 +695,8 @@ async function homeSearch() {
   if (!q) return;
   $("#h-results").innerHTML = '<p class="muted">正在检索…</p>';
   try {
-    const rows = (await app().SearchArticles(q, 20)) || [];
+    const v = await app().SearchGuided(q, 20);
+    const rows = v.rows || [];
     // 封顶如实显示：首页只列前 20 条——到顶必须给出出口，不得长成死路
     // （与初始化面板「只给去处」同一精神；条文检索面板列 50 条并带收窄筛选）。
     const more = rows.length >= 20
@@ -683,14 +707,31 @@ async function homeSearch() {
         <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
         <div class="snip">${escapeHTML(r.snippet)}</div>
         <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""} · <b class="view">查看原文 →</b></div>
-      </div>`).join("") + more : '<p class="muted">没有找到相关条文，试试更短的关键词。</p>';
+      </div>`).join("") + more : guideBlock(v.guidance, "没有找到相关条文。");
     document.querySelectorAll("#h-results .lawcard").forEach((el) =>
       el.addEventListener("click", () => openPreview(el.dataset.doc)));
     const hm = $("#h-results").querySelector("#h-more");
     if (hm) hm.addEventListener("click", () => { $("#q").value = q; showPanel("search"); doSearch(); });
+    bindGuideJump("#h-results");
   } catch (e) {
     $("#h-results").innerHTML = '<p class="bad">检索失败：' + escapeHTML(e.message || e) + "</p>";
   }
+}
+// guideBlock 检索的诚实出路（P1-4）：为什么没找到 + 现在能做什么。
+// 边界不变：不重排序、不做同义改写；给出的每一条都必须是可照做的动作或库内事实。
+function guideBlock(g, lead) {
+  const reasons = (g && g.reasons) || [];
+  const sugg = (g && g.suggestions) || [];
+  if (!reasons.length && !sugg.length) return '<p class="muted">' + escapeHTML(lead || "") + "</p>";
+  return '<div class="guide"><p class="t">' + escapeHTML(lead || "本次检索的说明") + "</p>" +
+    (reasons.length ? '<div class="k">为什么</div><ul>' + reasons.map((x) => "<li>" + escapeHTML(x) + "</li>").join("") + "</ul>" : "") +
+    (sugg.length ? '<div class="k">可以怎么做</div><ul>' + sugg.map((x) => "<li>" + escapeHTML(x) + "</li>").join("") + "</ul>" : "") +
+    "</div>";
+}
+// 说明里的「按该法规浏览」是库内事实（别名指向），给出可点的跳转。
+function bindGuideJump(sel) {
+  document.querySelectorAll(sel + " .guide [data-jump-law]").forEach((el) =>
+    el.addEventListener("click", () => { browseFilter.juris = ""; showPanel("browse"); }));
 }
 $("#btn-hsearch").addEventListener("click", homeSearch);
 $("#hq").addEventListener("keydown", (e) => { if (e.key === "Enter") homeSearch(); });
@@ -727,8 +768,9 @@ async function loadSetupAgent() {
       : (st.guidance || "智能审核尚未配置：不配置也能查询与人工纠正，只是新条目会保持待复核。");
   } catch (e) { $("#su-agent").textContent = "通道状态读取失败：" + (e.message || e); }
 }
-$("#su-go-pack").addEventListener("click", () => enterMaintain("pack"));
-$("#su-go-collect").addEventListener("click", () => enterMaintain("collect"));
+// 获取路线的选择要落进本机台账（首启漏斗的一步；只记路线名，不记任何内容）。
+$("#su-go-pack").addEventListener("click", () => { app().SetupRouteChosen("pack").catch(() => {}); enterMaintain("pack"); });
+$("#su-go-collect").addEventListener("click", () => { app().SetupRouteChosen("collect").catch(() => {}); enterMaintain("collect"); });
 $("#su-go-home").addEventListener("click", () => showPanel("home"));
 
 /* ---------- 初始化 · 官方数据包目录（GitHub Releases 分发通道） ----------
@@ -791,6 +833,7 @@ $("#su-catalog").addEventListener("change", updateSuSel);
 $("#su-install").addEventListener("click", async () => {
   const ids = suSelected();
   if (!ids.length) { toast("请先勾选要安装的数据包"); return; }
+  app().SetupRouteChosen("pack").catch(() => {}); // 首启漏斗：选了哪条获取路线（只记路线名）
   try {
     const t = await app().StartRemoteInstallTask(ids);
     toast(`安装任务 #${t.id} 已开始（逐包获取与校验，进度见任务列表）`);
@@ -910,15 +953,19 @@ function renderJuris(rows, byLevel, reps, revs) {
     const laws = r.laws || 0, docs = r.documents || 0;
     const bars = (groups[c] || []).slice().sort((a, b) => totalOf(b) - totalOf(a));
     let head;
+    // 实验通道如实标注（P1-5）：欧盟/美国是并行验证的通道，不与主战场并列叙事；
+    // 空桶仍然如实显示 0，但收在折叠里，不占主视图注意力。
+    const exp = c === "EU" || c === "US";
+    const expTag = exp ? ' <span class="pill">实验通道</span>' : "";
     if (laws > 0) {
       const stat = docs > 0
         ? ((r.pending || 0) > 0 ? `待复核 ${num(r.pending)} 条` : "均已复核")
         : "尚无留证条文";
       head = `<button class="jhead" data-juris="${c}" title="浏览该法域全部法规">` +
-        `<b>${JURIS_TEXT[c]}</b><span class="num">${num(laws)} 部</span>` +
+        `<b>${JURIS_TEXT[c]}</b>${expTag}<span class="num">${num(laws)} 部</span>` +
         `<span class="muted">${stat} · 点击查看全部 ›</span></button>`;
     } else {
-      head = `<div class="jhead off"><b>${JURIS_TEXT[c]}</b><span class="num">0 部</span>` +
+      head = `<div class="jhead off"><b>${JURIS_TEXT[c]}</b>${expTag}<span class="num">0 部</span>` +
         `<span class="muted">尚未收录</span></div>`;
     }
     let body;
@@ -935,7 +982,8 @@ function renderJuris(rows, byLevel, reps, revs) {
     } else if (laws > 0) {
       body = `<p class="muted">尚无留证原文入库，构成待原文获取后显示。</p>`;
     } else {
-      body = `<p class="muted">${escapeHTML(JURIS_HINT[c])}</p>`;
+      const hint = `<p class="muted">${escapeHTML(JURIS_HINT[c])}</p>`;
+      body = exp ? `<details class="disclose sm"><summary>该通道现状与下一步</summary>${hint}</details>` : hint;
     }
     // 该法域的最近动态：获取记录（按渠道映射法域）与复核记录（经条目真实联查法域）
     // 归入所属法域列——每个法域一个完整档案（计数→构成→动态），缺失如实说明。
@@ -975,12 +1023,18 @@ async function loadOverview() {
     // 处境一句话 + 下一步动作（最多两个）。按钮按用户目标命名，不用内部流程名
     // （原「去复核」「采集与更新」是内部流程说法）。
     let acts = "";
-    if (v.pending > 0) {
+    if (edition === "reader") {
+      // 只读查询版：不给写路径的去处，但必须说清这批数据现在处于什么状态、缺了怎么办。
+      acts += v.pending > 0
+        ? `<span>法规库中有 <b>${num(v.pending)}</b> 条内容尚未经人工复核，引用前请以官方原文为准；复核在数据维护版进行。</span>`
+        : "<span>已收录的条目均已审核。</span>";
+      acts += `<button data-go="pack">导入更新包补充数据</button>`;
+    } else if (v.pending > 0) {
       acts += `<span>法规库中有 <b>${num(v.pending)}</b> 条内容尚未经审核，引用前请以官方原文为准。</span><button data-go="review">去智能审核</button>`;
     } else {
       acts += "<span>已收录的条目均已审核。</span>";
     }
-    acts += `<button data-go="collect">获取最新法规</button>`;
+    if (edition !== "reader") acts += `<button data-go="collect">获取最新法规</button>`;
     $("#ov-actions").innerHTML = acts;
     document.querySelectorAll("#ov-actions [data-go]").forEach((b) => b.addEventListener("click", () => showPanel(b.dataset.go)));
     // 获取/复核记录归入所属法域列（计数→构成→动态，一个法域一个完整档案）。
@@ -988,6 +1042,61 @@ async function loadOverview() {
     const reps = (await app().RecentReports(9)) || [];
     const revs = (await app().RecentReviews(9)) || [];
     renderJuris(v.juris, v.by_level, reps, revs);
+    // 复核兑现（P0-1）：把「可信」从机制变成可核对的事实——常用清单进度 + 全库比例，
+    // 缺失与未复核必须点名（截断时如实说明还有多少没列）。
+    let cov = null;
+    try { cov = await app().ReviewCoverage(12); } catch (e) { cov = null; }
+    $("#ov-coverage").textContent = cov ? cov.headline : "本机暂时读不到复核进度。";
+    if (cov) {
+      const total = Number(cov.priority_total || 0);
+      const done = Number(cov.priority_confirmed || 0);
+      const inCorp = Number(cov.priority_in_corpus || 0);
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      const segPct = (cls, n) => n > 0 ? `<i class="${cls}" style="width:${((n / (total || 1)) * 100).toFixed(2)}%"></i>` : "";
+      $("#ov-coverage-bar").innerHTML =
+        `<div class="bar-row"><span class="nm">常用法规已复核</span>` +
+        `<span class="bar">${segPct("ok", done)}${segPct("pend", Math.max(inCorp - done, 0))}${segPct("no", Math.max(total - inCorp, 0))}</span>` +
+        `<span class="num">${num(done)} / ${num(total)}（${pct}%）</span></div>`;
+      const notes = [];
+      if (Number(cov.priority_missing || 0) > 0) {
+        notes.push(`<span>清单中本机尚未收录 ${num(cov.priority_missing)} 部${(cov.missing_names || []).length ? "：" + escapeHTML(cov.missing_names.join("、")) + ((cov.missing_names || []).length < Number(cov.priority_missing) ? " 等" : "") : ""}——可在「获取最新法规」补齐。</span>`);
+      }
+      if (Number(cov.priority_unreviewed || 0) > 0) {
+        notes.push(`<span>已收录但尚未复核 ${num(cov.priority_unreviewed)} 部${(cov.unreviewed_names || []).length ? "：" + escapeHTML(cov.unreviewed_names.join("、")) + ((cov.unreviewed_names || []).length < Number(cov.priority_unreviewed) ? " 等" : "") : ""}。</span>`);
+      }
+      if (cov.truncated) notes.push('<span class="muted">清单较长，此处只列前 12 条，其余以计数给出。</span>');
+      notes.push(`<span class="muted">${escapeHTML(cov.list_note || "")}</span>`);
+      $("#ov-coverage-list").innerHTML = notes.join("");
+      // 数据来源与可信度（P2-7）：能做什么、数据从哪来、凭什么信——一屏给齐。
+      $("#ov-cred").innerHTML =
+        `<span>数据来自国务院「国家行政法规库」「国家规章库」等官方渠道，每条都保留原文链接与获取时间供逐字核对。</span>` +
+        `<span>本工具只做<b>核对与留证</b>：不重排序、不改写原文、不替人裁决——同名多法一律交人工。</span>` +
+        `<span>标注「尚未复核」的条目未经比对确认，引用前请以官网文本为准；本工具不构成法律意见。</span>` +
+        (v.license ? `<span class="muted">数据许可：${escapeHTML(v.license)}</span>` : "") +
+        (v.producer_version ? `<span class="muted">数据来源版本：${escapeHTML(v.producer_version)}</span>` : "");
+    } else {
+      $("#ov-coverage-bar").innerHTML = "";
+      $("#ov-coverage-list").innerHTML = "";
+      $("#ov-cred").innerHTML = "";
+    }
+    // 发行版档位与迁移留痕（P1-1 / P1-6）：本机是哪一档、数据是否被升级过，必须可见。
+    const ed = [];
+    if (v.edition_note) ed.push(escapeHTML(v.edition_note));
+    if (v.migration_note) ed.push("迁移留痕：" + escapeHTML(v.migration_note));
+    $("#ov-edition").innerHTML = ed.join(" ");
+    // 本机使用情况（度量体系）：只在本机累计；未记录必须直说，不得渲染成 0。
+    try {
+      const u = await app().UsageReport();
+      $("#ov-usage").textContent = u.headline || "";
+      $("#ov-usage-funnel").innerHTML =
+        `<span>${escapeHTML(u.note || "")}</span>` +
+        (u.funnel || []).map((s) => `<span>${s.done ? "已" : "尚未"}${escapeHTML(s.label)}${s.count ? "（本机记录 " + num(s.count) + " 次）" : ""}</span>`).join("") +
+        `<span>例外队列积压 ${num(u.exception_backlog)} 条 · 人工复核 ${num(u.human_reviews)} 次（平均每天 ${(u.human_per_day || 0).toFixed(1)} 次）</span>` +
+        (u.chain_total ? `<span>溯源校验 ${num(u.chain_total)} 次，其中 ${num(u.chain_fail)} 次发现断链（${(u.fail_rate || 0).toFixed(1)}%）</span>` : "");
+    } catch (e) {
+      $("#ov-usage").textContent = "本机暂时读不到使用情况。";
+      $("#ov-usage-funnel").innerHTML = "";
+    }
     // 技术信息：路径、启动参数、数据格式版本一律收在折叠里，不占主视图。
     $("#ov-tech").innerHTML = `<span>数据存放位置：${escapeHTML(v.data_dir || "未知")}${v.data_src ? "（由启动参数指定：" + escapeHTML(v.data_src) + "）" : ""}</span>
       <span>数据格式版本 ${escapeHTML(v.schema_version || "?")}（本程序支持 ${escapeHTML(v.schema_min)}–${escapeHTML(v.schema_max)}）</span>
@@ -1100,7 +1209,17 @@ async function doSearch() {
   $("#search-info").textContent = "检索中…";
   hitFilter.level = hitFilter.confirm = ""; // 换关键词即换样本，旧筛选不得跨样本沿用
   try {
-    lastHits = (await app().SearchArticles(q, 50)) || [];
+    const v = await app().SearchGuided(q, 50);
+    lastHits = v.rows || [];
+    // 封顶与零命中的说明与结果同一批数据（同一口径），命中被就地筛选时不重复刷屏。
+    const g = $("#search-guide");
+    if (g) {
+      const cap = v.guidance && v.guidance.capped && !hitFilter.level && !hitFilter.confirm
+        ? '<div class="guide"><p class="t">本次显示前 ' + num(lastHits.length) + ' 条命中，库里可能还有更多——用上面的条件收窄或到「按条件筛选」放宽年代。</p></div>' : "";
+      g.innerHTML = lastHits.length ? cap : guideBlock(v.guidance, "全库条文中没有这段文字。");
+      g.classList.toggle("hidden", lastHits.length > 0 && !v.guidance.capped);
+      bindGuideJump("#search-guide");
+    }
     renderHitFacets();
     renderHits();
   } catch (e) {
@@ -1165,6 +1284,69 @@ async function doCite() {
   }
 }
 $("#btn-cite").addEventListener("click", doCite);
+
+/* ---------- 查法规 · 核验引用（P0-2：招牌动作） ----------
+   要素识别在库层（validate.VerifyCitationText），判定走 CheckCitation 同一条链路；
+   这里只把六态结论翻译成人话并给出下一步——界面不得自判一套。 */
+const VERDICT_TEXT = {
+  verified: ["引用正确", "ok"],
+  quote_mismatch: ["条文找到了，但您手头的文字与留证原文不一致", "warn"],
+  not_found: ["未找到对应条文", "warn"],
+  ambiguous: ["同名法规有多部，需人工确认所指", "warn"],
+  expired: ["所引版本已失效", "warn"],
+  broken_chain: ["来源链有断点，本次不给结论", "bad"],
+  incomplete: ["这段文字里认不出法规名称", "warn"],
+};
+async function doVerify() {
+  const text = $("#v-text").value.trim();
+  if (!text) { $("#v-out").innerHTML = '<p class="muted">请先粘贴一段引用文字。</p>'; return; }
+  $("#v-out").innerHTML = '<p class="muted">核验中…</p>';
+  try {
+    const r = await app().VerifyCitationText(text, $("#v-date").value.trim());
+    const p = r.parsed || {};
+    const [label, tone] = VERDICT_TEXT[r.verdict] || ["核验未完成", "warn"];
+    let html = `<p class="vresult ${tone}">${escapeHTML(label)}</p>`;
+    html += "<ul class=\"vlist\">" + (p.recognized || []).map((x) => `<li>认出：${escapeHTML(x)}</li>`).join("") +
+      (p.missing || []).map((x) => `<li class="miss">缺：${escapeHTML(x)}</li>`).join("") + "</ul>";
+    const c = r.citation || {};
+    if (c.hit) {
+      html += `<p class="muted small">命中留证：《${escapeHTML(c.law_name || "")}》${escapeHTML(c.article_no || "")} · ` +
+        `条目 ${escapeHTML(c.doc_id || "")} · 版本 ${escapeHTML(c.version_no || "")} · ` +
+        `与原文相似度 ${num(Math.round((c.similarity || 0) * 1000) / 10)}% · ` +
+        `${c.confirm_status === "confirmed" ? "已复核确认" : "尚未复核，请以官方原文为准"}</p>`;
+      if (c.content) html += `<div class="preview"><p>${escapeHTML(c.content)}</p></div>`;
+    }
+    // OL-1010：同名多法必须并列候选交人工（不自动采信、不显示成「未找到」）。
+    if (c.error_code === "OL-1010" || r.verdict === "ambiguous") {
+      const cs = c.candidates || [];
+      html += '<p class="muted">法规库中同名条目（请人工确认所指，系统不自动采信）：' +
+        cs.map((x) => `《${escapeHTML(x.name)}》${x.issuer ? "（" + escapeHTML(x.issuer) + "）" : ""}`).join(" ") +
+        "</p>";
+    }
+    if (c.resolved_from && c.resolved_from !== "full_name") {
+      const how = { short_name: "简称登记", alias: "简称/别名", name_rule: "名称规则" }[c.resolved_from] || c.resolved_from;
+      html += `<p class="muted small">本次按${escapeHTML(how)}认定为《${escapeHTML(c.law_name || "")}》` +
+        (c.alias_article_id ? `（出处条文 ${escapeHTML(c.alias_article_id)}）` : "") + "，请确认为所指法规。</p>";
+    }
+    if (c.date_disambiguated) {
+      html += '<p class="muted small">法规库中有多部同名法规，已按所给日期唯一确定；如非所指请改用完整名称。</p>';
+    }
+    if ((c.chain_issues || []).length) {
+      html += '<p class="muted small">来源链提示：' + c.chain_issues.map((i) => escapeHTML(i.code)).join("、") + "</p>";
+    }
+    html += "<ul class=\"vnext\">" + (r.next_steps || []).map((x) => `<li>${escapeHTML(x)}</li>`).join("") + "</ul>";
+    if (c.hit && c.doc_id) {
+      html += `<div class="rowbtns"><button id="v-open" class="ok">查看这条原文</button></div>`;
+    }
+    $("#v-out").innerHTML = html;
+    const vo = $("#v-out").querySelector("#v-open");
+    if (vo) vo.addEventListener("click", () => openPreview(c.doc_id));
+  } catch (e) {
+    $("#v-out").innerHTML = '<p class="bad">核验失败：' + escapeHTML(e.message || e) + "</p>";
+  }
+}
+$("#btn-verify").addEventListener("click", doVerify);
+$("#h-verify").addEventListener("click", () => showPanel("verify"));
 
 
 /* ---------- 维护 · 智能审核（双智能体自审 → 人工只处理例外） ---------- */
@@ -1604,6 +1786,7 @@ document.addEventListener("DOMContentLoaded", () => {
   applyTheme(); applyDensity(); applyReading(); applyIcons();
   loadManifest(); loadSettings();
   waitBindings(async () => {
+    await applyEdition();
     applyWorkspace();
     loadRegion(); loadSideFoot(); loadRegionStats();
     // 空库启动（新装用户）：如实落到「初始化法规库」面板，不装作浏览态正常。

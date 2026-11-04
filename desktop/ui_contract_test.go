@@ -495,3 +495,67 @@ func TestCitationPanelAmbiguousName(t *testing.T) {
 		t.Errorf("核验面板未显示「同名按日期唯一确定」——静默认定同名法规属诚实展示缺陷")
 	}
 }
+
+// TestProductReviewPanels 产品评审落地的界面契约（P0-1 / P0-2 / P1-1 / P1-4 / P1-5 / P2-7 / P2-8）：
+// ① 核验引用是主工作区的一等入口（招牌动作不得藏在折叠里）；
+// ② 复核兑现与本机使用情况必须在库总览可见，且带口径声明；
+// ③ 只读查询版必须收掉写路径入口；
+// ④ 零命中必须给出「为什么 + 可以怎么做」，不得只剩一句「没有找到」；
+// ⑤ 实验通道（欧盟/美国）必须如实标注；机器确认的语义必须常驻。
+func TestProductReviewPanels(t *testing.T) {
+	html := readFrontend(t, "index.html")
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+
+	for _, want := range []string{`id="panel-verify"`, `id="nav-verify"`, `id="v-text"`, `id="btn-verify"`, `id="v-out"`,
+		`id="h-verify"`, `id="search-guide"`, `id="ov-coverage"`, `id="ov-coverage-bar"`, `id="ov-coverage-list"`,
+		`id="ov-cred"`, `id="ov-edition"`, `id="ov-usage"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("缺少 %s——评审落地的入口/说明缺失，用户看不到产品到底兑现了什么", want)
+		}
+	}
+	// 主导航只谈「查法规」，核验引用属查法规动作。
+	if !strings.Contains(js, `"nav-verify"`) || !strings.Contains(js, `verify: "核验引用"`) {
+		t.Errorf("核验引用未进主导航/面包屑——招牌动作藏在折叠里等于没有")
+	}
+	// 六态逐态给出不同说法与下一步，不得一律「未找到」。
+	for _, v := range []string{"verified:", "quote_mismatch:", "not_found:", "ambiguous:", "expired:", "broken_chain:", "incomplete:"} {
+		if !strings.Contains(js, v) {
+			t.Errorf("核验结论缺少 %s 的白话映射——六态必须逐态给出下一步", v)
+		}
+	}
+	if !strings.Contains(js, "app().VerifyCitationText(") || !strings.Contains(js, "app().SearchGuided(") {
+		t.Errorf("前端未走粘贴核验/带说明的检索绑定——不得在前端另判一套")
+	}
+	if !strings.Contains(js, "function guideBlock(") || !strings.Contains(js, "为什么") || !strings.Contains(js, "可以怎么做") {
+		t.Errorf("零命中缺少「为什么 + 可以怎么做」——诚实出路是检索的一部分")
+	}
+	// 复核兑现必须带清单性质声明；本机使用情况必须带「不上传」口径。
+	for _, want := range []string{"app().ReviewCoverage(", "cov.list_note", "app().UsageReport(", "u.note",
+		"app().SetupRouteChosen("} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——复核兑现与使用情况的口径声明缺失会误导用户", want)
+		}
+	}
+	// 只读查询版：隐藏的是入口，不是能力；档位由后端给出，前端不得自判。
+	for _, want := range []string{"app().AppEdition(", "function applyEdition(", `edition === "reader"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——发行版分档必须由后端档位驱动", want)
+		}
+	}
+	// 实验通道标注 + 机器确认免责常驻（不得只写在折叠里）。
+	if !strings.Contains(js, `c === "EU" || c === "US"`) || !strings.Contains(js, "实验通道") {
+		t.Errorf("欧盟/美国通道未标注实验通道——与主战场并列叙事会误导预期")
+	}
+	if !strings.Contains(html, `id="rv-channel"`) {
+		t.Errorf("智能审核通道状态行缺失")
+	}
+	if !strings.Contains(html, "不等于官方认定") {
+		t.Errorf("智能审核的语义未常驻主视图——机器确认被理解成官方认定属期望管理缺陷")
+	}
+	// 数据来源与可信度卡必须给出「不替人裁决」与「不构成法律意见」。
+	for _, want := range []string{"不构成法律意见", "不替人裁决"} {
+		if !strings.Contains(js, want) && !strings.Contains(html, want) {
+			t.Errorf("关于/可信度说明缺少 %q", want)
+		}
+	}
+}
