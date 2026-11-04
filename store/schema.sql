@@ -214,6 +214,22 @@ CREATE TABLE IF NOT EXISTS pack_log (
   applied_at TEXT NOT NULL
 );
 
+-- law_alias 法名规范化表（OL-4，docs/tasks-opencourt-bridge.md）：全称 ↔ 简称/别名。
+-- 纪律：别名来源必须**语料内可溯源**——source 只允许 corpus-short_name（law.short_name 列）
+-- 与 corpus-text（该法规文本中的「以下简称」条款，附出处条文 source_article_id）；
+-- 禁止由模型生成别名。多行同 alias = 多候选，解析层必须并列交人工，不得自动采信。
+-- 加法式：不加 CHECK（取值合法性放应用层与门禁测试）、仅新表经 schemaSQL IF NOT EXISTS
+-- 自动补齐，无需结构迁移。只读消费方读 v8 及更早语料时本表不存在 → 解析层按「无别名」
+-- 如实处理并给出构建指引（诚实展示纪律：查不到就说查不到，不猜）。
+CREATE TABLE IF NOT EXISTS law_alias (
+  alias TEXT NOT NULL,             -- 规范化别名（去书名号与空白后）
+  law_id TEXT NOT NULL REFERENCES law(law_id),
+  source TEXT NOT NULL,            -- corpus-short_name | corpus-text
+  source_article_id TEXT,          -- corpus-text 的出处条文；空 = 出处未留
+  built_at TEXT NOT NULL,
+  PRIMARY KEY (alias, law_id)
+);
+
 -- validate_log 校验日志
 CREATE TABLE IF NOT EXISTS validate_log (
   validate_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,6 +252,9 @@ CREATE INDEX IF NOT EXISTS idx_law_jurisdiction ON law(jurisdiction); -- 按法�
 CREATE INDEX IF NOT EXISTS idx_region_log_law ON region_log(law_id);
 CREATE INDEX IF NOT EXISTS idx_region_log_batch ON region_log(batch_id); -- 按批次撤销
 CREATE INDEX IF NOT EXISTS idx_agent_review_doc ON agent_review(doc_id); -- 例外队列按条目取最近结论
+CREATE INDEX IF NOT EXISTS idx_law_alias_alias ON law_alias(alias); -- 按别名反查法规（OL-4 解析热点）
+CREATE INDEX IF NOT EXISTS idx_law_alias_law ON law_alias(law_id);  -- 按法规列别名
+
 CREATE INDEX IF NOT EXISTS idx_document_confirm_source ON document(confirm_source); -- 智能体/人工确认分开统计
 
 -- 全文检索（开发文档 13.2）。中文分词不足由 search 层 LIKE 兜底，术语辅助列为后续版本。

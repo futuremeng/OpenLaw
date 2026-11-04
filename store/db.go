@@ -30,7 +30,10 @@ import (
 // v8（2026-11）：element +confirm_status（OL-2，docs/tasks-opencourt-bridge.md）——
 // 要件导入一律 pending，人工确认后才 confirmed；加法式：不加 CHECK、纯 ALTER。
 // 只读消费方读 v7 语料时该列缺失，element 加载层按「未确认」如实处理（不被迫升级）。
-const SchemaVersion = "8"
+// v9（2026-11）：新表 law_alias（OL-4 法名规范化：全称 ↔ 简称/别名，来源必须语料内可溯源）。
+// 加法式：仅新表经 schemaSQL IF NOT EXISTS 自动补齐，无需结构迁移。只读消费方读 v8 语料时
+// 该表不存在，法名解析按「无别名」如实处理并给出构建指引（不被迫升级）。
+const SchemaVersion = "9"
 
 // OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
 //   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、
