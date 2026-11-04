@@ -79,7 +79,26 @@ article_id（= `version_id + "_" + article_no`）、content、md_path、doc_id�
 **EU 通道**：`article_no` 为英文条号（`Article 1` 等）、`parser_version = openlaw-parse/0.1.0+formex-eu`（FORMEX ACT XML 结构边界，XHTML 回退带 `+xhtml` 后缀）。条文级中文语义功能（要件抽取等）须按 `parser_version LIKE '%+formex-eu'` 或 `lang` 区分语言。
 
 ### element 构成要件表
-element_id、article_id、case_type（案由）、name、description、how_to_attack（对方突破方向）。
+element_id、article_id、case_type（案由）、name、description、how_to_attack（对方突破方向）、
+confirm_status（v8 起持久化，默认 pending；v7 及更早只读语料无该列，一律按 pending 如实处理）。
+对外只把 `confirm_status=confirmed` 的要件作为封闭候选（OL-3，`sdk.ListElements`）。
+
+### law_alias 法名别名表（schema v9，OL-4）
+alias（规范化别名，去书名号与空白）、law_id（FK→law）、source、source_article_id、built_at。
+PK `(alias, law_id)`：同一别名多行 = 多候选，解析层必须并列交人工，不得自动采信。
+`source` 只允许两种取值（合法性放应用层与门禁测试，schema 刻意不加 CHECK）：
+
+| source | 含义 | 出处留痕 |
+|---|---|---|
+| `corpus-short_name` | 镜像 `law.short_name` 列既有登记 | 列本身 |
+| `corpus-text` | 该法规文本中的「以下简称」条款 | `source_article_id` 指向出处条文 |
+
+**禁止由模型生成别名。** 另有一条不入库的确定性名称规则 `name-prefix(R1)`（国名省略式：
+`中华人民共和国X` ↔ `X`），仅在别名表未命中时用于反查全称，与 `openlaw-level` 的
+效力等级规则同口径。构建与巡检见 `openlaw-alias`（默认试采，`-apply` 才写入）。
+只读消费方打开 v8 及更早语料时本表不存在：解析层必须如实标注「别名表缺失」并给出
+构建指引，不得失败或猜测（诚实展示纪律）。
+
 
 ### case_fact 案件事实表
 status：supported（已支撑）/ unsupported（缺证据）/ conflict（相互矛盾）。

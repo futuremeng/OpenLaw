@@ -64,6 +64,9 @@ OpenLaw/
     openlaw-confirm/  # CLI：pending 语料人工确认（风险抽样/清单落判/条件批量，全程 review_log 审计）
     openlaw-element/  # CLI：构成要件导入与人工落判（OL-2；默认 dry-run，关联不到条文如实拒绝，
                       #   落判必须署名+依据，全程 review_log；导入一律 pending）
+    openlaw-alias/    # CLI：法名别名表构建与巡检（OL-4；默认 dry-run，-apply 才写库，-csv 出巡检报告，
+                      #   -stats/-lookup 只读；别名只取语料内可溯源信息，不生成）
+
     openlaw-level/    # CLI：flk 存量效力等级保守名称规则补标（默认 dry-run，-apply 写库留痕）
     openlaw-region/   # CLI：法规地域标引（名称/机关保守推导；默认 dry-run 出分类报告，-apply 只写高置信，-undo 按批次撤销，-check 一致性自检只报告，-stats/-review/-bulk 人工落判）
     openlaw-eu-text/  # CLI：欧盟全文导入（Cellar representation 层 FORMEX XML 结构化条文，默认 dry-run；-probe 配额探测；-batch 队列批量：断点续传+连续限流熔断+CSV 批次报告）
@@ -133,6 +136,11 @@ go run ./cmd/openlaw-ingest -data data \
 
 # 每日校验：manifest 签名 + 断链清单
 go run ./cmd/openlaw-check -data data -build-manifest -key ./keys/openlaw.key
+
+# 法名别名表（简称→法规，OL-4）：先试采出报告，人工巡检后再写入
+go run ./cmd/openlaw-alias -data data -csv /tmp/alias-report.csv
+go run ./cmd/openlaw-alias -data data -apply
+go run ./cmd/openlaw-alias -data data -lookup 《民法典》
 
 # 欧盟法律元数据（Cellar SPARQL 官方开放入口；全文须人工保存 EUR-Lex）
 go run ./cmd/openlaw-eu -data data -celex 32016R0679 -name 欧盟通用数据保护条例 -short-name GDPR

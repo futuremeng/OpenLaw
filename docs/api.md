@@ -37,15 +37,37 @@ type Result struct {
 ## 3. 接口清单
 
 ### ResolveVersion(lawName, atDate string) Result
-按时间点解析当时生效版本（左闭右开）。
-Data：version_id、version_no、effective_date、expire_date、confirm_status、effect_status。
+按时间点解析当时生效版本（左闭右开）。法名支持全称、简称与别名（OL-4）。
+Data：version_id、version_no、effective_date、expire_date、confirm_status、effect_status、
+law_id、law_name、resolved_from（命中依据：full_name/short_name/alias/name_rule）。
 错误：OL-1001（名称不存在）、OL-1002（该日期无生效版本）；断链 → broken_chain。
 confirm_status=pending → ok + 人工确认提示（仅提示不报错）。
+多候选（同名多法、别名指向多法）且时间点无法唯一确定 → `need_manual` + OL-1010 +
+`Data.candidates[]`（并列交人工，绝不自动采信任何一条）；若同名多法在所给日期只有一部
+有生效版本，则按时间点收敛为一条并在 warnings 明示「同名若干部，已按日期唯一确定」。
+
+### ResolveLawName(lawName string) Result
+法名 → 语料内法规解析（OL-4），供上层做名称规范化与消歧。解析顺序（逐级放宽，命中即停）：
+`law.name` 精确 → `law.short_name` 精确 → `law_alias` 别名表 → 国名省略式名称规则
+（`中华人民共和国X` ↔ `X`，规则号 `name-prefix(R1)`）。
+Data：query、normalized、candidates[]（law_id/name/issuer/resolved_from/alias_source/
+based_on_article_id）、alias_table_missing（语料早于 v9 时为 true）。
+唯一命中 → ok + 依据进 warnings；多候选 → need_manual + OL-1010；未命中 → OL-1001。
+别名只来自语料内可溯源信息（简称列登记、官方文本「以下简称」条款并附出处条文号），
+**不由模型生成**。
 
 ### CheckCitation(lawName, articleNo, quote, atDate string) Result
-入参校验链：名称 → 时间点版本 → 条款号 → 文本相似度 → 效力 → 溯源链。
-Data：hit、similarity（0~1，互相包含=1.0，否则字符二元组 Dice）、expired、content（原文）、version_no、current_version、confirm_status。
-错误：OL-1001/1002/1003；OL-1004（相似度 < 0.60，返回原文供人工比对）；OL-1005（expired + current_version）；溯源失败 → broken_chain + OL-1006/OL-1007（禁止输出判错结论）。
+入参校验链：名称（含简称/别名，OL-4）→ 时间点版本 → 条款号 → 文本相似度 → 效力 → 溯源链。
+Data：hit、similarity（0~1，互相包含=1.0，否则字符二元组 Dice）、expired、content（原文）、version_no、current_version、confirm_status；按简称/别名命中时另附 resolved_from、alias_source、alias_article_id（凭什么认定这部法，必须可见）。
+错误：OL-1001/1002/1003；OL-1004（相似度 < 0.60，返回原文供人工比对）；OL-1005（expired + current_version）；OL-1010（法名多候选，`Data.candidates[]` 交人工）；溯源失败 → broken_chain + OL-1006/OL-1007（禁止输出判错结论）。
+
+### ListElements(caseType string) Result
+按案由列出**已复核确认**的构成要件（OL-3），供上层作为封闭候选集（如 OpenCourt 的
+`ListCaseElements`）。只读、不裁决：待复核（pending）要件一律不进入候选。
+Data：case_type、elements[]（element_id/name）。
+语义区分：案由未在要件库登记 → `not_found`；已登记但无已确认要件 → `ok` + 空表 +
+「尚未复核确认」提示（旧版本语料未记录确认状态时提示为「全部按待复核处理」）。
+
 
 ### AnalyzeElements(caseType string, facts []string) Result
 Data：covered[]、missing_elements[]（name + how_to_attack + confirm_status）。
@@ -107,6 +129,7 @@ OpenCourt LawSourcePlugin.GetLawDetail 对接面（lawID = article_id 约定）�
 | OL-1007 | 哈希校验失败 | 立即告警并隔离文件 |
 | OL-1008 | manifest 签名验证失败 | 停止使用数据目录 |
 | OL-1009 | OCR 置信度过低 | 转人工确认（OCR 待接入） |
+| OL-1010 | 法名对应多部法规且时间点无法唯一确定 | 并列 `candidates[]` 交人工选择，禁止自动采信 |
 
 提示文案常量见 `sdk.ErrorHints`。
 
@@ -131,6 +154,7 @@ OpenCourt LawSourcePlugin.GetLawDetail 对接面（lawID = article_id 约定）�
 | `openlaw-element import -in <csv\|json> [-apply]` | 构成要件导入（OL-2）：默认 dry-run 计数；article_id 关联不到条文的行如实拒绝并报告；导入一律 pending（机器不裁决） | 0 / 1 |
 | `openlaw-element confirm -ids <id,…> -verdict confirm\|reject -reviewer <署名> -reason <依据>` | 要件人工落判：署名 + 依据必填，流转与复核记录原子写入 | 0 / 1 |
 | `openlaw-element stats` | 按案由统计要件数与确认状态 | 0 / 1 |
+| `openlaw-alias [-apply] [-csv 报告.csv] [-stats] [-lookup 法名]` | 法名别名表构建与巡检（OL-4）：默认 dry-run 只出「将会」计数；`-apply` 才写库；只收录语料内可溯源别名（简称列登记 + 官方「以下简称」条款，附出处条文），不生成别名 | 0 / 1 |
 
 **数据源策略（18/19 章，2026-10 复核）**：
 - `flk.npc.gov.cn`（国家法律法规数据库）robots.txt 全文 `Disallow: /` 且明确「禁止使用任何自动化工具、脚本、爬虫程序采集或复制网站数据」→ **硬禁止名单**，任何配置下不得自动抓取；需要其文本时人工下载放入 `data/incoming/`

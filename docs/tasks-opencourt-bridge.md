@@ -17,8 +17,8 @@ OpenCourt 侧盘点（2026-10-28）发现：本仓库已具备的能力大多够
 | OL-8 | schema 版本协商（不匹配即拒） | **P0**（✅ 2026-10-28 完成） | schema 版本被消费方回写降级（隐患 H2） |
 | OL-2 | 构成要件导入 CLI（`openlaw-element`） | **P0**（✅ 2026-11-02 完成：schema v8 element +confirm_status、民间借贷样板端到端） | OpenCourt v0.2 M4 全部（`element` 表当前 **0 行**） |
 | OL-1 | 显式 `effect_status` 字段 | **P0**（✅ 2026-11-02 完成：Search/GetArticle/ResolveVersion 三出口） | OpenCourt 停止自行推导法条效力（违例 V1） |
-| OL-3 | 要件名封闭候选集查询 | P1 | OpenCourt 阅卷抽取的要件归属（违例 V3） |
-| OL-4 | 法名规范化/别名解析 + 候选列表 | P1 | 文书引用核验可用性（简称引用极常见） |
+| OL-3 | 要件名封闭候选集查询 | P1（✅ 2026-11-03 完成：`sdk.ListElements` 只出已确认要件） | OpenCourt 阅卷抽取的要件归属（违例 V3） |
+| OL-4 | 法名规范化/别名解析 + 候选列表 | P1（✅ 2026-11-03 完成：schema v9 `law_alias` + 四级解析 + OL-1010 候选） | 文书引用核验可用性（简称引用极常见） |
 | OL-5 | 程序期限规则查询（带法条引用） | P2 | OpenCourt 程序守护的规则溯源（违例 V4，v0.3） |
 | OL-6 | sdk 接口稳定性承诺 | 持续 | OpenCourt 进程内 import 是编译期耦合 |
 | OL-9 | 清单采集通道内聚本仓库（browser 包 + `openlaw-govlist`） | **P0**（✅ 2026-10-28 完成） | 独立分发时清单层曾依赖 OpenCourt（违例 V5） |
@@ -145,7 +145,14 @@ INSERT INTO meta(key, value) VALUES('schema_version', ?)
 **验收**：单测（案由不存在 → `not_found`；无已确认要件 → `ok` + 空列表 + warning）；
 `docs/api.md` 接口清单同步。
 
+**✅ 完成（2026-11-03）**：`element.ListConfirmedElements` / `CaseTypeKnown` /
+`ConfirmStatusKnown` + `sdk.ListElements(caseType)`。只暴露 `confirm_status=confirmed`
+的要件；案由未登记 → `not_found`，已登记但无已确认要件 → `ok` + 空表 + 提示；旧语料
+（无确认状态列）一律按待复核处理并如实说明。测试见 `element/loader_test.go`、
+`sdk/lawname_test.go`。
+
 ## OL-4 法名规范化与别名解析（P1）
+
 
 **现状**：`CheckCitation(lawName, ...)` / `ResolveVersion(lawName, ...)` 按法规名精确
 查找。文书里大量使用简称（《民法典》↔《中华人民共和国民法典》），解析失败直接
@@ -160,6 +167,24 @@ OL-1001，核验可用性差。
 - 解析成功时在 `Data` 标明 `resolved_from`（命中的是全称还是别名），供 UI 显示依据。
 
 **验收**：表驱动单测（全称、简称、带书名号、错字、多候选）；多候选时不返回单一结果。
+
+**✅ 完成（2026-11-03）**：schema v9 新增 `law_alias`（加法式建表，见
+`docs/data-dictionary.md`）；`validate.NormalizeLawName` / `ResolveLawName` /
+`ResolveNamedVersion` 统一解析入口，`ResolveVersion` / `CheckCitation` /
+`sdk.ResolveLawName` 共用同一代码路径。别名来源仅两种：`corpus-short_name`
+（镜像 `law.short_name`）与 `corpus-text`（官方文本「以下简称」条款，附出处条文），
+另有不入库的确定性名称规则 `name-prefix(R1)`；**无任何模型生成别名**。多候选 →
+`need_manual` + OL-1010 + `candidates[]`；同名多法在所给日期只有一部有生效版本时按
+时间点唯一收敛，并在 warnings 明示。构建与巡检：`openlaw-alias`（默认试采、`-apply`
+写入、`-csv` 出巡检报告、`-stats`/`-lookup` 只读）。
+
+真实语料只读探针（2026-11-03，v8 语料 28,952 部法规 / 1,367,161 条文，**未迁移未写入**）：
+含「以下简称」条文 14,768 条，其中「《全称》……以下简称」式可抽取候选 1,453 条；
+`law.short_name` 现仅 1 条有值，故 `corpus-text` 是主要来源。真实文本以「术语定义式」
+简称为主（如「集中式饮用水水源保护区（以下简称保护区）」），此类不构成法规别名、
+按设计不匹配。别名表正式构建（需先把数据目录迁到 v9，将触发迁移前自动备份）留待
+人工在真实语料上执行：`openlaw-alias -data data -csv /tmp/alias.csv` 试采巡检后再 `-apply`。
+
 
 ## OL-5 程序期限规则查询（P2，v0.3）
 
