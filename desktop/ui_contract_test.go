@@ -477,3 +477,21 @@ func TestRowMetaMergesMissing(t *testing.T) {
 		t.Errorf("样式缺少缺失标记或待复核强调条规则")
 	}
 }
+
+// TestCitationPanelAmbiguousName OL-1010 的诚实展示：核验面板必须并列同名候选交人工，
+// 不得把它显示成「未找到对应条文」；按简称/别名命中时必须把认定依据摆出来（OL-4）。
+func TestCitationPanelAmbiguousName(t *testing.T) {
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	if !strings.Contains(js, `"OL-1010"`) {
+		t.Errorf("核验面板未处理 OL-1010——多候选会被当成「未找到」，人工无从选择")
+	}
+	if !strings.Contains(js, "c.candidates") || !strings.Contains(js, "不自动采信") {
+		t.Errorf("核验面板未并列候选或未声明不自动采信")
+	}
+	if !strings.Contains(js, "c.resolved_from") {
+		t.Errorf("核验面板未按简称/别名命中显示认定依据")
+	}
+	if !strings.Contains(js, "c.date_disambiguated") {
+		t.Errorf("核验面板未显示「同名按日期唯一确定」——静默认定同名法规属诚实展示缺陷")
+	}
+}

@@ -1133,11 +1133,29 @@ async function doCite() {
   $("#cite-out").textContent = "核对中…";
   try {
     const c = await app().CheckCitation($("#c-law").value.trim(), $("#c-art").value.trim(), $("#c-quote").value, $("#c-date").value.trim());
+    // OL-1010：法名对应多部同名法规——必须并列候选交人工，不得显示为「未找到」，也不得自动采信
+    if (c.error_code === "OL-1010") {
+      const cs = c.candidates || [];
+      $("#cite-out").textContent = "该法规名称对应多部同名法规，需人工确认所指（系统不自动采信）：\n" +
+        cs.map((x) => `《${x.name}》${x.issuer ? "（" + x.issuer + "）" : ""}`).join("\n") +
+        "\n请改用完整法规名称（含制定机关或发文字号）后重新核对。";
+      return;
+    }
     if (!c.hit) {
       $("#cite-out").textContent = "未找到对应条文" + (c.reason ? "：" + c.reason : "") + "。请核对法规名称、条款号与引用文本。";
       return;
     }
     let out = `命中：与留证原文相似度 ${(c.similarity * 100).toFixed(1)}%（条目 ${c.doc_id}，版本 ${c.version_no}，${c.confirm_status === "confirmed" ? "已复核" : "尚未复核"}）。`;
+    // 按简称/别名命中时必须把认定依据摆出来（凭什么认定这部法，不能只给结论）
+    if (c.resolved_from && c.resolved_from !== "full_name") {
+      const how = { short_name: "简称登记", alias: "简称/别名", name_rule: "名称规则" }[c.resolved_from] || c.resolved_from;
+      out += ` 本次按${how}认定为《${c.law_name || ""}》` +
+        (c.alias_article_id ? `（出处条文 ${c.alias_article_id}）` : "") + "，请确认为所指法规。";
+    }
+    // 同名多法只有一部在所给日期生效：按日期唯一确定，但必须说明，不得静默认定
+    if (c.date_disambiguated) {
+      out += " 法规库中有多部同名法规，已按所给日期唯一确定；如非所指请改用完整名称。";
+    }
     if (c.expired) out += ` 注意：该版本已失效，现行版本为「${c.current_version}」，请核实现行条文。`;
     if (c.chain_issues && c.chain_issues.length) out += " 来源链提示：" + c.chain_issues.map((i) => i.code).join("、") + "。";
     out += " 以下为留证原文，供逐字比对：\n" + (c.content || "");

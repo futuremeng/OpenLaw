@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/futuremeng/OpenLaw/validate"
 )
 
 // newTestApp 临时语料 + 种子数据（与 schema 约束对齐）。
@@ -139,5 +141,27 @@ func TestCheckCitationPanel(t *testing.T) {
 	}
 	if c2.Hit {
 		t.Errorf("不存在的条款不应命中: %+v", c2)
+	}
+}
+
+// TestCheckCitationAmbiguousName OL-4：同名多法且时间点无法唯一确定 → OL-1010 + 并列候选，
+// 面板据此交人工选择，绝不自动采信其中任何一部。
+func TestCheckCitationAmbiguousName(t *testing.T) {
+	a := newTestApp(t)
+	today := time.Now().Format("2006-01-02")
+	for _, q := range []string{
+		`INSERT INTO law(law_id,name,effect_level) VALUES('L2','工伤保险条例','部门规章')`,
+		`INSERT INTO law_version(version_id,law_id,version_no,effective_date,doc_id) VALUES('V2','L2','2010修订','2010-01-01','flk_y1')`,
+	} {
+		if _, err := a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := a.CheckCitation("工伤保险条例", "第一条", "工伤保险条例第一条", today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ErrorCode != validate.CodeAmbiguousLawName || len(c.Candidates) != 2 {
+		t.Errorf("同名多法应报 OL-1010 并并列候选: %+v", c)
 	}
 }
