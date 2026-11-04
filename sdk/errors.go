@@ -11,6 +11,9 @@ const (
 	CodeHashFail        = "OL-1007" // 哈希校验失败 → 立即告警并隔离文件
 	CodeSignatureFail   = "OL-1008" // manifest 签名验证失败 → 停止使用数据目录
 	CodeOCRLowConfid    = "OL-1009" // OCR 置信度过低 → 转人工确认
+	// CodeAmbiguousLawName 法名对应多部法规且时间点无法唯一确定（OL-4）：
+	// 并列候选交人工选择，绝不自动采信其中任何一条。
+	CodeAmbiguousLawName = "OL-1010"
 )
 
 // ErrorHints 错误码 → 界面提示文案建议（12.3 结果处理规则）。

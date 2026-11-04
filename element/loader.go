@@ -58,3 +58,50 @@ func hasConfirmColumn(db *store.DB) (bool, error) {
 	defer rows.Close()
 	return rows.Next(), rows.Err()
 }
+
+// ConfirmedElement 已复核确认的构成要件（OL-3：对外只把已确认项作为封闭候选给出）。
+type ConfirmedElement struct {
+	ElementID string `json:"element_id"`
+	Name      string `json:"name"`
+	CaseType  string `json:"case_type"`
+}
+
+// ConfirmStatusKnown 要件库是否记录了确认状态（v8+；v7 及更早只读语料无该列）。
+func ConfirmStatusKnown(db *store.DB) (bool, error) { return hasConfirmColumn(db) }
+
+// ListConfirmedElements 按案由列出**已复核确认**的构成要件（只读，不做任何裁决）。
+// 语料未记录确认状态时返回空表并由调用方如实标注「全部待复核」——绝不把 pending 当 confirmed。
+func ListConfirmedElements(db *store.DB, caseType string) ([]ConfirmedElement, error) {
+	withStatus, err := hasConfirmColumn(db)
+	if err != nil {
+		return nil, err
+	}
+	if !withStatus {
+		return nil, nil
+	}
+	rows, err := db.Query(`SELECT element_id, name, case_type FROM element
+		WHERE case_type = ? AND confirm_status = 'confirmed' ORDER BY element_id`, caseType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ConfirmedElement
+	for rows.Next() {
+		var e ConfirmedElement
+		if err := rows.Scan(&e.ElementID, &e.Name, &e.CaseType); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// CaseTypeKnown 案由是否登记在要件库中（OL-3：未登记 → not_found；
+// 已登记但无已确认要件 → ok + 空表 + 提示，二者必须区分）。
+func CaseTypeKnown(db *store.DB, caseType string) (bool, error) {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM element WHERE case_type = ?`, caseType).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}

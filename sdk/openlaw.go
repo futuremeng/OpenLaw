@@ -65,16 +65,22 @@ func (o *OpenLaw) Close() error { return o.db.Close() }
 func (o *OpenLaw) DataDir() string { return o.dataDir }
 
 // ResolveVersion 版本解析（5.3）：按法规名称与时间点解析当时生效版本。
+// 名称解析含简称/别名（OL-4）：命中依据在 Data.resolved_from 如实标注；
+// 多候选且时间点无法唯一确定 → need_manual + Data.candidates[]（并列交人工，不自动采信）。
 func (o *OpenLaw) ResolveVersion(lawName, atDate string) Result {
-	rv, err := validate.ResolveVersion(o.db, lawName, atDate)
-	if errors.Is(err, sql.ErrNoRows) {
-		if exists, _ := validate.LawExists(o.db, lawName); !exists {
-			return fail(StatusNotFound, CodeLawNotFound, ErrorHints[CodeLawNotFound])
-		}
-		return fail(StatusNotFound, CodeNoVersionAtDate, ErrorHints[CodeNoVersionAtDate])
+	rv, lr, err := validate.ResolveNamedVersion(o.db, lawName, atDate)
+	if errors.Is(err, validate.ErrAmbiguousLawName) {
+		return needManualCandidates(lr)
 	} else if err != nil {
 		return fail(StatusNotFound, "", fmt.Sprintf("查询失败: %v", err))
 	}
+	if rv == nil {
+		if len(lr.Candidates) == 0 {
+			return fail(StatusNotFound, CodeLawNotFound, ErrorHints[CodeLawNotFound])
+		}
+		return fail(StatusNotFound, CodeNoVersionAtDate, ErrorHints[CodeNoVersionAtDate])
+	}
+	cand := lr.Candidates[0]
 
 	trace := o.traceFor(rv.DocID, rv.PDFPath)
 	data := map[string]any{
@@ -82,6 +88,8 @@ func (o *OpenLaw) ResolveVersion(lawName, atDate string) Result {
 		"effective_date": rv.EffectiveDate, "expire_date": rv.ExpireDate,
 		"confirm_status": rv.ConfirmStatus,
 		"effect_status":  o.effectStatusFor(rv.LawID, rv.EffectiveDate, rv.ExpireDate), // OL-1
+		"law_id":         rv.LawID, "law_name": cand.Name,
+		"resolved_from": cand.ResolvedFrom, // OL-4：按全称/简称/别名哪一层命中
 	}
 	if !trace.ChainOK {
 		return brokenChain(data, trace)
@@ -90,7 +98,65 @@ func (o *OpenLaw) ResolveVersion(lawName, atDate string) Result {
 	if rv.ConfirmStatus != "confirmed" {
 		res.Warnings = append(res.Warnings, "该文本确认状态为待人工确认，仅提示不报错（12.3）")
 	}
+	if w := resolvedWarning(cand, lr); w != "" {
+		res.Warnings = append(res.Warnings, w)
+	}
 	return res
+}
+
+// resolvedWarning 别名/简称解析与同名收敛必须如实提示依据（OL-4：依据进 warnings，不粉饰）。
+func resolvedWarning(cand validate.LawCandidate, lr *validate.LawResolution) string {
+	switch cand.ResolvedFrom {
+	case validate.ResolvedFromName:
+		if lr.DateDisambiguated {
+			return "法规库中有多部同名法规，已按所给日期唯一确定；如非所指请从候选中人工选择"
+		}
+		return ""
+	case validate.ResolvedFromShortName:
+		return fmt.Sprintf("按简称命中《%s》（依据：法规库简称登记）", cand.Name)
+	case validate.ResolvedFromAlias:
+		src := "官方文本「以下简称」条款"
+		if cand.AliasSource == validate.AliasSourceShortName {
+			src = "法规库简称登记"
+		}
+		if cand.BasedOnArticleID != "" {
+			src += fmt.Sprintf("，出处条文 %s", cand.BasedOnArticleID)
+		}
+		return fmt.Sprintf("按简称/别名命中《%s》（依据：%s）——请确认为所指法规", cand.Name, src)
+	case validate.ResolvedFromNameRule:
+		return fmt.Sprintf("按国名省略式简称命中《%s》（确定性名称规则 %s）——请确认为所指法规",
+			cand.Name, validate.AliasSourceNameRule)
+	}
+	return ""
+}
+
+// needManualCandidates 多候选结果：status=need_manual + 并列候选（OL-4，交人工选择）。
+func needManualCandidates(lr *validate.LawResolution) Result {
+	res := ok(map[string]any{
+		"query": lr.Query, "candidates": candidateMaps(lr.Candidates),
+	}, nil)
+	res.Status = StatusNeedManual
+	res.ErrorCode = CodeAmbiguousLawName
+	res.Warnings = append(res.Warnings, ErrorHints[CodeAmbiguousLawName])
+	return res
+}
+
+func candidateMaps(cs []validate.LawCandidate) []map[string]any {
+	out := make([]map[string]any, 0, len(cs))
+	for _, c := range cs {
+		m := map[string]any{
+			"law_id": c.LawID, "name": c.Name, "issuer": c.Issuer,
+			"resolved_from": c.ResolvedFrom,
+		}
+		if c.AliasSource != "" {
+			m["alias_source"] = c.AliasSource
+		}
+		if c.BasedOnArticleID != "" {
+			m["based_on_article_id"] = c.BasedOnArticleID
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 // CheckCitation 引用校验（5.3、6.2）：法规名 + 条款号 + 引用文本 + 时间点。
@@ -107,6 +173,13 @@ func (o *OpenLaw) CheckCitation(lawName, articleNo, quote, atDate string) Result
 		return fail(StatusNotFound, CodeNoVersionAtDate, ErrorHints[CodeNoVersionAtDate])
 	case validate.CodeArticleNotFound:
 		return fail(StatusNotFound, CodeArticleNotFound, ErrorHints[CodeArticleNotFound])
+	case validate.CodeAmbiguousLawName:
+		// OL-4：多候选不返回单一结果——并列候选交人工选择
+		res := ok(map[string]any{"candidates": candidateMaps(c.Candidates)}, nil)
+		res.Status = StatusNeedManual
+		res.ErrorCode = CodeAmbiguousLawName
+		res.Warnings = append(res.Warnings, ErrorHints[CodeAmbiguousLawName])
+		return res
 	}
 
 	trace := o.traceFor(c.DocID, c.PDFPath)
@@ -119,6 +192,14 @@ func (o *OpenLaw) CheckCitation(lawName, articleNo, quote, atDate string) Result
 		"article_id": c.ArticleID, "article_no": c.ArticleNo, "content": c.Content,
 		"version_no": c.VersionNo, "current_version": c.CurrentVersion,
 		"confirm_status": c.ConfirmStatus,
+	}
+	if c.ResolvedFrom != "" && c.ResolvedFrom != validate.ResolvedFromName {
+		// OL-4：按简称/别名命中必须把依据带出来，让人看得出「凭什么认定这部法」
+		data["resolved_from"] = c.ResolvedFrom
+		data["alias_source"] = c.AliasSource
+		if c.AliasArticle != "" {
+			data["alias_article_id"] = c.AliasArticle
+		}
 	}
 
 	if !trace.ChainOK {
@@ -144,6 +225,11 @@ func (o *OpenLaw) CheckCitation(lawName, articleNo, quote, atDate string) Result
 	}
 	if c.ConfirmStatus != "confirmed" {
 		res.Warnings = append(res.Warnings, "该文本确认状态为待人工确认，仅提示不报错（12.3）")
+	}
+	if w := resolvedWarning(validate.LawCandidate{LawID: c.LawID, Name: c.LawName,
+		ResolvedFrom: c.ResolvedFrom, AliasSource: c.AliasSource,
+		BasedOnArticleID: c.AliasArticle}, &validate.LawResolution{DateDisambiguated: c.DateDisambiguated}); w != "" {
+		res.Warnings = append(res.Warnings, w)
 	}
 	return res
 }
@@ -187,6 +273,80 @@ func (o *OpenLaw) AnalyzeElements(caseType string, facts []string) Result {
 			fmt.Sprintf("%d 项要件待人工确认（导入要件一律 pending，确认后才视为定论；本清单仍如实给出）", unconfirmed))
 	}
 	res.Warnings = append(res.Warnings, "本结果为风险假设清单，不构成胜诉/败诉结论（2.3）")
+	return res
+}
+
+// ListElements 要件清单（OL-3）：按案由列出**已复核确认**的构成要件，供外部系统
+// 作为封闭候选集使用。只读、不裁决——待复核（pending）要件一律不进入候选。
+// 语义区分：案由未登记 → not_found；已登记但无已确认要件 → ok + 空表 + 提示。
+func (o *OpenLaw) ListElements(caseType string) Result {
+	caseType = strings.TrimSpace(caseType)
+	if caseType == "" {
+		return fail(StatusNotFound, "", "缺少案由，无法列出构成要件")
+	}
+	known, err := element.CaseTypeKnown(o.db, caseType)
+	if err != nil {
+		return fail(StatusNotFound, "", fmt.Sprintf("查询要件失败: %v", err))
+	}
+	if !known {
+		return fail(StatusNotFound, "", "案由未在要件库中登记，请先人工确认并导入要件")
+	}
+	items, err := element.ListConfirmedElements(o.db, caseType)
+	if err != nil {
+		return fail(StatusNotFound, "", fmt.Sprintf("加载要件失败: %v", err))
+	}
+	out := []map[string]any{}
+	for _, e := range items {
+		out = append(out, map[string]any{"element_id": e.ElementID, "name": e.Name})
+	}
+	res := ok(map[string]any{"case_type": caseType, "elements": out}, nil)
+	if len(out) == 0 {
+		knownStatus, err := element.ConfirmStatusKnown(o.db)
+		if err != nil {
+			return fail(StatusNotFound, "", fmt.Sprintf("查询要件状态失败: %v", err))
+		}
+		if !knownStatus {
+			res.Warnings = append(res.Warnings,
+				"该语料未记录要件确认状态（旧版本语料），全部按待复核处理，故无可引用要件")
+		} else {
+			res.Warnings = append(res.Warnings,
+				"该案下的要件尚未复核确认（导入要件一律待复核），确认后才可作为引用依据")
+		}
+	}
+	return res
+}
+
+// ResolveLawName 法名解析（OL-4）：把文书里的法规名称/简称解析为语料内法规。
+// 唯一命中 → ok + 命中依据；多候选 → need_manual + 并列候选（交人工，不自动采信）。
+func (o *OpenLaw) ResolveLawName(lawName string) Result {
+	lr, err := validate.ResolveLawName(o.db, lawName)
+	if err != nil {
+		return fail(StatusNotFound, "", fmt.Sprintf("解析失败: %v", err))
+	}
+	data := map[string]any{
+		"query": lr.Query, "normalized": lr.Normalized,
+		"candidates": candidateMaps(lr.Candidates),
+	}
+	if lr.AliasTableMissing {
+		data["alias_table_missing"] = true
+	}
+	res := ok(data, nil)
+	switch {
+	case len(lr.Candidates) == 0:
+		return fail(StatusNotFound, CodeLawNotFound, ErrorHints[CodeLawNotFound])
+	case lr.Ambiguous:
+		res.Status = StatusNeedManual
+		res.ErrorCode = CodeAmbiguousLawName
+		res.Warnings = append(res.Warnings, ErrorHints[CodeAmbiguousLawName])
+	default:
+		if w := resolvedWarning(lr.Candidates[0], lr); w != "" {
+			res.Warnings = append(res.Warnings, w)
+		}
+	}
+	if lr.AliasTableMissing {
+		res.Warnings = append(res.Warnings,
+			"该语料无法名别名表（数据版本早于 v9），简称仅按法规库既有名称匹配；可在数据目录执行 openlaw-alias -apply 构建")
+	}
 	return res
 }
 
