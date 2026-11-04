@@ -57,7 +57,7 @@ OpenLaw/
     openlaw-ingest/   # CLI：PDF → 哈希 → 溯源 → 文本层提取/拆分 → 入库 → 断链检测
     openlaw-fetch/    # CLI：显式触发的抓取（robots/白名单/大小限制 → 暂存区 → 人工确认；含公报批量两阶段模式）
     openlaw-compare/  # CLI：跨来源同一法律文件一致性核验（字节级 + 文本级双重复核）
-    openlaw-pack/     # CLI：离线更新包 keygen / build（基础包按地域/增量包按日期切分）/ verify /
+    openlaw-pack/     # CLI：离线更新包 keygen / build（基础包按地域/法域/日期切分，-core 出精简核心包）/ verify /
                       #   import（台账幂等）/ archive（zip 归档）/ index·index-verify（签名目录）
     openlaw-scan/     # CLI：存量批量下载包盘点（zip/GBK 解码/SHA-256/文本探测/CSV 报告）
     openlaw-batch/    # CLI：从盘点报告批量导入存量（docx 正文提取/三层去重/版本链自动接续）
@@ -77,7 +77,8 @@ OpenLaw/
     openlaw-check/    # 每日哈希重算 + 签名校验 + 断链清单
   desktop/      # 桌面客户端「开源法律法规数据库」（Wails v2；三栏：左列导航+筛选栏、
                 #   中列面板列表、右列共享原文详情带一键纠正工具条；主工作区：关键词检索/
-                #   按条件筛选/条文检索+修订沿革+引用核验；独立维护工作区（左列底部
+                #   按条件筛选/条文检索+修订沿革/核验引用（粘贴一段引用即核验，六态逐态给下一步）；
+                #   独立维护工作区（左列底部
                 #   「维护法规库」入口，公众/专业模式切换已撤除）：库总览/
                 #   智能审核（双智能体自审，人工只纠正例外）/地域标引/获取最新法规（原「数据采集与更新」）/
                 #   离线更新包（导入控件唯一落点）；空库启动默认进入「初始化法规库」引导
@@ -96,7 +97,14 @@ OpenLaw/
                 #   右列详情头提供字号与行宽阅读控制（显示层偏好，不改数据口径）；
                 #   「智能审核」把双智能体（分类+核对）自审结果分三口径如实分列
                 #   （智能体确认/人工确认/历史来源未记录），拿不准的进例外队列由人工
-                #   一键确认或驳回（结论依据必填，进复核记录）；
+                #   一键确认或驳回（结论依据必填，进复核记录）；面板常驻一行期望管理：
+                #   机器确认不等于官方认定；
+                #   「库总览」除数字与构成外给出**复核兑现**（常用法规参考清单的已收录/
+                #   已复核进度 + 缺失与未复核点名，并声明清单由本项目整理、不是官方认定）、
+                #   数据来源与可信度卡、本机档位（只读查询版/数据维护版）与迁移留痕，
+                #   折叠内给本机使用情况（首启漏斗、零命中检索率、人工吞吐、断链率——
+                #   全部本机统计，不上传、不含检索词与案件内容）；
+                #   `-edition reader` 只读查询版收起复核/标引/采集入口（隐藏入口不是权限边界）；
                 #   「地域标引」面板把机器建议落判为
                 #   人工结论（确认/改选地区/驳回/清除，一律署名+结论依据，批量先干跑计数）；
                 #   地点定位为离线就近判定 + 手动选择 +
@@ -206,4 +214,5 @@ case sdk.StatusBrokenChain: // 无法溯源，禁止输出判错结论
 - 语料数据：[DATA-LICENSE.md](DATA-LICENSE.md)（法条原文公有领域；本项目汇编产物 CC BY 4.0；欧盟部分保留 © European Union 署名）；每个 lawdata 发布包内附副本
 - 第三方依赖清单：[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)
 - 免责声明：[DISCLAIMER.md](DISCLAIMER.md) · 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md) · 协作者与 AI 代理约束：[AGENTS.md](AGENTS.md)
+- 面向使用者的说明（能做什么、不能做什么、数据从哪来、出问题怎么办）：[docs/user-guide.md](docs/user-guide.md)
 - 架构：[docs/architecture.md](docs/architecture.md) · 数据字典：[docs/data-dictionary.md](docs/data-dictionary.md) · 接口：[docs/api.md](docs/api.md) · 界面语言与渐进披露：[docs/design-ui-language.md](docs/design-ui-language.md) · 发布：[docs/release-process.md](docs/release-process.md) · OpenCourt 对接桥待办：[docs/tasks-opencourt-bridge.md](docs/tasks-opencourt-bridge.md) · 地域标引写入设计（已批准 · 第 1–4 步已实施）：[docs/design-region-write.md](docs/design-region-write.md)

@@ -734,6 +734,32 @@ OpenCourt 通过 `import github.com/futuremeng/OpenLaw/sdk` 进程内调用（�
   （ListElements/法名别名）。
 
 
+## 阶段进展 · 产品评审落地（2026-11-04）
+
+产品评审给出的 P0/P1/P2 项已按「同一代码路径」原则实施，桌面端仍是 CLI 的壳：
+
+- **P0-2 粘贴即核验**：`validate.VerifyCitationText`（要素识别）→ 复用 `CheckCitation`
+  六环节判定；桌面端新增主工作区面板「核验引用」。判定不在界面重做，六态逐态给下一步。
+- **P0-1 复核兑现**：`ingest.PriorityLaws`（常用法规参考清单，声明非官方认定）+
+  `ingest.ReviewCoverage`（全称→简称→别名三级命中）；「库总览」给出已收录/已复核
+  进度并点名缺失。消费方（OpenCourt）若要在 UI 里显示同一口径，应调
+  `ingest.ReviewCoverage`，不得自行按名称匹配。
+- **P0-3 精简核心包**：`openlaw-pack build -core`（`pack.BuildOptions.Names` 名单过滤，
+  与地域/法域取交集，空桶如实失败）。首装分发可只发核心包，全量包作可选。
+- **P1-1 发行版分档**：`openlaw-desktop -edition reader|full`。只裁剪桌面入口，
+  **不改变 SDK 与 CLI 的能力**——消费方仍必须走 `sdk.OpenReadOnly`（OL-7），
+  不得把桌面档位当权限边界。
+- **P1-4 检索诚实出路**：`search.SearchGuided`（零命中给原因与可照做的下一步；
+  别名指向只取库内事实）。检索仍不重排序、不做语义扩展（见「明确不在本清单内」）。
+- **度量体系**：schema **v10** 新增 `usage_event`（本机台账，只记种类与结论）；
+  `metrics.ReportFor` 聚合首启漏斗、零命中检索率、人工吞吐、例外积压、断链率。
+  只读消费方不写台账；跨机聚合不存在（默认离线纪律不变）。
+- **P1-6 迁移留痕**：`meta.migration_report` 由 `store.Open` 在真实迁移时写入，
+  `store.LoadMigrationReport` 读出并在库总览展示；schema 版本比较改按数值。
+
+**对消费方的影响**：SDK 接口无变化；v10 是加法式新表，只读入口读 v9 语料不受影响
+（`UsageAvailable` 为 false 时界面必须显示「本机尚未记录」而不是 0）。
+
 ## 明确不在本清单内（不扩散）
 
 - 类案检索、裁判文书语料：归 LocalCases，本仓库不参与。
