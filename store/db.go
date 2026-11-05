@@ -41,7 +41,12 @@ import (
 // 不记检索词与案件内容，且只在写入入口记录（只读消费方不写本机台账）。
 // 自 v10 起，每次真实结构迁移都在 meta.migration_report 留下「从哪个版本来、备份在哪」，
 // 界面据此如实说明本机数据被升级过（不再只有内部人才看得到）。
-const SchemaVersion = "10"
+// v11（2026-11）：多维标引（docs/design-taxonomy.md，拍板 2026-11-04）——law +部门法标引
+// 5 列（subject_code/source/rule/reviewer/reviewed_at，与 region_* 同构）+ doc_form
+// （文档形态，全自动机器判定）；新表 dict_subject/dict_doc_form/subject_log、派生视图
+// law_status（时效五态，纯派生不缓存）与索引。加法式：不加 CHECK、不重建表。
+// 只读消费方读 v10 语料时新列/视图缺失，标引与时效层按「未标注/未知」如实处理。
+const SchemaVersion = "11"
 
 // OL-8 版本协商（docs/tasks-opencourt-bridge.md）：
 //   - SchemaMax：本 SDK 可支持的最高 schema（高于它一律 fail-closed：不迁移、
@@ -194,6 +199,11 @@ func LoadMigrationReport(db *sql.DB) MigrationReport {
 // from/backup 来自调用方（Open 在迁移前读到的版本与自动备份位置）：真实发生过迁移时
 // 把「从哪个版本来、备份在哪」写进 meta，界面据此如实说明本机数据被升级过。
 func migrate(db *sql.DB, from, backup string) error {
+	// law_status 视图引用 law/law_version：任何 12 步重建（v2/v3/v7）的 DROP/RENAME
+	// 都会让视图校验失败，迁移链开始前先删除，随后由 schemaSQL 统一重建（幂等）。
+	if _, err := db.Exec(`DROP VIEW IF EXISTS law_status`); err != nil {
+		return fmt.Errorf("数据库迁移失败（预清理 law_status）: %w", err)
+	}
 	if err := upgradeToV2(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v1→v2）: %w", err)
 	}
@@ -211,6 +221,9 @@ func migrate(db *sql.DB, from, backup string) error {
 	}
 	if err := upgradeToV8(db); err != nil {
 		return fmt.Errorf("数据库迁移失败（v7→v8）: %w", err)
+	}
+	if err := upgradeToV11(db); err != nil {
+		return fmt.Errorf("数据库迁移失败（v10→v11）: %w", err)
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
@@ -466,6 +479,33 @@ func upgradeToV8(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`ALTER TABLE element ADD COLUMN confirm_status TEXT NOT NULL DEFAULT 'pending'`); err != nil {
 		return fmt.Errorf("加列 confirm_status 失败: %w", err)
+	}
+	return nil
+}
+
+// upgradeToV11 多维标引（docs/design-taxonomy.md §4）：law 加法式 +部门法标引 5 列与
+// doc_form。刻意不加 CHECK、不重建表（同 v4 策略）；dict_subject/dict_doc_form/
+// subject_log、law_status 视图与索引由随后的 schemaSQL（IF NOT EXISTS）补齐，
+// 词表种子经 INSERT OR IGNORE 幂等落库。判定依据：law 是否已有 subject_code 列
+// （全新库由 schemaSQL 直接建 v11 结构）。
+func upgradeToV11(db *sql.DB) error {
+	if ok, _ := hasColumn(db, "law", "law_id"); !ok {
+		return nil // 全新库（或空库），schemaSQL 直接建 v11 结构
+	}
+	if ok, _ := hasColumn(db, "law", "subject_code"); ok {
+		return nil // 已是 v11
+	}
+	for _, col := range []string{
+		"subject_code TEXT",
+		"subject_source TEXT",
+		"subject_rule TEXT",
+		"subject_reviewer TEXT",
+		"subject_reviewed_at TEXT",
+		"doc_form TEXT",
+	} {
+		if _, err := db.Exec(`ALTER TABLE law ADD COLUMN ` + col); err != nil {
+			return fmt.Errorf("加列 %s 失败: %w", col, err)
+		}
 	}
 	return nil
 }

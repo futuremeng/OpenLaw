@@ -360,7 +360,11 @@ func TestMigrateV6ToV7(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 造 v6 现状：law 无 jurisdiction、CHECK 无美国类别（重建回 v6 形态）。
+	// law_status 是 v11 视图，真实 v6 库不存在——回退形态必须先删，否则 RENAME 校验失败。
 	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP VIEW IF EXISTS law_status`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`CREATE TABLE law_v6 (

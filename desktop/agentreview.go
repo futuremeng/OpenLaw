@@ -146,6 +146,12 @@ func classifySuggestText(raw string) string {
 	if c.RegionCode != "" {
 		parts = append(parts, "地域 "+c.RegionCode)
 	}
+	if c.SubjectCode != "" {
+		parts = append(parts, "部门法 "+c.SubjectCode+"（置信 "+agent.ConfidenceLabel(c.SubjectConfidence)+"）")
+	}
+	if c.DocForm != "" {
+		parts = append(parts, "形态 "+c.DocForm)
+	}
 	return strings.Join(parts, " · ")
 }
 

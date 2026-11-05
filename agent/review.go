@@ -19,13 +19,18 @@ import (
 const DefaultMinConfidence = 0.85
 
 // ClassifyResult 分类智能体结论（confidence 0–1；缺把握就给低值，不得编造）。
+// SubjectConfidence 单独计置信（docs/design-taxonomy.md §5）：达门槛只写
+// subject_source='auto' 的机器建议（署名留空 = 待复核），永不代签人工。
 type ClassifyResult struct {
-	EffectLevel string  `json:"effect_level"`
-	Issuer      string  `json:"issuer"`
-	PublishDate string  `json:"publish_date"`
-	RegionCode  string  `json:"region_code"`
-	Confidence  float64 `json:"confidence"`
-	Reason      string  `json:"reason"`
+	EffectLevel       string  `json:"effect_level"`
+	Issuer            string  `json:"issuer"`
+	PublishDate       string  `json:"publish_date"`
+	RegionCode        string  `json:"region_code"`
+	SubjectCode       string  `json:"subject_code"`
+	SubjectConfidence float64 `json:"subject_confidence"`
+	DocForm           string  `json:"doc_form"`
+	Confidence        float64 `json:"confidence"`
+	Reason            string  `json:"reason"`
 }
 
 // AuditResult 审核智能体结论。Verdict：confirm=可自动确认 / escalate=转人工。
@@ -35,12 +40,18 @@ type AuditResult struct {
 	Reason     string  `json:"reason"`
 }
 
-const classifySystem = `你是法律法规数据库的分类智能体。给定一部法规的现有元数据与官方原文摘要，你负责补全或核对以下著录项：效力等级、发布机关、公布日期、地域区划码。
+const classifySystem = `你是法律法规数据库的分类智能体。给定一部法规的现有元数据与官方原文摘要，你负责补全或核对以下著录项：效力等级、发布机关、公布日期、地域区划码、部门法、文档形态。
 效力等级只能从这些值里选：宪法、法律、行政法规、监察法规、地方性法规、部门规章、地方政府规章、司法解释、其他、欧盟条例、欧盟指令、欧盟决定；判不出就留空。
 区划码用 6 位数字（GB/T 2260，如北京市 110000）；中央立法或判不出就留空。
+部门法码只能从这些值里选（与效力等级所属法域一致；判不出留空并调低 subject_confidence）：
+CN-CON宪法相关法 CN-CIV民法商法 CN-CRI刑法 CN-ADM行政法 CN-ECO经济法 CN-SOC社会法 CN-PRO诉讼与非诉讼程序法；
+EU-INT内部市场 EU-CMP竞争与国家援助 EU-AGR农业与渔业 EU-ENV环境与气候 EU-COM贸易政策 EU-SOC就业与社会事务 EU-FIN经济与金融 EU-JUS司法与基本权利 EU-MIG移民与庇护 EU-ETR能源与交通 EU-RTP研究与技术 EU-EXT对外关系与发展；
+US-CRI刑事 US-CVR民权 US-GOV政府与行政 US-TAX税收 US-COM商业与贸易 US-DEF国防 US-SOC社会福利 US-ENV环境与能源 US-INT国际关系 US-IPR知识产权 US-FIN金融与银行 US-LAB劳动。
+文档形态码只能从这些值里选（按标题文种；判不出留空）：
+CN-LAW法 CN-CODE法典 CN-AMD修正案 CN-DEC决定 CN-INT解释 CN-REG条例 CN-PRO规定 CN-MEA办法 CN-RUL规则 CN-DET细则 CN-REP批复 CN-NOT通知；EU-REG条例 EU-DIR指令 EU-DEC决定 EU-REC建议 EU-OPN意见 EU-TRT条约；US-ACT法律 US-PL公法 US-EO行政命令 US-CFR规章 US-TRT条约。
 只输出一个 JSON 对象，不要输出其他任何文字：
-{"effect_level":"…","issuer":"…","publish_date":"YYYY-MM-DD 或空","region_code":"…","confidence":0 到 1 之间的小数,"reason":"一句话依据"}
-没有把握的项目留空并调低 confidence；绝不编造。`
+{"effect_level":"…","issuer":"…","publish_date":"YYYY-MM-DD 或空","region_code":"…","subject_code":"…","subject_confidence":0 到 1 之间的小数,"doc_form":"…","confidence":0 到 1 之间的小数,"reason":"一句话依据"}
+没有把握的项目留空并调低对应 confidence；绝不编造。`
 
 const auditSystem = `你是法律法规数据库的审核智能体，负责比对官方原文与著录元数据，裁决该条目能否自动确认。
 你会看到：条目元数据、来源、风险标记、原文首尾摘要，以及分类智能体的建议。
@@ -132,12 +143,14 @@ type Options struct {
 
 // Summary 一轮自审核的如实汇总。
 type Summary struct {
-	Total     int    `json:"total"`
-	Confirmed int    `json:"confirmed"`
-	Escalated int    `json:"escalated"`
-	Failed    int    `json:"failed"`
-	Model     string `json:"model"`
-	StoppedAt int    `json:"stopped_at"` // 中断时已处理数（如实保留，不谎称全量）
+	Total       int    `json:"total"`
+	Confirmed   int    `json:"confirmed"`
+	Escalated   int    `json:"escalated"`
+	Failed      int    `json:"failed"`
+	SubjectAuto int    `json:"subject_auto"`  // 部门法 auto 建议写入条数
+	DocFormAuto int    `json:"doc_form_auto"` // 文档形态自动补判条数
+	Model       string `json:"model"`
+	StoppedAt   int    `json:"stopped_at"` // 中断时已处理数（如实保留，不谎称全量）
 }
 
 // recordReview 每次审核都留痕（含原始 JSON 结论）——例外队列与事后抽查的依据。
@@ -210,6 +223,25 @@ func RunReview(ctx context.Context, dataDir string, db *store.DB, chat Chat, mod
 
 		if rerr := recordReview(db, p.DocID, verdict, aud.Confidence, clsRaw, auditStored, model); rerr != nil {
 			return sum, fmt.Errorf("智能审核留痕写入失败（已停在该条目，之前的结论已保留）: %w", rerr)
+		}
+
+		// 部门法/文档形态建议（docs/design-taxonomy.md §5）：与 confirm/escalate 裁决无关，
+		// 达门槛即写 auto 建议（署名留空 = 待复核，永不代签人工）；人工结论与已有标注不顶回。
+		if p.LawID != "" && (cls.SubjectCode != "" || cls.DocForm != "") {
+			subjOK, dfOK, note, werr := ingest.WriteAgentSuggestion(db, p.LawID,
+				cls.SubjectCode, clampConf(cls.SubjectConfidence), cls.DocForm, opts.MinConfidence, model)
+			if werr != nil {
+				return sum, fmt.Errorf("部门法标引建议写入失败（已停在该条目，之前的结论已保留）: %w", werr)
+			}
+			if subjOK {
+				sum.SubjectAuto++
+			}
+			if dfOK {
+				sum.DocFormAuto++
+			}
+			if note != "" && opts.Progress != nil {
+				opts.Progress(i+1, len(rows), p.DocID, verdict+" | "+note)
+			}
 		}
 
 		if verdict == "confirm" {

@@ -32,7 +32,17 @@ CREATE TABLE IF NOT EXISTS law (
   region_source TEXT,       -- auto（真实坐标判定）|manual（人工）|trial（试判定）
   region_rule TEXT,         -- 依据与规则号，如 name-prefix(R1)
   region_reviewer TEXT,     -- 人工落判署名；空 = 仅机器建议，界面须显示「机器建议 · 待复核」
-  region_reviewed_at TEXT   -- 人工落判时间
+  region_reviewed_at TEXT,  -- 人工落判时间
+  -- v11 部门法标引与文档形态（docs/design-taxonomy.md §4）：subject_* 五列与 region_*
+  -- 完全同构（auto|manual|trial|pack；reviewer 空 = 仅机器建议）；doc_form 为机器判定
+  -- 单列（全自动，无人工落判）。空 = 未标注，界面必须如实显示，不得留白或渲染占位。
+  -- 刻意不加 CHECK（同 v4/v7 策略）：取值合法性放应用层与门禁测试。
+  subject_code TEXT,
+  subject_source TEXT,
+  subject_rule TEXT,
+  subject_reviewer TEXT,
+  subject_reviewed_at TEXT,
+  doc_form TEXT
 );
 
 -- document 原始文档与溯源（开发文档 4.3；MD5 仅判下载损坏，SHA-256 为防篡改依据）
@@ -291,3 +301,118 @@ CREATE TRIGGER IF NOT EXISTS article_au AFTER UPDATE ON article BEGIN
   INSERT INTO article_fts(article_id, article_no, content)
   VALUES (new.article_id, new.article_no, new.content);
 END;
+
+-- ============ v11 多维标引（docs/design-taxonomy.md，拍板 2026-11-04） ============
+
+-- dict_subject 部门法词表（拍板项 1：按法域全覆盖；词表可扩展，禁止兜底「其他」——
+-- 判不出留空进回填队列，界面如实显示「部门法未标注」）。
+CREATE TABLE IF NOT EXISTS dict_subject (
+  code         TEXT PRIMARY KEY,   -- 如 CN-CIV；法言语文案与代码一一对应
+  name         TEXT NOT NULL,      -- UI 展示名（法言法语）
+  jurisdiction TEXT NOT NULL,      -- CN|EU|US
+  parent_code  TEXT,               -- 预留二级部门法；当前全部为空
+  ordinal      INTEGER NOT NULL    -- 界面固定顺序
+);
+
+-- dict_doc_form 文档形态词表（拍板项 2：全自动机器判定，无人工落判）。
+CREATE TABLE IF NOT EXISTS dict_doc_form (
+  code         TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  jurisdiction TEXT NOT NULL
+);
+
+-- subject_log 部门法标引审计（law 级，与 region_log 并列而非复用——
+-- 正文/地域/部门法是三种独立判定，不得混同）。
+CREATE TABLE IF NOT EXISTS subject_log (
+  log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  law_id TEXT NOT NULL REFERENCES law(law_id),
+  action TEXT NOT NULL CHECK (action IN ('suggest','confirm','reject','clear','undo')),
+  from_code TEXT,
+  to_code   TEXT,
+  source    TEXT NOT NULL,          -- auto|manual|trial|pack
+  rule      TEXT,                   -- 机器：规则号；人工：依据
+  actor     TEXT NOT NULL,          -- 机器固定 openlaw-subject；人工必须署名
+  reason    TEXT,
+  batch_id  TEXT,                   -- 同一次批量写入/撤销的关联号（-undo 依此回滚）
+  created_at TEXT NOT NULL
+);
+
+-- law_status 时效状态派生视图（拍板项 3/4：纯派生不缓存；「已修改」按版本链判定，
+-- relation 不参与时效派生，仅作「关联法规」展示）。判定顺序即优先级：
+-- 无版本或施行日期全缺→未知；现行版本前有历史版本→已修改；现行版本→现行有效；
+-- 全部版本未到施行日→尚未生效；曾有生效版本但现行区间为空→已废止（含换代空窗）。
+-- 日期比较用 ISO-8601 字典序，与既有列格式一致。
+CREATE VIEW IF NOT EXISTS law_status AS
+SELECT l.law_id,
+  CASE
+    WHEN NOT EXISTS (SELECT 1 FROM law_version v WHERE v.law_id = l.law_id
+                     AND v.effective_date IS NOT NULL) THEN '未知'
+    WHEN EXISTS (SELECT 1 FROM law_version cur
+                 WHERE cur.law_id = l.law_id
+                   AND cur.effective_date <= date('now')
+                   AND (cur.expire_date IS NULL OR cur.expire_date > date('now'))
+                   AND EXISTS (SELECT 1 FROM law_version prev
+                               WHERE prev.law_id = cur.law_id
+                                 AND prev.effective_date < cur.effective_date)) THEN '已修改'
+    WHEN EXISTS (SELECT 1 FROM law_version v WHERE v.law_id = l.law_id
+                 AND v.effective_date <= date('now')
+                 AND (v.expire_date IS NULL OR v.expire_date > date('now'))) THEN '现行有效'
+    WHEN NOT EXISTS (SELECT 1 FROM law_version v WHERE v.law_id = l.law_id
+                     AND v.effective_date <= date('now')) THEN '尚未生效'
+    ELSE '已废止'
+  END AS timeliness
+FROM law l;
+
+CREATE INDEX IF NOT EXISTS idx_law_subject_code ON law(subject_code);
+CREATE INDEX IF NOT EXISTS idx_law_doc_form ON law(doc_form);
+CREATE INDEX IF NOT EXISTS idx_subject_log_law ON subject_log(law_id);
+CREATE INDEX IF NOT EXISTS idx_subject_log_batch ON subject_log(batch_id);
+
+-- 词表种子（幂等：INSERT OR IGNORE，重跑不覆盖既有词条；扩展词条走后续回填任务）。
+-- CN：「宪法相关法 + 七个法律部门」官方口径（docs/design-taxonomy.md §8 拍板项 1）。
+INSERT OR IGNORE INTO dict_subject(code,name,jurisdiction,parent_code,ordinal) VALUES
+  ('CN-CON','宪法相关法','CN',NULL,1),
+  ('CN-CIV','民法商法','CN',NULL,2),
+  ('CN-CRI','刑法','CN',NULL,3),
+  ('CN-ADM','行政法','CN',NULL,4),
+  ('CN-ECO','经济法','CN',NULL,5),
+  ('CN-SOC','社会法','CN',NULL,6),
+  ('CN-PRO','诉讼与非诉讼程序法','CN',NULL,7);
+-- EU：按政策领域初版全覆盖词表（回填任务中按条目验证并扩展，缺口如实计入「未标注」）。
+INSERT OR IGNORE INTO dict_subject(code,name,jurisdiction,parent_code,ordinal) VALUES
+  ('EU-INT','内部市场与货物自由流动','EU',NULL,1),
+  ('EU-CMP','竞争与国家援助','EU',NULL,2),
+  ('EU-AGR','农业与渔业','EU',NULL,3),
+  ('EU-ENV','环境与气候','EU',NULL,4),
+  ('EU-COM','贸易政策','EU',NULL,5),
+  ('EU-SOC','就业与社会事务','EU',NULL,6),
+  ('EU-FIN','经济与金融','EU',NULL,7),
+  ('EU-JUS','司法与基本权利','EU',NULL,8),
+  ('EU-MIG','移民与庇护','EU',NULL,9),
+  ('EU-ETR','能源与交通','EU',NULL,10),
+  ('EU-RTP','研究与技术','EU',NULL,11),
+  ('EU-EXT','对外关系与发展','EU',NULL,12);
+-- US：按主题领域初版全覆盖词表（同上，缺口如实计入「未标注」）。
+INSERT OR IGNORE INTO dict_subject(code,name,jurisdiction,parent_code,ordinal) VALUES
+  ('US-CRI','刑事','US',NULL,1),
+  ('US-CVR','民权','US',NULL,2),
+  ('US-GOV','政府与行政','US',NULL,3),
+  ('US-TAX','税收','US',NULL,4),
+  ('US-COM','商业与贸易','US',NULL,5),
+  ('US-DEF','国防','US',NULL,6),
+  ('US-SOC','社会福利','US',NULL,7),
+  ('US-ENV','环境与能源','US',NULL,8),
+  ('US-INT','国际关系','US',NULL,9),
+  ('US-IPR','知识产权','US',NULL,10),
+  ('US-FIN','金融与银行','US',NULL,11),
+  ('US-LAB','劳动','US',NULL,12);
+
+INSERT OR IGNORE INTO dict_doc_form(code,name,jurisdiction) VALUES
+  ('CN-LAW','法','CN'),('CN-CODE','法典','CN'),('CN-AMD','修正案','CN'),
+  ('CN-DEC','决定','CN'),('CN-INT','解释','CN'),('CN-REG','条例','CN'),
+  ('CN-PRO','规定','CN'),('CN-MEA','办法','CN'),('CN-RUL','规则','CN'),
+  ('CN-DET','细则','CN'),('CN-REP','批复','CN'),('CN-NOT','通知','CN'),
+  ('EU-REG','条例','EU'),('EU-DIR','指令','EU'),('EU-DEC','决定','EU'),
+  ('EU-REC','建议','EU'),('EU-OPN','意见','EU'),('EU-TRT','条约','EU'),
+  ('US-ACT','法律（Act）','US'),('US-PL','公法（Public Law）','US'),
+  ('US-EO','行政命令','US'),('US-CFR','规章（CFR）','US'),('US-TRT','条约','US');

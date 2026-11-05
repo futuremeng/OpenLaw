@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/futuremeng/OpenLaw/ingest"
 	"github.com/futuremeng/OpenLaw/store"
 )
 
@@ -178,5 +179,100 @@ func TestRunReviewRejectsNilChat(t *testing.T) {
 	db, dir := setupCorpus(t, "甲条例")
 	if _, err := RunReview(context.Background(), dir, db, nil, "m", nil, Options{}); err == nil {
 		t.Error("未配置通道必须拒绝（默认离线纪律）")
+	}
+}
+
+// —— 部门法/文档形态建议（docs/design-taxonomy.md §5 智能体自审扩展）——
+
+const clsSubjHigh = `{"effect_level":"行政法规","issuer":"国务院","publish_date":"2020-01-01","region_code":"","subject_code":"CN-ADM","subject_confidence":0.9,"doc_form":"CN-REG","confidence":0.95,"reason":"名称与原文标题一致"}`
+const clsSubjLow = `{"effect_level":"行政法规","issuer":"国务院","publish_date":"2020-01-01","region_code":"","subject_code":"CN-ADM","subject_confidence":0.5,"doc_form":"CN-REG","confidence":0.95,"reason":"部门法拿不准"}`
+const clsSubjBad = `{"effect_level":"行政法规","issuer":"国务院","publish_date":"2020-01-01","region_code":"","subject_code":"CN-XXX","subject_confidence":0.9,"doc_form":"CN-REG","confidence":0.95,"reason":"词表外的码"}`
+
+func subjectOf(t *testing.T, db *store.DB, lawID string) (code, source, reviewer, docForm string) {
+	t.Helper()
+	if err := db.QueryRow(`SELECT COALESCE(subject_code,''), COALESCE(subject_source,''),
+		COALESCE(subject_reviewer,''), COALESCE(doc_form,'') FROM law WHERE law_id=?`, lawID).
+		Scan(&code, &source, &reviewer, &docForm); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+// TestRunReviewSubjectSuggestion 达门槛写 auto 建议（署名留空 = 待复核）、低置信不写、
+// 人工结论不顶回；审计署名 agent:<model>，可经 SubjectMarker 按批撤销。
+func TestRunReviewSubjectSuggestion(t *testing.T) {
+	db, dir := setupCorpus(t, "甲条例", "乙条例", "丙条例")
+	if _, err := db.Exec(`UPDATE law SET subject_reviewer='张三',
+		subject_reviewed_at='2026-01-01T00:00:00Z' WHERE law_id='law_丙条例'`); err != nil {
+		t.Fatal(err)
+	}
+	chat := &fakeChat{resp: []string{clsSubjHigh, okAudit, clsSubjLow, okAudit, clsSubjHigh, lowAudit}}
+	sum, err := RunReview(context.Background(), dir, db, chat, "test-model", nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.SubjectAuto != 1 || sum.DocFormAuto != 3 {
+		t.Fatalf("部门法只应写甲 1 处；文档形态全自动（拍板项 2，无置信门槛）应写 3 处，实际 %+v", sum)
+	}
+	if code, src, rev, df := subjectOf(t, db, "law_甲条例"); code != "CN-ADM" || src != "auto" || rev != "" || df != "CN-REG" {
+		t.Errorf("甲应为 auto 建议且署名留空: %s/%s/%s/%s", code, src, rev, df)
+	}
+	if code, _, _, df := subjectOf(t, db, "law_乙条例"); code != "" || df != "CN-REG" {
+		t.Errorf("乙低置信部门法不得写入、形态照判: %s/%s", code, df)
+	}
+	if code, _, rev, df := subjectOf(t, db, "law_丙条例"); code != "" || rev != "张三" || df != "CN-REG" {
+		t.Errorf("丙人工结论必须原样保留、形态照判: %s/%s/%s", code, rev, df)
+	}
+	var logs int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM subject_log WHERE actor='agent:test-model'
+		AND batch_id='agent-test-model'`).Scan(&logs); err != nil || logs != 4 {
+		t.Fatalf("审计应为 4 笔 agent 写入（1 部门法 + 3 形态）: %d (%v)", logs, err)
+	}
+	// 整批撤销（含 doc-form 审计分流），人工结论不回滚。
+	m := &ingest.SubjectMarker{DB: db}
+	if k, err := m.Undo("agent-test-model", true); err != nil || k != 4 {
+		t.Fatalf("撤销应执行 4 处: %d (%v)", k, err)
+	}
+	if code, _, _, df := subjectOf(t, db, "law_甲条例"); code != "" || df != "" {
+		t.Errorf("撤销后应回到未标注: %s/%s", code, df)
+	}
+	if code, _, rev, df := subjectOf(t, db, "law_丙条例"); code != "" || rev != "张三" || df != "" {
+		t.Errorf("撤销不得回滚人工落判、形态已随批撤销: %s/%s/%s", code, rev, df)
+	}
+}
+
+// TestRunReviewEscalateStillSuggests 部门法建议与 confirm/escalate 裁决无关：
+// 审核转人工的条目，达门槛的部门法建议照样写入（待复核，不是落判）。
+func TestRunReviewEscalateStillSuggests(t *testing.T) {
+	db, dir := setupCorpus(t, "戊条例")
+	chat := &fakeChat{resp: []string{clsSubjHigh, lowAudit}}
+	sum, err := RunReview(context.Background(), dir, db, chat, "test-model", nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Escalated != 1 || sum.SubjectAuto != 1 {
+		t.Fatalf("应转人工但写入部门法建议，实际 %+v", sum)
+	}
+	if code, src, rev, _ := subjectOf(t, db, "law_戊条例"); code != "CN-ADM" || src != "auto" || rev != "" {
+		t.Errorf("escalate 条目的部门法建议仍应是待复核 auto: %s/%s/%s", code, src, rev)
+	}
+	if st, _ := statusOf(t, db, "doc_戊条例"); st != "pending" {
+		t.Errorf("部门法建议不得代替落判，条目必须仍待复核: %s", st)
+	}
+}
+
+// TestRunReviewSubjectBadCodeFailClosed 词表外的码：不写入、不报错中断整轮，如实计数为 0。
+func TestRunReviewSubjectBadCodeFailClosed(t *testing.T) {
+	db, dir := setupCorpus(t, "丁条例")
+	chat := &fakeChat{resp: []string{clsSubjBad, okAudit}}
+	sum, err := RunReview(context.Background(), dir, db, chat, "test-model", nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.SubjectAuto != 0 {
+		t.Fatalf("词表外的码绝不得写入: %+v", sum)
+	}
+	if code, _, _, _ := subjectOf(t, db, "law_丁条例"); code != "" {
+		t.Errorf("坏码必须留空: %s", code)
 	}
 }

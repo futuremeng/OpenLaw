@@ -100,6 +100,18 @@ PK `(alias, law_id)`：同一别名多行 = 多候选，解析层必须并列交
 构建指引，不得失败或猜测（诚实展示纪律）。
 
 
+### 部门法标引与文档形态（schema v11，docs/design-taxonomy.md）
+law v11 起具备 `subject_code`/`subject_source`（auto|manual|trial|pack）/`subject_rule`/
+`subject_reviewer`/`subject_reviewed_at` 五列（与地域五列同构：空 = 部门法未标注，
+reviewer 空 = 仅机器建议 · 待复核）与 `doc_form`（文档形态，全自动机器判定，无人工落判）。
+取值必须命中词表：`dict_subject`（按法域全覆盖：CN 宪法相关法+七个法律部门、EU 政策领域、
+US 主题领域；无兜底「其他」词条）与 `dict_doc_form`；人工落判/驳回/清除写 `subject_log`
+（law 级审计，与 region_log 并列不复用，批次可 `-undo`）。
+**时效状态不落列**：经 `law_status` 视图派生五态（尚未生效/现行有效/已修改/已废止/未知）；
+「已修改」按版本链判定（现行版本之前同 law 有历史版本），relation 不参与时效派生。
+只读消费方打开 v10 及更早语料：新列与视图不存在 → 标引层显示「部门法未标注」、
+时效层显示「未知（数据版本不含时效视图）」并给出升级指引，不得猜测（诚实展示纪律）。
+
 ### case_fact 案件事实表
 status：supported（已支撑）/ unsupported（缺证据）/ conflict（相互矛盾）。
 
