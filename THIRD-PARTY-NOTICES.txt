@@ -17,3 +17,12 @@ OpenLaw THIRD-PARTY NOTICES
 
 语料数据的许可见 DATA-LICENSE.md：法条官方文本为公有领域；
 本项目汇编产物 CC BY 4.0；欧盟文本保留 © European Union 署名。
+
+开发期工具（不随二进制分发，也不入库）
+--------------------------------------
+  design-lint（用户级全局技能 ~/.claude/skills/design-lint/）内嵌
+  sloplint.mjs —— MIT
+    来源：Nutlope/hallmark @ 407fa689f4a276f2fd389208d271d0fef08f5058
+    （skills/hallmark/scripts/sloplint.mjs，静态检查层；上游渲染层未引入）
+  本仓库仅保存体检基线 .design-lint/baseline.json；体检结果与豁免立场见
+  docs/design-ui-language.md「设计体检」。

@@ -17,6 +17,20 @@ US 基础包待官方批量包全文导入——空桶如实不产包。
 
 ## Unreleased（v0.2.0 开发中）
 
+- **前端设计体检接入（建议性 → 棘轮门禁）**：检查器为 vendored sloplint 静态层
+  （Nutlope/hallmark@407fa68，MIT，仅 Node 内置模块、不联网不开浏览器），
+  装在**用户级全局技能** `~/.claude/skills/design-lint/`（跨项目通用，
+  自动发现体检目标 + 基线棘轮包装器）；本仓库只留自己的基线
+  `.design-lint/baseline.json` 与 `make design-lint` 入口。口径是「FAIL 只准减少」
+  而非跑绿：sloplint 的 FAIL 层不可豁免、豁免上限 3 条且必须写成 Hallmark CSS stamp，
+  本仓库不引入 stamp。当前基线 FAIL 25 · REFLEX 113 · WARN 11；已核实并如实记录的缺陷：
+  **深色主题对比度不足**（`--acc #6ba4ff` / `--ok #4fb37c` 上叠 `#fff` 为
+  2.51:1 / 2.60:1，低于 4.5:1；浅色 5.12 / 5.02 合格）、12 处颜色字面量绕过令牌、
+  111 处间距不在 4px 阶梯、字体栈只在 body 一处且未令牌化
+  （更正：先前记为「无字体栈」有误，`.brand .mark` 用 sans-serif 绕过了它）。与本项目规范冲突的三条（Hallmark stamp、
+  大写字距标签、中点串联元信息）立场已定：保持现状，见 docs/design-ui-language.md
+  「设计体检」与 AGENTS.md「设计技能与外部工具」。渲染层（`--render`）刻意不引入——
+  本前端 DOM 经 Go 绑定填充，`file://` 直开是空壳，必误判。
 - **分类模型 v11（docs/design-taxonomy.md 已批准 + store 层已实施）**：多维正交标引——law
   +部门法标引 5 列（与 region_* 同构）+ doc_form；新表 dict_subject（CN7+EU12+US12 词表种子，
   按法域全覆盖）/dict_doc_form/subject_log（批次可撤销审计）；时效状态不落列，经

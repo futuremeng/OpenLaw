@@ -1,0 +1,29 @@
+{
+  "note": "设计体检基线。由 design-lint.mjs --update-baseline 生成；只准降不准升。",
+  "source": "sloplint.mjs（vendored，Nutlope/hallmark，MIT）",
+  "target": "desktop/frontend/dist",
+  "totals": {
+    "fail": 25,
+    "reflex": 113,
+    "warn": 11
+  },
+  "byRule": {
+    "FAIL 7a": 3,
+    "FAIL 20": 1,
+    "FAIL 34": 1,
+    "FAIL 48": 12,
+    "FAIL 56": 1,
+    "FAIL 67": 4,
+    "REFLEX 24b": 111,
+    "REFLEX 26b": 1,
+    "REFLEX 38iii": 1,
+    "WARN 3": 2,
+    "WARN 40": 2,
+    "WARN 41": 3,
+    "WARN F3": 1,
+    "WARN F7": 2,
+    "FAIL 19": 1,
+    "FAIL 63": 2,
+    "WARN F23": 1
+  }
+}

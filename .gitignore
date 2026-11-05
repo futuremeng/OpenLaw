@@ -29,3 +29,14 @@ __debug_bin*
 
 # wails dev 绑定探测时以 desktop/ 为工作目录产生的临时数据（真实库在项目根 data/）
 desktop/data/
+
+# 外部设计工具的运行时产物（决策与上下文文件仍入库：.impeccable/config.json）
+# 截图、缓存、会话与批注一律不入库——它们是一次性运行时状态，不是设计依据。
+.impeccable/live/
+.impeccable/review/
+.impeccable/questions/
+.impeccable/**/*.png
+.impeccable/config.local.json
+.impeccable/hook.cache.json
+.impeccable/hook.pending.json
+.hallmark/
