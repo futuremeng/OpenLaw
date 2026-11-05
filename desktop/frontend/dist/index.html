@@ -81,7 +81,7 @@
             <p id="region-note" class="muted small"></p>
             <p id="f-region-note" class="fnote"></p>
             <details class="disclose">
-              <summary>地区怎么判定、如何核对</summary>
+              <summary data-icon="chevron">地区怎么判定、如何核对</summary>
               <p id="region-help" class="muted small">地区取自法规名称中的地名或库中已标注的行政区划；本机地区可由系统定位给出（macOS 可能经由其 Wi-Fi 定位数据库），判定全部在本机离线完成，不上传数据、不做 IP 定位。定位不可用时：先在上方选省/市，再点「按选定地点试判定」——它把该地点的中心点当作位置，用于验证判定与显示链路，界面会标明「试判定 · 非真实定位」。</p>
               <button id="btn-region-trial">按选定地点试判定</button>
             </details>
@@ -132,7 +132,7 @@
       <nav id="crumb" aria-label="当前位置">
         <span data-icon="home" aria-hidden="true"></span>
         <span id="crumb-root">法律法规库</span>
-        <span class="sep" aria-hidden="true">›</span>
+        <span class="sep" aria-hidden="true" data-icon="chevron-right"></span>
         <b id="crumb-cur">首页</b>
         <span class="cf" id="crumb-ctx"></span>
       </nav>
@@ -165,7 +165,7 @@
       <div id="h-cards" class="cards"></div>
       <div id="h-results" class="cards results"></div>
       <details class="disclose">
-        <summary>数据来源与使用说明</summary>
+        <summary data-icon="chevron">数据来源与使用说明</summary>
         <p class="muted">本库法规原文获取自国务院「国家行政法规库」「国家规章库」等官方网站，并保留获取时间与原文链接供核对。
         标注「尚未复核」的条目尚未经比对确认，引用前请以官网文本为准。本工具为开源辅助工具，不构成法律意见。</p>
       </details>
@@ -190,7 +190,7 @@
         <span id="su-sel" class="muted">未勾选数据包。</span>
       </div>
       <details class="disclose">
-        <summary>其他方式：导入离线更新包 · 从官方渠道逐条获取</summary>
+        <summary data-icon="chevron">其他方式：导入离线更新包 · 从官方渠道逐条获取</summary>
         <div class="hero-cards">
           <div class="card"><b>导入离线更新包</b><span>从他人分享的完整数据包导入（U 盘、共享文件夹均可）；导入前自动校验完整性与来源。</span><button id="su-go-pack" class="ok">去导入更新包</button></div>
           <div class="card"><b>从官方渠道获取</b><span>连接国务院官方库逐条获取原文；获取官方规章目录需要辅助浏览工具，速度有不打扰官方的护栏。</span><button id="su-go-collect">去获取最新法规</button></div>
@@ -243,7 +243,7 @@
       <div id="ov-juris" class="juris"></div>
       <div class="legend"><span><i class="ok"></i>已复核确认</span><span><i class="pend"></i>待复核</span><span><i class="no"></i>已驳回</span></div>
       <details class="disclose">
-        <summary>技术信息（数据存放位置 · 数据格式版本）</summary>
+        <summary data-icon="chevron">技术信息（数据存放位置 · 数据格式版本）</summary>
         <div id="ov-tech" class="kv"></div>
         <p id="ov-usage" class="muted small"></p>
         <div id="ov-usage-funnel" class="kv"></div>
@@ -296,7 +296,7 @@
       </div>
       <div id="v-out" class="verdict"></div>
       <details class="disclose">
-        <summary>已经知道法规名称和条款号：逐项核对</summary>
+        <summary data-icon="chevron">已经知道法规名称和条款号：逐项核对</summary>
         <div class="cite">
           <input id="c-law" placeholder="法规名称"/>
           <input id="c-art" placeholder="条款号（如 第一条）"/>
@@ -307,7 +307,7 @@
         </div>
       </details>
       <details class="disclose">
-        <summary>核验会给出哪几种结果</summary>
+        <summary data-icon="chevron">核验会给出哪几种结果</summary>
         <p class="muted small">引用正确／条文找到了但文字不一致／未找到对应条文／同名法规需人工确认／所引版本已失效／来源链有断点（此时不给结论）。每种结果都会说明下一步该做什么；系统不替人裁决，同名多法一律交人工。</p>
       </details>
     </section>
@@ -335,7 +335,7 @@
       </div>
       <div id="ex-list" class="list"><p class="muted">尚未运行智能审核，或没有需要人工纠正的条目。</p></div>
       <details class="disclose">
-        <summary>智能审核怎么工作（含技术细节）</summary>
+        <summary data-icon="chevron">智能审核怎么工作（含技术细节）</summary>
         <p class="muted small">分类智能体给出建议的效力等级、制定机关、公布日期与地区；核对智能体把留证原文与这些信息逐条比对，给出「确认」或「转人工」。两项置信度都达到门槛才自动确认；任何一项没把握、或智能体回答不合格式，一律进入上面的例外队列，绝不猜测、绝不勉强确认。自动确认的条目在列表里标「智能体确认」，您纠正过的标「人工确认」，历史条目来源未记录则不标注。每一次审核都留有原始结论可查，全部进复核记录。</p>
         <div id="rv-tech" class="kv"></div>
       </details>
@@ -373,7 +373,7 @@
         <button id="rg-clear">清除标注</button>
       </div>
       <details class="disclose">
-        <summary>批量处理（按省份 · 须先看范围再执行）</summary>
+        <summary data-icon="chevron">批量处理（按省份 · 须先看范围再执行）</summary>
         <div class="form">
           <label>省份 <select id="rg-b-prov"></select></label>
           <label>结论 <select id="rg-b-verdict">
@@ -423,7 +423,7 @@
         <button id="sj-clear">清除标注</button>
       </div>
       <details class="disclose">
-        <summary>批量处理（按法域 · 须先看范围再执行）</summary>
+        <summary data-icon="chevron">批量处理（按法域 · 须先看范围再执行）</summary>
         <div class="form">
           <label>法域 <select id="sj-b-jur">
             <option value="">全部法域</option>
@@ -484,7 +484,7 @@
           </div>
           <p id="browser-hint" class="muted"></p>
           <details class="disclose">
-            <summary>技术细节（辅助浏览工具的地址与参数写法）</summary>
+            <summary data-icon="chevron">技术细节（辅助浏览工具的地址与参数写法）</summary>
             <div id="browser-tech" class="kv"></div>
           </details>
         </div>
@@ -513,7 +513,7 @@
         <span class="muted">本工具为开源软件，不构成法律意见；数据许可与来源署名见完整性档案（manifest）。</span>
       </div>
       <details class="disclose">
-        <summary>技术信息（数据存放位置 · 数据格式版本）</summary>
+        <summary data-icon="chevron">技术信息（数据存放位置 · 数据格式版本）</summary>
         <div id="settings-box" class="kv"></div>
       </details>
     </section>
@@ -548,7 +548,7 @@
         <button class="ibtn fsz" id="b-fs-up" type="button" aria-label="放大字号" title="放大字号">A+</button>
         <button class="ibtn" id="b-wide" type="button" aria-label="阅读行宽" aria-pressed="true" data-icon="wide" title="阅读行宽：宽行／窄行"></button>
       </span>
-      <button class="ibtn" id="detail-close" type="button" aria-label="关闭详情" title="关闭详情">✕</button>
+      <button class="ibtn" id="detail-close" type="button" aria-label="关闭详情" title="关闭详情" data-icon="close"></button>
     </div>
     <div id="detail-body" class="preview"><p class="muted">点选条目，这里显示原文、条款与复核信息。</p></div>
     <div id="fix-bar" class="toolbar hidden">

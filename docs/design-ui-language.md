@@ -197,7 +197,7 @@
   路径给出；缺失/未知一律中性灰徽章，不伪装成状态色。
 - **前景必须随主题翻转**：强调色底上的文字一律用 `--on-acc` / `--on-ok`，不得写死
   `#fff`——深色主题下 `--acc` 是亮蓝 `#6ba4ff`，白字只有 2.51:1。成对取值由
-  `TestTokenContrastAA` 按 WCAG 相对亮度实算（11 组前景/底色 ≥ 4.5:1）。
+  `TestTokenContrastAA` 按 WCAG 相对亮度实算（12 组前景/底色 ≥ 4.5:1）。
 - **显示层偏好不得影响数据口径**：密度（`html[data-density="compact"]`）、原文字号
   （`--read-size`）与行宽（`.narrow`）只改显示，取列条件与分面计数不受其影响（冒烟门禁
   核对「显示偏好不改取列条件」）。
@@ -224,7 +224,7 @@
 不是通过与否的证明：规则集服务于营销页，本产品的界面是数据密集型桌面应用，
 两者在若干条上本就不同。技能缺失时 `make design-lint` 会明确报「跳过，不是通过」。
 
-当前基线（`.design-lint/baseline.json`）：**FAIL 11 · REFLEX 113 · WARN 9**。
+当前基线（`.design-lint/baseline.json`）：**FAIL 11 · REFLEX 112 · WARN 9**。
 门禁口径是棘轮——FAIL 只准减少，增加即失败。
 
 真实待办（按优先级）：
@@ -240,13 +240,29 @@
    绕过了这套栈，品牌字「法」实际落在 UA 默认字体上。应把字体栈提为 `--font-ui`
    令牌并让所有 `font` 简写引用它。
 4. 其余：三个 `top: 0` sticky 叠层未错位（FAIL 56）、`html/body` 缺
-   `overflow-x: clip`（FAIL 34）、控件缺 `:active` 态（REFLEX 26b）。
+   `overflow-x: clip`（FAIL 34）。
 5. **仍挂在 `title` 的九处**已复核为纯核对细节（原始时间 UTC、任务参数、分面与法域的
    精确计数明细），不承载判断也不承载下一步；「全文检索不重排序」的口径在检索面板
    脚注里本就有可见文字（`index.html` 的 `.fnote`），面板头 `title` 只是重复。
    若后续新增说明，先问一句：这句话会不会改变用户对结果的判断——会，就必须可见。
 
 已修（2026-11-05）：
+
+- **控件没有按下态**（原 REFLEX 26b）：全站 13 处 `:hover`、0 处 `:active`——鼠标按下的
+  瞬间界面毫无变化，慢一点的网络或卡一下的机器会让人怀疑「点到了吗」。现统一给出
+  1px 位移加底色/亮度变化（不用阴影与缩放：数据密集界面里缩放会让整屏发抖），
+  并明确 `button:disabled:active` 不装作按得动。
+- **独立成控件的符号仍是 Unicode 字形**：折叠三角 `▸`（CSS `content`）、关闭按钮 `✕`、
+  面包屑与「查看全部」的 `›`。字形落在各平台各自的字体上，尺寸无法与 16px 线性图标
+  对齐，深色主题下也不随前景翻转。现全部走 `ICON_PATHS` 注入（新增 `close` 与
+  `chevron-right`）；折叠组头静态 11 处挂 `data-icon="chevron"`，动态产出的两处
+  （法域卡内的精确数字、通道现状）直接内联 `icon("chevron")`——删掉字形后若漏掉
+  任一处，那一处就没有箭头，故由门禁逐行核对。**字号按钮 `A−` / `A+` 保留文字形态**：
+  那是字号本身的隐喻，不是图标。
+- **浏览器自己画的表面不随主题**：选区是 UA 默认蓝底白字，插入符与滚动条默认按浅色画，
+  深色面板上刺眼。现 `::selection` 用 `--acc-soft`/`--ink`（并入对比度实算，第 12 组）、
+  `caret-color: var(--acc)`、滚动条用 `--muted` 滑块 + 悬停转强调色。
+  由 `TestIconsAreSVGNotGlyphs` 与冒烟「法域卡箭头是注入的 SVG」锁住。
 
 - **补救指引只活在 `title` 里**（原 HTML 11 + JS 10 处）：`title` 对键盘与触屏完全
   不可达（WCAG 1.4.13）。两处最要命的已落到可见文字——取列封顶（`.pc .capnote`）与
@@ -276,7 +292,7 @@
   与 `.vlist li.miss` 同一处理——安静靠字号与措辞，不靠透明度。
 
 上述成对取值由 `TestTokenContrastAA` 按 WCAG 相对亮度**实算**把关（不是字符串
-断言）：它从 `:root` 与深色块读出令牌色值，逐对核对 11 组前景/底色 ≥ 4.5:1，
+断言）：它从 `:root` 与深色块读出令牌色值，逐对核对 12 组前景/底色 ≥ 4.5:1，
 并禁止前景写死 `#fff`/`white` 与用 `color-mix` 再调淡次要文字。改任何颜色令牌
 都会当场重算。
 
@@ -300,7 +316,7 @@
 - 文案改动同步本文件与 CHANGELOG.md；阶段进展同步 docs/tasks-opencourt-bridge.md。
 - 前端契约测试必须仍绿（`go test ./desktop/`）：新增 `$("#id")` 必须在 index.html 声明；
   `app().Method(...)` 实参个数必须与 `main.App` 方法签名一致——一处不符即整块面板空白。
-- 界面结构门禁（`desktop/ui_contract_test.go`）十四条：HTML/JS 用到的类名必须在 style.css
+- 界面结构门禁（`desktop/ui_contract_test.go`）十五条：HTML/JS 用到的类名必须在 style.css
   有规则；每个面板必须有页头（`.page-head` 或首页 `.hero`）；技术字样（schema_version、
   环境变量、URL、LIKE 通配符等）不得出现在 `<details>` 之外；样式层必须给出深色令牌
   与前端 `data-theme` 切换；三栏结构必须齐备（左列导航 + 筛选栏、中列面板、右列共享
@@ -319,10 +335,12 @@
   （`TestListRowsKeyboardOperable`）：条目类名只允许出现在原生交互元素上、七个列表必须
   各产出一处按钮、`#detail` 必须 `tabindex="-1"`、关闭详情必须把焦点还回来路；
   令牌对比度门禁（`TestTokenContrastAA`）从 `:root` 与深色块读出令牌实际色值，
-  按 WCAG 相对亮度公式实算 11 组「前景/底色」必须 ≥ 4.5:1，并禁止前景写死
+  按 WCAG 相对亮度公式实算 12 组「前景/底色」必须 ≥ 4.5:1，并禁止前景写死
   `#fff`/`white` 与用 `color-mix` 把次要文字再调淡；指引可见性门禁
   （`TestGuidanceNotTitleOnly`）：取列封顶与「未标注」的说明必须出现在可见文字里
-  （`.miss` / `.capnote` 不得带 `title`），图标按钮必须有 `aria-label`。
+  （`.miss` / `.capnote` 不得带 `title`），图标按钮必须有 `aria-label`；图标与表面门禁
+  （`TestIconsAreSVGNotGlyphs`）：控件符号不得用 Unicode 字形、每个折叠组头都必须声明
+  图标（静态与动态两处产出逐行核对）、选区/插入符/滚动条必须随主题、按下态不得缺席。
 - 前端接线冒烟（`desktop/frontend/wiring_smoke.mjs`，由 `TestFrontendWiringSmoke` 调用）必须仍
   打印 `SMOKE_OK`：它桩化 DOM 与 Go 绑定，把 api.js + app.js 真实执行一遍（切面板、检索、
   载入队列、渲染任务、切外观），核对侧栏计数、构成占比条、任务状态、分面计数随筛选变化

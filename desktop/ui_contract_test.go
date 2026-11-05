@@ -289,6 +289,7 @@ func TestFrontendWiringSmoke(t *testing.T) {
 		"未标注地区如实说明\": true", "检索命中可就地收窄\": true",
 		"条目行是按钮（键盘可达）\": true",
 		"缺失项写明缺什么与去哪补\": true", "缺失说明不藏在 title\": true", "未封顶时不谎报上限\": true",
+		"法域卡箭头是注入的 SVG\": true",
 		"智能审核统计分开计数\": true", "例外队列给出没把握原因\": true", "智能审核通道回显\": true",
 		"条目徽章如实报智能体确认\": true",
 		"维护入口进入独立工作区\": true", "两套导航完整互斥切换\": true", "离线更新包在维护区可达\": true", "退出维护回主导航\": true",
@@ -354,6 +355,7 @@ func TestTokenContrastAA(t *testing.T) {
 		{"警示文字/警示浅底", "--warn", "--warn-soft"},
 		{"错误文字/错误浅底", "--bad", "--bad-soft"},
 		{"侧栏文字/侧栏底色", "--side-ink", "--side"},
+		{"选中文字/选中底色", "--ink", "--acc-soft"},
 	}
 	for _, theme := range []struct {
 		label  string
@@ -626,6 +628,58 @@ func TestResponsiveTiers(t *testing.T) {
 	js := readFrontend(t, filepath.Join("assets", "app.js"))
 	if !strings.Contains(js, `"Escape"`) || !strings.Contains(js, "hideDetail()") {
 		t.Errorf("详情浮层缺少 Esc 出口——浮层不得只有 ✕ 一个关闭方式")
+	}
+}
+
+// TestIconsAreSVGNotGlyphs 独立成控件的符号必须是集中注入的 SVG，不得用 Unicode 字形。
+//
+// 字形符号（▸ ✕ ›）落在各平台各自的字体上：macOS 与 Windows 会换成不同字形，尺寸无法
+// 与 16px 线性图标对齐，深色主题下也不能随前景色翻转，而本仓库已有 ICON_PATHS 集中注入
+// 这一条唯一路径（同一代码路径纪律同样适用于图标）。折叠组头有静态（index.html）与
+// 动态（app.js 渲染法域卡）两种产出，两处都必须声明，否则删掉字形后那一处就没有箭头。
+// 字号按钮 A− / A+ 保留文字形态——那是字号本身的隐喻，不是图标。
+func TestIconsAreSVGNotGlyphs(t *testing.T) {
+	css := readFrontend(t, filepath.Join("assets", "style.css"))
+	html := readFrontend(t, "index.html")
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+
+	for _, g := range []struct{ name, ch string }{{"折叠三角", "\u25b8"}, {"关闭", "\u2715"}, {"右箭头", "\u203a"}} {
+		if strings.Contains(css, `content: "`+g.ch+`"`) || strings.Contains(css, `content:"`+g.ch+`"`) {
+			t.Errorf("样式用 content 画了 Unicode 字形 %s（%s）：图标必须走 ICON_PATHS", g.name, g.ch)
+		}
+		for _, src := range []struct{ name, text string }{{"index.html", html}, {"app.js", js}} {
+			if strings.Contains(src.text, ">"+g.ch+"<") {
+				t.Errorf("%s 把 %s（%s）当控件内容：字形随平台变样且不随前景翻转", src.name, g.name, g.ch)
+			}
+		}
+	}
+	for _, want := range []string{"close: '<path", "'chevron-right': '<path"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("图标表缺少 %s——关闭与箭头必须与其余图标同一套 SVG", want)
+		}
+	}
+	for _, src := range []struct{ name, text string }{{"index.html", html}, {"app.js", js}} {
+		for _, line := range strings.Split(src.text, "\n") {
+			if !strings.Contains(line, "<summary") {
+				continue
+			}
+			if !strings.Contains(line, `data-icon="chevron"`) && !strings.Contains(line, `icon("chevron")`) {
+				t.Errorf("%s 的折叠组头没有图标声明（删掉字形后这里就没有箭头了）：%s",
+					src.name, strings.TrimSpace(line))
+			}
+		}
+	}
+	// 浏览器自己画的表面必须随主题：选区、插入符、滚动条（深色面板上默认值刺眼）。
+	for _, want := range []string{"::selection {", "caret-color: var(--acc)", "scrollbar-color: var(--muted)"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("样式缺少 %s——UA 默认表面不随主题，深色下对比与观感都不对", want)
+		}
+	}
+	// 按下态不得缺席：此前只有 :hover，鼠标按下的瞬间界面毫无变化。
+	for _, want := range []string{"button:active", ".item:active", ".lawcard:active", ".fchip:active", ".nav:active"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("样式缺少 %s 的按下态——可点控件必须给出「按到了」的反馈", want)
+		}
 	}
 }
 

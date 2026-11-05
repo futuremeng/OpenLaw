@@ -4,7 +4,7 @@
   "target": "desktop/frontend/dist",
   "totals": {
     "fail": 11,
-    "reflex": 113,
+    "reflex": 112,
     "warn": 9
   },
   "byRule": {
@@ -17,7 +17,6 @@
     "FAIL 56": 1,
     "FAIL 67": 4,
     "REFLEX 24b": 111,
-    "REFLEX 26b": 1,
     "REFLEX 38iii": 1,
     "WARN 3": 2,
     "WARN 41": 3,

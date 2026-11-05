@@ -39,6 +39,8 @@ const ICON_PATHS = {
   alert: '<path d="M12 4l8.5 16h-17z"/><path d="M12 10v4M12 17h.01"/>',
   refresh: '<path d="M20 12a8 8 0 1 1-2.9-6.2"/><path d="M20 4.5V9h-4.5"/>',
   chevron: '<path d="M6 9.5l6 6 6-6"/>',
+  'chevron-right': '<path d="M9.5 6l6 6-6 6"/>',
+  close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   rows: '<path d="M4 6.5h16M4 12h16M4 17.5h16"/>',
   wide: '<path d="M4 5v14M20 5v14M8 12h8"/><path d="M11 9l-3 3 3 3M13 9l3 3-3 3"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/>',
@@ -1042,7 +1044,7 @@ function renderJuris(rows, byLevel, reps, revs) {
         : "尚无留证条文";
       head = `<button class="jhead" data-juris="${c}" title="浏览该法域全部法规">` +
         `<b>${JURIS_TEXT[c]}</b>${expTag}<span class="num">${num(laws)} 部</span>` +
-        `<span class="muted">${stat} · 点击查看全部 ›</span></button>`;
+        `<span class="muted">${stat} · 点击查看全部 ${icon("chevron-right")}</span></button>`;
     } else {
       head = `<div class="jhead off"><b>${JURIS_TEXT[c]}</b>${expTag}<span class="num">0 部</span>` +
         `<span class="muted">尚未收录</span></div>`;
@@ -1054,7 +1056,7 @@ function renderJuris(rows, byLevel, reps, revs) {
         `<span class="bar">${seg("ok", b.confirmed)}${seg("pend", b.pending)}${seg("no", b.rejected)}</span>` +
         `<span class="num">${num(totalOf(b))} 条</span></div>`).join("");
       // 精确数字明细随构成走：折叠在本法域列内（与占比条同一批数据，可对账）。
-      body += `<details class="disclose sm"><summary>各等级的精确数字</summary>` +
+      body += `<details class="disclose sm"><summary>${icon("chevron")}各等级的精确数字</summary>` +
         `<table class="lv"><thead><tr><th>效力等级</th><th>待复核</th><th>已复核确认</th><th>已驳回</th></tr></thead><tbody>` +
         bars.map((b) => `<tr><td>${escapeHTML(b.level || "效力等级未标注")}</td><td>${num(b.pending)}</td><td>${num(b.confirmed)}</td><td>${num(b.rejected)}</td></tr>`).join("") +
         `</tbody></table></details>`;
@@ -1062,7 +1064,7 @@ function renderJuris(rows, byLevel, reps, revs) {
       body = `<p class="muted">尚无留证原文入库，构成待原文获取后显示。</p>`;
     } else {
       const hint = `<p class="muted">${escapeHTML(JURIS_HINT[c])}</p>`;
-      body = exp ? `<details class="disclose sm"><summary>该通道现状与下一步</summary>${hint}</details>` : hint;
+      body = exp ? `<details class="disclose sm"><summary>${icon("chevron")}该通道现状与下一步</summary>${hint}</details>` : hint;
     }
     // 该法域的最近动态：获取记录（按渠道映射法域）与复核记录（经条目真实联查法域）
     // 归入所属法域列——每个法域一个完整档案（计数→构成→动态），缺失如实说明。

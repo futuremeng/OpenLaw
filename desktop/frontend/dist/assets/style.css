@@ -116,6 +116,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 }
 #crumb { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; color: var(--muted); }
 #crumb .sep { color: var(--line); }
+#crumb .sep .ic { width: 12px; height: 12px; }
 #crumb b { color: var(--ink); font-weight: 600; }
 #crumb .cf { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tchips { display: flex; align-items: center; gap: 6px; }
@@ -161,6 +162,20 @@ button.warn { background: var(--panel); border-color: var(--warn); color: var(--
 button.ghost { background: none; border-color: transparent; color: var(--muted); }
 button.ghost:hover { background: var(--surface-2); color: var(--ink); border-color: transparent; }
 button:disabled { opacity: .5; cursor: not-allowed; }
+/* 按下态：可点控件必须给出「按到了」的反馈（此前只有 :hover，鼠标按下瞬间无变化）。
+   统一用 1px 位移加底色/亮度变化——不用阴影与缩放：数据密集界面里缩放会让整屏发抖。
+   禁用态不得装作按得动。 */
+button:active:not(:disabled), .ibtn:active:not(:disabled), .fchip:active, .fhd:active,
+.nav:active, #nav-maintain:active, .card.big:active, .item:active, .lawcard:active {
+  transform: translateY(1px);
+}
+button:active:not(:disabled) { border-color: var(--acc); background: var(--acc-soft); }
+button.primary:active, button.ok:active { background: var(--ok); border-color: var(--ok); filter: brightness(.9); }
+button.warn:active { background: var(--warn-soft); }
+button.ghost:active { background: var(--surface-2); border-color: transparent; color: var(--ink); }
+.ibtn:active { background: var(--surface-2); color: var(--ink); }
+.nav:active, #nav-maintain:active { background: var(--side-hover); color: var(--ink); }
+.item:active, .lawcard:active, .card.big:active { background: var(--surface-2); }
 input, select, textarea { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-s); padding: 7px 10px; }
 textarea { width: 100%; min-height: 74px; resize: vertical; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
@@ -226,6 +241,8 @@ button.card { text-align: left; font: inherit; color: inherit; cursor: pointer; 
 .jhead { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; width: 100%; font-size: 13.5px; }
 .jhead b { font-size: 14px; }
 .jhead .num { font-variant-numeric: tabular-nums; color: var(--muted); }
+/* 行内图标的基线：svg 默认按底线对齐，16px 图标会把 12.5px 文字的行盒顶起来。 */
+.jhead .muted .ic { width: 12px; height: 12px; vertical-align: middle; }
 button.jhead { appearance: none; background: transparent; border: 0; margin: 0; padding: 0; font: inherit; font-size: 13.5px; color: inherit; text-align: left; cursor: pointer; }
 button.jhead:hover b { text-decoration: underline; }
 .jhead.off b, .jhead.off .num { color: var(--muted); }
@@ -271,6 +288,22 @@ button.jhead:hover b { text-decoration: underline; }
 .panel { animation: fade .16s ease-out; }
 @keyframes fade { from { opacity: .6; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .panel { animation: none; } }
+
+
+/* ---------- 浏览器自己画的那几处也必须随主题 ----------
+   默认选区是 UA 的蓝底白字，深色面板上刺眼且对比不足；滚动条与插入符同样默认
+   按浅色画。全部走令牌，深色/浅色各由主题块给出取值（滚动条用 --muted 作滑块，
+   悬停转强调色——两种主题下都够看见，也不抢内容）。 */
+::selection { background: var(--acc-soft); color: var(--ink); }
+input, textarea, select { caret-color: var(--acc); }
+* { scrollbar-color: var(--muted) transparent; scrollbar-width: thin; }
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--muted); border: 4px solid transparent; border-radius: 8px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--acc); background-clip: content-box; }
 
 
 
@@ -422,8 +455,8 @@ tbody tr:hover { background: var(--surface-2); }
 /* ---------- 折叠（渐进披露：技术细节不在主视图铺开） ---------- */
 .disclose { margin-top: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 4px 16px; }
 .disclose summary { padding: 9px 0; cursor: pointer; font-weight: 600; list-style: none; }
-.disclose summary::before { content: "▸"; display: inline-block; margin-right: 8px; color: var(--muted); }
-.disclose[open] summary::before { transform: rotate(90deg); }
+.disclose summary .ic { width: 12px; height: 12px; margin-right: 8px; color: var(--muted); transform: rotate(-90deg); vertical-align: middle; }
+.disclose[open] summary .ic { transform: rotate(0deg); }
 .disclose summary::-webkit-details-marker { display: none; }
 .disclose[open] summary { border-bottom: 1px solid var(--line-2); }
 .kv { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; font-size: 13.5px; }

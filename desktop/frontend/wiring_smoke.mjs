@@ -423,6 +423,7 @@ const g = (id) => byId.get(id);
     '缺失项写明缺什么与去哪补': /未标注 \d+ 项（[^）]*效力等级[^）]*）/.test(rowHTML) && rowHTML.includes('「地域标引」补地区'),
     '缺失说明不藏在 title': !/class="miss"[^>]*title=/.test(rowHTML),
     '未封顶时不谎报上限': !paneCnt.includes('capnote'),
+    '法域卡箭头是注入的 SVG': g('ov-juris').innerHTML.includes('class="ic ') && !g('ov-juris').innerHTML.includes('›'),
     '缺失不被当作已知值回显': !rowHTML.includes('效力等级未标注'),
     '待复核条目行有强调类': rowHTML.includes('item pend'),
     '条目徽章如实报智能体确认': rowHTML.includes('智能体确认'),
