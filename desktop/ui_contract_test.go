@@ -285,6 +285,7 @@ func TestFrontendWiringSmoke(t *testing.T) {
 	for _, want := range []string{"侧栏待复核计数", "待复核为 0 时清空徽标\": true", "总览占比条含 bar-row\": true",
 		"任务卡 class 含 running\": true", "筛选前后总数联动\": true", "浏览分面给出计数\": true",
 		"未标注地区如实说明\": true", "检索命中可就地收窄\": true",
+		"条目行是按钮（键盘可达）\": true",
 		"智能审核统计分开计数\": true", "例外队列给出没把握原因\": true", "智能审核通道回显\": true",
 		"条目徽章如实报智能体确认\": true",
 		"维护入口进入独立工作区\": true", "两套导航完整互斥切换\": true", "离线更新包在维护区可达\": true", "退出维护回主导航\": true",
@@ -292,6 +293,37 @@ func TestFrontendWiringSmoke(t *testing.T) {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("接线冒烟缺少期望产出 %q：\n%s", want, strings.TrimSpace(string(out)))
 		}
+	}
+}
+
+// TestListRowsKeyboardOperable 列表条目必须是原生可聚焦元素。
+//
+// 条目行是产品的招牌动作（选中一条 → 读原文）。写成 <div onclick> 时鼠标能用、
+// 键盘完全不能用（WCAG 2.1.1 与 4.1.2 都是 A 级），而这类退化在绑定测试与
+// 类名门禁里毫无征兆——面板照样渲染，只是键盘用户点不动。故在此锁死：
+// 条目类名只允许出现在原生交互元素上，且焦点必须进得去右列、退得回来路。
+func TestListRowsKeyboardOperable(t *testing.T) {
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	html := readFrontend(t, "index.html")
+	rowTagRe := regexp.MustCompile(`<(?:div|span|li|a|p|tr)\b[^>]*class="(?:item|lawcard)[" $]`)
+	for _, src := range []struct {
+		name string
+		text string
+	}{{"app.js", js}, {"index.html", html}} {
+		if m := rowTagRe.FindString(src.text); m != "" {
+			t.Errorf("%s 的条目行用了非交互元素（键盘不可达）：%s", src.name, m)
+		}
+	}
+	// 七个列表各产出一处按钮条目，一处都不能少（少一处即该列表键盘不可达）。
+	n := strings.Count(js, `<button type="button" class="item`) + strings.Count(js, `<button type="button" class="lawcard`)
+	if n != 7 {
+		t.Errorf("条目模板产出的按钮为 %d 处，应为 7 处（浏览/首页命中/条款/条文检索/例外/地区/部门法）", n)
+	}
+	if !strings.Contains(html, `id="detail" class="hidden" tabindex="-1"`) {
+		t.Error(`详情列必须 tabindex="-1"：键盘激活条目后焦点要能进右列，否则详情既读不到也滚不动`)
+	}
+	if !strings.Contains(js, "detailOpener.focus()") {
+		t.Error("关闭详情必须把焦点还给打开它的那一行（Esc / ✕ 之后不得把用户丢在原地）")
 	}
 }
 

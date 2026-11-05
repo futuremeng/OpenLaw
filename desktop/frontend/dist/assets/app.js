@@ -310,17 +310,27 @@ function bindCopy(el) {
 /* ---------- 右列：共享详情面板 ----------
    原文、条款、例外详情都在右列展开（三栏：左=导航与筛选、中=列表、右=详情）。
    「一键纠正」工具条只在例外详情下出现；关闭即收起右列。 */
+let detailOpener = null; // 键盘与读屏的来路：关闭详情后焦点必须回到打开它的那一行
 function showDetail(title) {
+  const hidden = $("#detail").classList.contains("hidden");
+  const a = document.activeElement;
+  const fromRow = !!(a && a.matches && a.matches("button.item, button.lawcard"));
+  if (hidden) detailOpener = fromRow ? a : null;
   $("#detail").classList.remove("hidden");
   $("#detail-title").textContent = title || "详情";
   const b = $("#detail-body");
   b.innerHTML = "";
   applyReading();
+  // 条目行是按钮后，键盘激活必须能把焦点带进右列——否则焦点仍留在行上，
+  // 详情既读不到也滚不动（preventScroll 避免顺带把页面弹走）。
+  if (hidden && fromRow) $("#detail").focus({ preventScroll: true });
   return b;
 }
 function hideDetail() {
   $("#detail").classList.add("hidden");
   $("#fix-bar").classList.add("hidden");
+  if (detailOpener && document.contains(detailOpener)) detailOpener.focus();
+  detailOpener = null;
 }
 function openPreview(docID, articleNo, back) {
   app().Preview(docID).then((p) => {
@@ -666,10 +676,10 @@ async function loadLaws() {
       pc.title = list.length >= 300 ? "本次列出前 300 部，其余请用条件收窄" : "已列出当前条件下的全部条目";
     }
     $("#law-list").innerHTML = list.length ? list.map((r) => `
-      <div class="item${r.confirm_status === "confirmed" ? "" : " pend"}" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
-        <div class="t">${escapeHTML(r.name)} ${statusBadge(r.confirm_status, r.confirm_source)} ${validBadge(r.effective_date, r.expire_date)}</div>
-        <div class="m">${rowMeta(r)}</div>
-      </div>`).join("") :
+      <button type="button" class="item${r.confirm_status === "confirmed" ? "" : " pend"}" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
+        <span class="t">${escapeHTML(r.name)} ${statusBadge(r.confirm_status, r.confirm_source)} ${validBadge(r.effective_date, r.expire_date)}</span>
+        <span class="m">${rowMeta(r)}</span>
+      </button>`).join("") :
       '<p class="muted">' + (browseFilter.region
         ? "当前条件下没有法规。已标注地区的按区划码匹配、未标注的按名称中的地名匹配；两者都判不出地区的条目不会出现在按地区筛选的结果中——可点「清空筛选」，或改用上方下拉。"
         : "当前条件下没有法规。可点「清空筛选」，或放宽名称关键词。") + "</p>";
@@ -721,11 +731,11 @@ async function homeSearch() {
       ? '<p class="muted">仅列出前 20 条命中。<button id="h-more" class="ok">到条文检索查看全部 →</button></p>'
       : "";
     $("#h-results").innerHTML = rows.length ? rows.map((r) => `
-      <div class="lawcard" data-doc="${escapeHTML(r.doc_id)}">
-        <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
-        <div class="snip">${escapeHTML(r.snippet)}</div>
-        <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""} · <b class="view">查看原文 →</b></div>
-      </div>`).join("") + more : guideBlock(v.guidance, "没有找到相关条文。");
+      <button type="button" class="lawcard" data-doc="${escapeHTML(r.doc_id)}">
+        <span class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level)}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</span>
+        <span class="snip">${escapeHTML(r.snippet)}</span>
+        <span class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""} · <b class="view">查看原文 →</b></span>
+      </button>`).join("") + more : guideBlock(v.guidance, "没有找到相关条文。");
     document.querySelectorAll("#h-results .lawcard").forEach((el) =>
       el.addEventListener("click", () => openPreview(el.dataset.doc)));
     const hm = $("#h-results").querySelector("#h-more");
@@ -908,7 +918,7 @@ async function openLaw(lawID, name) {
   document.querySelectorAll("#law-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.law === lawID));
   const [vs, arts, meta] = await Promise.all([app().LawVersions(lawID), app().BrowseArticles(lawID), app().LawMeta(lawID)]);
   const tl = vs.map((x) => `<div class="tl-row"><b>${escapeHTML(x.version_no)}</b> ${escapeHTML(x.effective)} 起施行${x.expire ? "，" + escapeHTML(x.expire) + " 失效" : "，现行有效"} ${statusBadge(x.status)}</div>`).join("");
-  const list = arts.map((x) => `<div class="item art" data-doc="${escapeHTML(x.doc_id)}" data-no="${escapeHTML(x.article_no)}"><div class="t">${escapeHTML(x.article_no)}</div><div class="m">${escapeHTML(x.snippet)}…</div></div>`).join("");
+  const list = arts.map((x) => `<button type="button" class="item art" data-doc="${escapeHTML(x.doc_id)}" data-no="${escapeHTML(x.article_no)}"><span class="t">${escapeHTML(x.article_no)}</span><span class="m">${escapeHTML(x.snippet)}…</span></button>`).join("");
   const box = showDetail(name || "法规详情");
   box.innerHTML = `<h3>${escapeHTML(name)}</h3>${lawMetaCard(meta || {})}
     <h4>修订沿革</h4><div class="tl">${tl || '<p class="muted">暂无版本记录。</p>'}</div>
@@ -1252,11 +1262,11 @@ function renderHits() {
     pc.title = "全文检索按语料原样给出，不重排序；就地收窄只筛本次命中，不重新查库";
   }
   $("#search-list").innerHTML = rows.map((r) => `
-    <div class="item${r.confirm_status === "confirmed" ? "" : " pend"}" data-doc="${escapeHTML(r.doc_id)}" data-no="${escapeHTML(r.article_no)}" data-law="${escapeHTML(r.law_name)}">
-      <div class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level || "等级未标注")}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</div>
-      <div class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</div>
-      <div class="m">${escapeHTML(r.snippet)}</div>
-    </div>`).join("") || '<p class="muted">当前筛选下没有命中，再点一次已选中的条件即可取消。</p>';
+    <button type="button" class="item${r.confirm_status === "confirmed" ? "" : " pend"}" data-doc="${escapeHTML(r.doc_id)}" data-no="${escapeHTML(r.article_no)}" data-law="${escapeHTML(r.law_name)}">
+      <span class="t">${escapeHTML(r.law_name)} <span class="pill">${escapeHTML(r.level || "等级未标注")}</span> ${statusBadge(r.confirm_status)} ${validBadge(r.effective_date, r.expire_date)}</span>
+      <span class="m">${escapeHTML(r.article_no)}${r.effective_date ? " · " + r.effective_date + " 起施行" : ""}</span>
+      <span class="m">${escapeHTML(r.snippet)}</span>
+    </button>`).join("") || '<p class="muted">当前筛选下没有命中，再点一次已选中的条件即可取消。</p>';
   document.querySelectorAll("#search-list .item").forEach((el) =>
     el.addEventListener("click", () => showSearchPreview(el.dataset.doc, el.dataset.no, el.dataset.law)));
 }
@@ -1448,12 +1458,12 @@ async function loadExceptions() {
     exQueue = (await app().ExceptionList($("#ex-filter").value.trim(), 300, 0)) || [];
     $("#ex-info").textContent = exQueue.length ? `已载入 ${num(exQueue.length)} 条（一次最多显示 300 条）` : "";
     $("#ex-list").innerHTML = exQueue.map((r) => `
-      <div class="item${r.doc_id === exSelected ? " sel" : ""}" data-doc="${escapeHTML(r.doc_id)}">
-        <div class="t">${escapeHTML(r.law_name || r.doc_id)} <span class="badge pend">需要纠正</span></div>
-        <div class="m">条目编号 ${escapeHTML(r.doc_id)} · 来源：${escapeHTML(r.source || "未记录来源")}${r.level ? " · " + escapeHTML(r.level) : ""}</div>
-        <div class="m"><span class="pill warn">没把握的原因：${escapeHTML(r.reason)}</span>${r.confidence ? ` <span class="pill">把握度 ${Math.round(r.confidence * 100)}%</span>` : ""}</div>
-        ${r.suggest ? `<div class="m">智能体建议：${escapeHTML(r.suggest)}</div>` : ""}
-      </div>`).join("") ||
+      <button type="button" class="item${r.doc_id === exSelected ? " sel" : ""}" data-doc="${escapeHTML(r.doc_id)}">
+        <span class="t">${escapeHTML(r.law_name || r.doc_id)} <span class="badge pend">需要纠正</span></span>
+        <span class="m">条目编号 ${escapeHTML(r.doc_id)} · 来源：${escapeHTML(r.source || "未记录来源")}${r.level ? " · " + escapeHTML(r.level) : ""}</span>
+        <span class="m"><span class="pill warn">没把握的原因：${escapeHTML(r.reason)}</span>${r.confidence ? ` <span class="pill">把握度 ${Math.round(r.confidence * 100)}%</span>` : ""}</span>
+        ${r.suggest ? `<span class="m">智能体建议：${escapeHTML(r.suggest)}</span>` : ""}
+      </button>`).join("") ||
       '<p class="muted">没有需要纠正的条目（或上方条件无匹配）。清空条件再点「载入例外条目」可查看全部。</p>';
     document.querySelectorAll("#ex-list .item").forEach((el) => el.addEventListener("click", () => showException(el.dataset.doc)));
   } catch (e) { $("#ex-list").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
@@ -1571,11 +1581,11 @@ async function loadRegionQueue() {
     rgQueue = (await app().RegionReviewList($("#rg-filter").value.trim(), $("#rg-state").value, 300, 0)) || [];
     $("#rg-info").textContent = `队列 ${rgQueue.length} 条（最多显示 300）`;
     $("#rg-list").innerHTML = rgQueue.map((r) => `
-      <div class="item ${r.law_id === rgSelected ? "sel" : ""}" data-law="${escapeHTML(r.law_id)}">
-        <div class="t">${escapeHTML(r.name || r.law_id)} ${rgStateBadge(r.state, r.region_source)}</div>
-        <div class="m">${escapeHTML(r.law_id)}${r.effect_level ? " · " + escapeHTML(r.effect_level) : ""}${r.issuer ? " · " + escapeHTML(r.issuer) : ""}</div>
-        <div class="m">${r.region_path ? "当前标注：" + escapeHTML(r.region_path) : "当前标注：缺失/未知"}${r.region_reviewer ? "（" + escapeHTML(r.region_reviewer) + "）" : ""}</div>
-      </div>`).join("") || '<p class="muted">队列为空（或过滤无匹配）。</p>';
+      <button type="button" class="item ${r.law_id === rgSelected ? "sel" : ""}" data-law="${escapeHTML(r.law_id)}">
+        <span class="t">${escapeHTML(r.name || r.law_id)} ${rgStateBadge(r.state, r.region_source)}</span>
+        <span class="m">${escapeHTML(r.law_id)}${r.effect_level ? " · " + escapeHTML(r.effect_level) : ""}${r.issuer ? " · " + escapeHTML(r.issuer) : ""}</span>
+        <span class="m">${r.region_path ? "当前标注：" + escapeHTML(r.region_path) : "当前标注：缺失/未知"}${r.region_reviewer ? "（" + escapeHTML(r.region_reviewer) + "）" : ""}</span>
+      </button>`).join("") || '<p class="muted">队列为空（或过滤无匹配）。</p>';
     document.querySelectorAll("#rg-list .item").forEach((el) => el.addEventListener("click", () => showRegionReview(el.dataset.law)));
   } catch (e) { $("#rg-list").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
 }
@@ -1725,11 +1735,11 @@ async function loadSubjectQueue() {
     sjQueue = (await app().SubjectReviewList($("#sj-filter").value.trim(), $("#sj-state").value, 300, 0)) || [];
     $("#sj-info").textContent = `队列 ${sjQueue.length} 条（最多显示 300）`;
     $("#sj-list").innerHTML = sjQueue.map((r) => `
-      <div class="item ${r.law_id === sjSelected ? "sel" : ""}" data-law="${escapeHTML(r.law_id)}">
-        <div class="t">${escapeHTML(r.name || r.law_id)} ${sjStateBadge(r.state, r.subject_source)}</div>
-        <div class="m">${escapeHTML(r.law_id)}${r.effect_level ? " · " + escapeHTML(r.effect_level) : ""}${r.issuer ? " · " + escapeHTML(r.issuer) : ""}</div>
-        <div class="m">${r.subject_name ? "部门法：" + escapeHTML(r.subject_name) : "部门法未标注"}${r.doc_form_name ? " · 形态：" + escapeHTML(r.doc_form_name) : ""}</div>
-      </div>`).join("") || '<p class="muted">没有符合条件的条目。</p>';
+      <button type="button" class="item ${r.law_id === sjSelected ? "sel" : ""}" data-law="${escapeHTML(r.law_id)}">
+        <span class="t">${escapeHTML(r.name || r.law_id)} ${sjStateBadge(r.state, r.subject_source)}</span>
+        <span class="m">${escapeHTML(r.law_id)}${r.effect_level ? " · " + escapeHTML(r.effect_level) : ""}${r.issuer ? " · " + escapeHTML(r.issuer) : ""}</span>
+        <span class="m">${r.subject_name ? "部门法：" + escapeHTML(r.subject_name) : "部门法未标注"}${r.doc_form_name ? " · 形态：" + escapeHTML(r.doc_form_name) : ""}</span>
+      </button>`).join("") || '<p class="muted">没有符合条件的条目。</p>';
     document.querySelectorAll("#sj-list .item").forEach((el) => el.addEventListener("click", () => showSubjectReview(el.dataset.law)));
   } catch (e) { $("#sj-list").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
 }

@@ -363,6 +363,11 @@ html[data-density="compact"] .filters { max-height: calc(100vh - 108px); }
 .item .m, .lawcard .m { margin-top: 3px; font-size: 12.5px; color: var(--muted); }
 .item .miss { color: color-mix(in srgb, var(--muted) 78%, transparent); }
 .item.art { padding-left: 14px; border-left: 2px solid var(--line); border-radius: 0 var(--r-s) var(--r-s) 0; }
+/* 条目行是真按钮（键盘可达是硬要求，见 docs/design-ui-language.md）：
+   按钮复位只设不影响各自行外观的属性，背景仍由 .item / .lawcard 各自决定。 */
+button.item, button.lawcard { display: block; width: 100%; font: inherit; color: inherit; text-align: left; }
+button.item { background: none; }
+.item > .t, .item > .m, .lawcard > .t, .lawcard > .m, .lawcard > .snip { display: block; }
 .preview { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; box-shadow: var(--shadow); }
 .pv pre { white-space: pre-wrap; word-break: break-word; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); padding: 12px; max-height: 52vh; overflow: auto; font-family: inherit; }
 .pv .meta { margin: 3px 0; font-size: 13px; color: var(--muted); }

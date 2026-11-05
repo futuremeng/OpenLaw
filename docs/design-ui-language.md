@@ -127,6 +127,12 @@
   维护工作区（获取最新法规 / 离线更新包）。
 - **每屏一个页头**：每个面板以 `.page-head` 开头（标题 + 一句话处境说明），主行动紧随其后，
   工具条其次。用户先知道「在解决什么问题」，再看到控件。
+- **条目行必须是原生可聚焦元素**（2026-11-05 起）：七个列表（浏览 / 首页命中 /
+  条款 / 条文检索 / 例外 / 地域 / 部门法）的条目一律是 `<button class="item|lawcard">`，
+  不得写回 `<div onclick>`——鼠标能用而键盘不能用的退化在类名门禁与绑定测试里
+  毫无征兆（WCAG 2.1.1 / 4.1.2 属 A 级）。键盘激活条目后焦点必须进右列
+  （`#detail` 带 `tabindex="-1"`），Esc 或 ✕ 关闭后必须回到打开它的那一行。
+  门禁：`TestListRowsKeyboardOperable` + 接线冒烟「条目行是按钮（键盘可达）」。
 - **顶栏承载当前位置与本机状态**（`#topbar`）：面包屑给出「法律法规库 › 按条件筛选」，
   浏览页还把当前筛选摘要挂在当前位置后面（`#crumb-ctx`）；右侧常驻本机法规库总数
   （`#t-lib`）、待复核提醒（`#t-pending`，为 0 时收起而不是显示 0）、进行中的获取任务
@@ -239,6 +245,13 @@
    （WCAG 1.4.13）。**与本文件「未标注必须如实」条明文要求的「挂在 title 里」冲突**，
    属规范级冲突：须把指引落到可见文本，并同步修订该条，不得只改代码风格。
 
+已修（2026-11-05）：**七个列表条目键盘不可达**——原为 `<div onclick>`，
+键盘与开关控件用户无法打开任何一条法规原文（WCAG 2.1.1 / 4.1.2，A 级）。
+现改原生 `<button>` 并补焦点去向，由 `TestListRowsKeyboardOperable` 与
+接线冒烟锁住。审计中另发现「前景于强调色」在仓库里有两种做法
+（`.fchip.on` 用 `var(--panel)` 正确，`.brand .mark` / `button.primary` 用 `#fff` 错误），
+即第 1 条的根因，修 1 时按 `.fchip.on` 的既有做法统一。
+
 **工具与本项目规范冲突的三条，立场已定，不得被工具驱动着改**：
 
 - `FAIL 20`（CSS 首行必须是 Hallmark stamp）：**永久不采纳**。往样式源码里
@@ -259,7 +272,7 @@
 - 文案改动同步本文件与 CHANGELOG.md；阶段进展同步 docs/tasks-opencourt-bridge.md。
 - 前端契约测试必须仍绿（`go test ./desktop/`）：新增 `$("#id")` 必须在 index.html 声明；
   `app().Method(...)` 实参个数必须与 `main.App` 方法签名一致——一处不符即整块面板空白。
-- 界面结构门禁（`desktop/ui_contract_test.go`）十一条：HTML/JS 用到的类名必须在 style.css
+- 界面结构门禁（`desktop/ui_contract_test.go`）十二条：HTML/JS 用到的类名必须在 style.css
   有规则；每个面板必须有页头（`.page-head` 或首页 `.hero`）；技术字样（schema_version、
   环境变量、URL、LIKE 通配符等）不得出现在 `<details>` 之外；样式层必须给出深色令牌
   与前端 `data-theme` 切换；三栏结构必须齐备（左列导航 + 筛选栏、中列面板、右列共享
@@ -274,7 +287,9 @@
   `panel-pack`（离线更新包）必须在位，且更新包控件只允许出现在 `panel-pack` 一处；
   异步反馈门禁（`TestAsyncFeedbackGuards`）：toast 必须带 `role="status"`/`aria-live`，
   取列必须有进行状态与 `lawsSeq` 序号守卫，导入按钮必须默认锁定并在校验通过且
-  来源受信后才解锁，定位流程进行中必须锁定按钮防重入。
+  来源受信后才解锁，定位流程进行中必须锁定按钮防重入；条目行键盘可达门禁
+  （`TestListRowsKeyboardOperable`）：条目类名只允许出现在原生交互元素上、七个列表必须
+  各产出一处按钮、`#detail` 必须 `tabindex="-1"`、关闭详情必须把焦点还回来路。
 - 前端接线冒烟（`desktop/frontend/wiring_smoke.mjs`，由 `TestFrontendWiringSmoke` 调用）必须仍
   打印 `SMOKE_OK`：它桩化 DOM 与 Go 绑定，把 api.js + app.js 真实执行一遍（切面板、检索、
   载入队列、渲染任务、切外观），核对侧栏计数、构成占比条、任务状态、分面计数随筛选变化

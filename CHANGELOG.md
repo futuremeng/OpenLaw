@@ -17,6 +17,21 @@ US 基础包待官方批量包全文导入——空桶如实不产包。
 
 ## Unreleased（v0.2.0 开发中）
 
+- **修复：列表条目键盘不可达（P0，无障碍 A 级）**。七个列表（按条件筛选、首页
+  关键词命中、法规详情条款、条文检索、例外队列、地域标引、部门法标引）的条目行
+  原为 `<div onclick>`：鼠标可用，键盘与开关控件用户**无法打开任何一条法规原文**
+  （WCAG 2.1 SC 2.1.1 键盘操作、4.1.2 名称/角色/值，均为 A 级）。现一律改为原生
+  `<button type="button" class="item|lawcard">`（行内 `<div>` 随之改 `<span>`，
+  类名与视觉不变），并补上焦点去向：键盘激活条目后焦点进入右列详情
+  （`#detail` 加 `tabindex="-1"`，`preventScroll` 不弹页），Esc 或 ✕ 关闭后焦点
+  回到打开它的那一行。样式层新增 `button.item, button.lawcard` 复位规则，
+  背景仍由 `.item` / `.lawcard` 各自决定。
+  门禁两条防回退：`TestListRowsKeyboardOperable`（结构：条目类名只允许出现在
+  原生交互元素上、七处按钮齐备、`#detail` 可聚焦、关闭须还焦点）与接线冒烟
+  「条目行是按钮（键盘可达）」（运行时产出）。已做反向验证：任一处改回 `<div>`
+  即两处断言同时变红。审计中确认 `.fchip` / `.card.big` 本就是 `<button>`，
+  本次按仓库既有正确做法统一。
+
 - **前端设计体检接入（建议性 → 棘轮门禁）**：检查器为 vendored sloplint 静态层
   （Nutlope/hallmark@407fa68，MIT，仅 Node 内置模块、不联网不开浏览器），
   装在**用户级全局技能** `~/.claude/skills/design-lint/`（跨项目通用，

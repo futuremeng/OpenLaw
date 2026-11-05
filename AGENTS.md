@@ -30,6 +30,9 @@
 - **同一代码路径**：CLI 与桌面端必须调用同一库层 runner（`ingest.RunGovcnBatch`、
   `browser.RunGovListAgent`、`pack.*`、`validate.*`）。桌面端不是第二写路径，
   CLI 只是薄壳。前端不直连数据库、不发网络请求，一切经 `window.go.main.App.*`。
+- **主交互必须键盘可达**：列表条目等招牌动作不得写成 `<div onclick>`——鼠标能用而
+  键盘不能用的退化在类名门禁与绑定测试里毫无征兆（WCAG A 级）。焦点去向见
+  docs/design-ui-language.md「界面结构基线」，门禁 `TestListRowsKeyboardOperable`。
 - **写路径从严**：ingest / confirm / pack import / schema 迁移属核心链路；
   机制或配置变化按高风险变更处理，必须验证旧数据到新版本的真实链路，
   不能只验证新版本自身。

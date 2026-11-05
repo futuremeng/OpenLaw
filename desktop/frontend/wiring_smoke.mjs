@@ -382,6 +382,8 @@ const g = (id) => byId.get(id);
     '空法域列如实报暂无动态': (g('ov-juris').innerHTML.match(/暂无获取记录/g) || []).length >= 2,
     '智能审核统计分开计数': g('rv-stats').innerHTML.includes('智能体已确认') && g('rv-stats').innerHTML.includes('人工已确认') && g('rv-stats').innerHTML.includes('历史确认'),
     '例外队列给出没把握原因': g('ex-list').innerHTML.includes('没把握的原因') && g('ex-list').innerHTML.includes('公布日期与原文不一致'),
+    // 条目行必须是原生可聚焦元素：写成 <div onclick> 时鼠标能用、键盘完全不能用。
+    '条目行是按钮（键盘可达）': rowHTML.includes('<button type="button" class="item'),
     '智能审核通道回显': g('rv-channel').textContent.includes('已就绪'),
     '外观切换（顶栏图标按钮）': g('theme-toggle').title,
     'html data-theme': JSON.stringify(documentElement.dataset.theme || ''),
