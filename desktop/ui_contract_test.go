@@ -288,6 +288,7 @@ func TestFrontendWiringSmoke(t *testing.T) {
 		"任务卡 class 含 running\": true", "筛选前后总数联动\": true", "浏览分面给出计数\": true",
 		"未标注地区如实说明\": true", "检索命中可就地收窄\": true",
 		"条目行是按钮（键盘可达）\": true",
+		"缺失项写明缺什么与去哪补\": true", "缺失说明不藏在 title\": true", "未封顶时不谎报上限\": true",
 		"智能审核统计分开计数\": true", "例外队列给出没把握原因\": true", "智能审核通道回显\": true",
 		"条目徽章如实报智能体确认\": true",
 		"维护入口进入独立工作区\": true", "两套导航完整互斥切换\": true", "离线更新包在维护区可达\": true", "退出维护回主导航\": true",
@@ -628,6 +629,40 @@ func TestResponsiveTiers(t *testing.T) {
 	}
 }
 
+// TestGuidanceNotTitleOnly 下一步指引不得只活在 title 里。
+//
+// title 对键盘用户与触屏用户完全不可达（WCAG 1.4.13 内容在聚焦或悬停时可见），
+// 而本产品大量指引正是「屏上不是全部」「这里缺东西」这类会让人误判的话。
+// 因此：能改变用户判断的说明必须落在可见文字里，title 只留纯核对细节
+// （原始 UTC 时间、任务参数、计数明细）。图标按钮另有一层：title 不是可靠的
+// 可编程名称，必须给 aria-label（WCAG 4.1.2）。
+func TestGuidanceNotTitleOnly(t *testing.T) {
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	html := readFrontend(t, "index.html")
+
+	// ① 取列封顶的下一步必须渲染成可见文本，不能只有 pc.title。
+	if !strings.Contains(js, `class="capnote"`) {
+		t.Error(`取列封顶（前 300 部）的说明必须渲染成可见文本（class="capnote"），不得只挂 pc.title`)
+	}
+	if !strings.Contains(js, "已列出前 300 部") {
+		t.Error(`取列封顶的可见说明缺失——「屏上不是全部」必须让用户看得见`)
+	}
+
+	// ② 图标按钮必须有可编程名称：无文字内容的按钮必须带 aria-label。
+	ibtnRe := regexp.MustCompile(`(?s)<button class="ibtn[^"]*"[^>]*>([^<]*)</button>`)
+	for _, m := range ibtnRe.FindAllStringSubmatch(html, -1) {
+		tag, text := m[0], strings.TrimSpace(m[1])
+		if text == "" && !strings.Contains(tag, `aria-label=`) {
+			t.Errorf("图标按钮无可编程名称（只有 title 不算）：%s", tag)
+		}
+	}
+	// 状态型图标按钮的开合由 aria-pressed 报，名称必须在脚本里静态同步一份。
+	if !strings.Contains(js, `setAttribute("aria-label", "紧凑模式")`) ||
+		!strings.Contains(js, `setAttribute("aria-label", "阅读行宽")`) {
+		t.Error(`紧凑模式 / 阅读行宽两个开关按钮未在脚本里同步 aria-label——只有 title 时读屏拿不到名称`)
+	}
+}
+
 // TestRowMetaMergesMissing 条目行的缺失必须如实但只说一次：不得逐字段重复「未标注」
 // 刷屏（同一行三遍未标注是噪声，不是信息），也不得把缺失藏起来。
 func TestRowMetaMergesMissing(t *testing.T) {
@@ -635,8 +670,11 @@ func TestRowMetaMergesMissing(t *testing.T) {
 	if !strings.Contains(js, "rowMeta(") {
 		t.Fatalf("前端缺少 rowMeta——条目元信息必须集中产出，便于核对其诚实与克制")
 	}
-	if !strings.Contains(js, `未标注 " + miss.length`) {
-		t.Errorf("缺失项未合并成一个标记：应给出「未标注 N 项」并在 title 里列明缺什么、去哪补")
+	if !strings.Contains(js, `<span class="miss">未标注 `) {
+		t.Errorf("缺失项未合并成一个标记：应给出可见的「未标注 N 项（缺哪些字段）」，说明必须紧跟在标签后可见")
+	}
+	if strings.Contains(js, `class="miss" title=`) || strings.Contains(js, `class="miss"title=`) {
+		t.Errorf("「未标注」缺哪些字段与去哪补必须写在可见文字里：title 对键盘与触屏完全不可达（WCAG 1.4.13）")
 	}
 	// Go 侧对空效力等级返回诚实默认值「效力等级未标注」（非空串）：前端必须按它判定缺失，
 	// 否则缺失会被当成已知值排进元信息行，合并标记永远不出现。

@@ -66,7 +66,9 @@ function applyTheme() {
   else document.documentElement.dataset.theme = theme;
   const b = $("#theme-toggle");
   if (b) {
-    b.title = THEME_TEXT[theme] || THEME_TEXT.system;
+    const t = THEME_TEXT[theme] || THEME_TEXT.system;
+    b.title = t;
+    b.setAttribute("aria-label", t); // 图标按钮的唯一名称：title 不是可靠的可编程名称
     b.innerHTML = icon(theme === "light" ? "sun" : theme === "dark" ? "moon" : "auto");
   }
 }
@@ -84,6 +86,7 @@ function applyDensity() {
   const b = $("#t-density");
   if (!b) return;
   b.setAttribute("aria-pressed", density === "compact" ? "true" : "false");
+  b.setAttribute("aria-label", "紧凑模式"); // 名称静态、开合状态由 aria-pressed 报
   b.title = density === "compact" ? "紧凑模式已开启：点击恢复常规密度" : "紧凑模式：收小行高与间距，一屏看更多条目";
 }
 const FS_STEPS = [13.5, 14.5, 15.5, 17, 18.5, 20];
@@ -97,6 +100,7 @@ function applyReading() {
   const b = $("#b-wide");
   if (b) {
     b.setAttribute("aria-pressed", wideRead ? "true" : "false");
+    b.setAttribute("aria-label", "阅读行宽");
     b.title = wideRead ? "阅读行宽：宽行（点击收窄，逐条读更省力）" : "阅读行宽：窄行（点击加宽）";
   }
 }
@@ -672,8 +676,12 @@ async function loadLaws() {
     const list = rows || [];
     const pc = $("#b-pane-cnt");
     if (pc) {
-      pc.innerHTML = `显示 <b>${num(list.length)}</b> / 共 <b>${num((v || {}).total)}</b> 部`;
-      pc.title = list.length >= 300 ? "本次列出前 300 部，其余请用条件收窄" : "已列出当前条件下的全部条目";
+      // 上限之外的说明必须可见：title 对键盘与触屏完全不可达（WCAG 1.4.13），
+      // 而「屏上不是全部」正是会让人误判的那一句。
+      const capped = list.length >= 300;
+      pc.innerHTML = `显示 <b>${num(list.length)}</b> / 共 <b>${num((v || {}).total)}</b> 部` +
+        (capped ? '<span class="capnote">已列出前 300 部，用左侧条件收窄可看到更多</span>' : "");
+      pc.title = capped ? "本次列出前 300 部，其余请用条件收窄" : "已列出当前条件下的全部条目";
     }
     $("#law-list").innerHTML = list.length ? list.map((r) => `
       <button type="button" class="item${r.confirm_status === "confirmed" ? "" : " pend"}" data-law="${escapeHTML(r.law_id)}" data-name="${escapeHTML(r.name)}">
@@ -908,8 +916,11 @@ function rowMeta(r) {
   if (!r.issuer) miss.push("发布机关");
   if (!r.region) miss.push("地域");
   if (miss.length) {
-    parts.push('<span class="miss" title="未标注：' + miss.join("、") +
-      "——可在「智能审核」核对效力等级，在「地域标引」补地区\">未标注 " + miss.length + " 项</span>");
+    const where = [];
+    if (!lv) where.push("「智能审核」核对效力等级");
+    if (!r.region) where.push("「地域标引」补地区");
+    parts.push('<span class="miss">未标注 ' + miss.length + " 项（" + miss.join("、") + "）" +
+      (where.length ? "——可在" + where.join("、") : "") + "</span>");
   }
   return parts.join(" · ");
 }
