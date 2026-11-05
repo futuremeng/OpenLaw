@@ -13,11 +13,13 @@ package main
 
 import (
 	"context"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -325,6 +327,120 @@ func TestListRowsKeyboardOperable(t *testing.T) {
 	if !strings.Contains(js, "detailOpener.focus()") {
 		t.Error("关闭详情必须把焦点还给打开它的那一行（Esc / ✕ 之后不得把用户丢在原地）")
 	}
+}
+
+// TestTokenContrastAA 令牌成对取值必须真的达到 WCAG AA（4.5:1）。
+//
+// 对比度是算出来的，不是声明出来的：本测试从样式层的 :root 与深色块里取出
+// 令牌实际色值，按 WCAG 2.x 相对亮度公式实算每对「前景/底色」。改任何一个
+// 颜色令牌都会当场重算，因此调暗强调色、换主题底色都可能让它变红——
+// 这正是目的：深色主题下「白字叠亮蓝」曾经只有 2.51:1，而所有字符串门禁全绿。
+func TestTokenContrastAA(t *testing.T) {
+	css := readFrontend(t, filepath.Join("assets", "style.css"))
+	pairs := []struct {
+		what string
+		fg   string
+		bg   string
+	}{
+		{"正文/页面底色", "--ink", "--bg"},
+		{"次要文字/面板", "--muted", "--panel"},
+		{"次要文字/页面底色", "--muted", "--bg"},
+		{"次要文字/表层", "--muted", "--surface-2"},
+		{"强调色底上的前景", "--on-acc", "--acc"},
+		{"成功色底上的前景", "--on-ok", "--ok"},
+		{"强调文字/强调浅底", "--acc", "--acc-soft"},
+		{"成功文字/成功浅底", "--ok", "--ok-soft"},
+		{"警示文字/警示浅底", "--warn", "--warn-soft"},
+		{"错误文字/错误浅底", "--bad", "--bad-soft"},
+		{"侧栏文字/侧栏底色", "--side-ink", "--side"},
+	}
+	for _, theme := range []struct {
+		label  string
+		marker string
+	}{{"浅色", ":root {"}, {"深色", `html[data-theme="dark"] {`}} {
+		block := cssBlock(t, css, theme.marker)
+		for _, p := range pairs {
+			fg, bg := cssToken(t, block, p.fg), cssToken(t, block, p.bg)
+			if r := contrastRatio(t, fg, bg); r < 4.5 {
+				t.Errorf("%s主题「%s」%s(%s) on %s(%s) = %.2f:1，低于 AA 4.5:1",
+					theme.label, p.what, p.fg, fg, p.bg, bg, r)
+			}
+		}
+	}
+	// 强调色底上的前景必须走令牌：写死白色即绕过了主题翻转。
+	for _, lit := range []string{"color: #fff", "color:#fff", "color: #ffffff", "color: white"} {
+		if strings.Contains(css, lit) {
+			t.Errorf("前景色写死为 %q：必须用 --on-acc/--on-ok，否则深色主题下不翻转而不达 AA", lit)
+		}
+	}
+	if strings.Contains(css, "color-mix(in srgb, var(--muted)") {
+		t.Error("不得用 color-mix 把次要文字再调淡：「未标注」与其他次要文字同权（诚实展示纪律）")
+	}
+}
+
+// cssBlock 取 marker 之后到下一个右花括号之间的声明块（令牌块无嵌套）。
+func cssBlock(t *testing.T, css, marker string) string {
+	t.Helper()
+	i := strings.Index(css, marker)
+	if i < 0 {
+		t.Fatalf("样式层找不到 %q", marker)
+	}
+	rest := css[i:]
+	j := strings.Index(rest, "}")
+	if j < 0 {
+		t.Fatalf("%q 块未闭合", marker)
+	}
+	return rest[:j]
+}
+
+var cssTokenRe = regexp.MustCompile(`(?:^|[^-\w])--([a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3})\s*;`)
+
+// cssToken 取块内某令牌的十六进制色值（缺失即测试失败，不静默跳过）。
+func cssToken(t *testing.T, block, name string) string {
+	t.Helper()
+	for _, m := range cssTokenRe.FindAllStringSubmatch(block, -1) {
+		if m[1] == strings.TrimPrefix(name, "--") {
+			return m[2]
+		}
+	}
+	t.Fatalf("令牌 %s 在该主题块中缺失或不是 #rrggbb 色值", name)
+	return ""
+}
+
+// hexLuminance 按 WCAG 2.x 相对亮度公式计算。
+func hexLuminance(t *testing.T, hex string) float64 {
+	t.Helper()
+	h := strings.TrimPrefix(strings.TrimSpace(hex), "#")
+	if len(h) == 3 { // 缩写形式 #rgb 展开为 #rrggbb（--panel: #fff 即此）
+		h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
+	}
+	if len(h) != 6 {
+		t.Fatalf("色值不是 #rgb 或 #rrggbb：%q", hex)
+	}
+	var sum float64
+	w := [3]float64{0.2126, 0.7152, 0.0722}
+	for i := 0; i < 3; i++ {
+		v, err := strconv.ParseInt(h[i*2:i*2+2], 16, 32)
+		if err != nil {
+			t.Fatalf("色值解析失败 %q: %v", hex, err)
+		}
+		s := float64(v) / 255
+		if s <= 0.03928 {
+			sum += w[i] * (s / 12.92)
+			continue
+		}
+		sum += w[i] * math.Pow((s+0.055)/1.055, 2.4)
+	}
+	return sum
+}
+
+func contrastRatio(t *testing.T, fg, bg string) float64 {
+	t.Helper()
+	a, b := hexLuminance(t, fg), hexLuminance(t, bg)
+	if a < b {
+		a, b = b, a
+	}
+	return (a + 0.05) / (b + 0.05)
 }
 
 // TestDarkThemeTokens 深色必须由令牌给出（系统偏好 + 手动切换两条路径），

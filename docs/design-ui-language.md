@@ -185,10 +185,14 @@
   不影响可见性）」，且必须有 Go 层测试守住顺序（`TestBrowseLawListOrdersUnlabeledLast`）。
 - **数据既给数字也给形状**：法规构成用堆叠占比条（`.bars` / `.bar`，段长 = 条目数比例，
   按最大等级归一），精确数字收在「各等级的精确数字」折叠；检索结果仍不重排序。
-- **视觉克制**：中性色板 + 语义令牌（`--bg/--panel/--ink/--muted/--line/--acc/--ok/--warn/--bad`
-  与侧栏令牌 `--side/--side-ink/--side-line/--side-hover/--side-acc`），层级靠字号与间距而不是
+- **视觉克制**：中性色板 + 语义令牌（`--bg/--panel/--ink/--muted/--line/--acc/--ok/--warn/--bad`、
+  侧栏令牌 `--side/--side-ink/--side-line/--side-hover/--side-acc`，以及强调色底上的
+  前景 `--on-acc/--on-ok`），层级靠字号与间距而不是
   边框堆叠；浅色与深色共用同一套令牌，深色由系统偏好与手动切换（`html[data-theme]`）两条
   路径给出；缺失/未知一律中性灰徽章，不伪装成状态色。
+- **前景必须随主题翻转**：强调色底上的文字一律用 `--on-acc` / `--on-ok`，不得写死
+  `#fff`——深色主题下 `--acc` 是亮蓝 `#6ba4ff`，白字只有 2.51:1。成对取值由
+  `TestTokenContrastAA` 按 WCAG 相对亮度实算（11 组前景/底色 ≥ 4.5:1）。
 - **显示层偏好不得影响数据口径**：密度（`html[data-density="compact"]`）、原文字号
   （`--read-size`）与行宽（`.narrow`）只改显示，取列条件与分面计数不受其影响（冒烟门禁
   核对「显示偏好不改取列条件」）。
@@ -208,49 +212,53 @@
 不是通过与否的证明：规则集服务于营销页，本产品的界面是数据密集型桌面应用，
 两者在若干条上本就不同。技能缺失时 `make design-lint` 会明确报「跳过，不是通过」。
 
-当前基线（`.design-lint/baseline.json`）：**FAIL 25 · REFLEX 113 · WARN 11**。
+当前基线（`.design-lint/baseline.json`）：**FAIL 11 · REFLEX 113 · WARN 9**。
 门禁口径是棘轮——FAIL 只准减少，增加即失败。
 
 真实待办（按优先级）：
 
-1. **深色主题对比度不足**（WARN 40，已独立复算确认）：`--acc` 在深色下是
-   `#6ba4ff`、`--ok` 是 `#4fb37c`，其上叠 `#fff` 文字分别为 **2.51:1 / 2.60:1**，
-   低于 4.5:1；浅色下同位为 5.12 / 5.02，合格。修法应是一对随主题翻转的
-   「前景于强调色」令牌（深色下改用深色前景可到 7.3:1），而不是把强调色调暗。
-2. **颜色字面量绕过令牌**（FAIL 48 共 12 处、FAIL 7a 共 3 处）：`#fff`、
-   `#b8860b`、`#2e7d32`、`#b3261e`、`rgba(…)` 散在 `.brand .mark`、
-   `button.primary/.ok`、`#fix-bar`、`.guide`、`.vresult.*`。违反本文件
-   「视觉克制」条——同一套令牌必须真的被用到。
-3. **间距没有阶梯**（REFLEX 24b 共 111 处）：`--gap` 只有一个 14px，
+1. **颜色字面量绕过令牌**（FAIL 48 剩 1 处、FAIL 7a 已归零；原 12 处）：
+   余下散在 `rgba(…)` 阴影一类非前景值。违反本文件「视觉克制」条——同一套
+   令牌必须真的被用到。
+2. **间距没有阶梯**（REFLEX 24b 共 111 处）：`--gap` 只有一个 14px，
    实际散落 3/5/6/9/10/11/13/14/18/22px。应立 4px 阶梯令牌并逐段收敛。
-4. **字体只有 body 一处栈，未令牌化**：`body` 的 `font` 简写里有
+3. **字体只有 body 一处栈，未令牌化**：`body` 的 `font` 简写里有
    `-apple-system, "PingFang SC", "Microsoft YaHei"`（更正：先前记为「无字体栈」，
    有误——栈是有的），但它不是令牌，且 `.brand .mark` 用 `font: 700 13px/1 sans-serif`
    绕过了这套栈，品牌字「法」实际落在 UA 默认字体上。应把字体栈提为 `--font-ui`
    令牌并让所有 `font` 简写引用它。
-5. 其余：三个 `top: 0` sticky 叠层未错位（FAIL 56）、`html/body` 缺
+4. 其余：三个 `top: 0` sticky 叠层未错位（FAIL 56）、`html/body` 缺
    `overflow-x: clip`（FAIL 34）、控件缺 `:active` 态（REFLEX 26b）。
-6. **浅色主题 `--muted` 系统性不达 AA**（人工复算，非工具产出）：`#67788c` 在
-   `--panel/--bg/--surface-2` 上为 **4.52 / 4.22 / 4.10:1**，却用于至少 8 处
-   11–12.5px 小字（`.muted`、`.fnote`、`.panehd`、`.ibtn`、`.nav-group`、
-   `.fhd .fadorn`、`.badge.exp/.na`、`.item .m`）。改 `--muted: #5b6b80`
-   可到 5.44 / 5.08 / 4.93，深色不必动。
-7. **「未标注」被进一步淡化成全应用最难读的字**：`.item .miss` 用
-   `color-mix(in srgb, var(--muted) 78%, transparent)`，浅色下 **2.89–3.02:1**。
-   这行字承载「缺失必须如实显示」的补救入口，却被视觉层级自己抵消——
-   诚实展示纪律要求它至少与其他次要文字同权。修法：用满不透明 `var(--muted)`，
-   安静靠字号与措辞，不靠透明度。
-8. **补救指引只存在于 `title` 属性**（HTML 11 处 + JS 10 处，如「本次列出前 300 部，
+5. **补救指引只存在于 `title` 属性**（HTML 11 处 + JS 10 处，如「本次列出前 300 部，
    其余请用条件收窄」「未标注：…」）：`title` 对键盘与触屏完全不可达
    （WCAG 1.4.13）。**与本文件「未标注必须如实」条明文要求的「挂在 title 里」冲突**，
    属规范级冲突：须把指引落到可见文本，并同步修订该条，不得只改代码风格。
 
-已修（2026-11-05）：**七个列表条目键盘不可达**——原为 `<div onclick>`，
-键盘与开关控件用户无法打开任何一条法规原文（WCAG 2.1.1 / 4.1.2，A 级）。
-现改原生 `<button>` 并补焦点去向，由 `TestListRowsKeyboardOperable` 与
-接线冒烟锁住。审计中另发现「前景于强调色」在仓库里有两种做法
-（`.fchip.on` 用 `var(--panel)` 正确，`.brand .mark` / `button.primary` 用 `#fff` 错误），
-即第 1 条的根因，修 1 时按 `.fchip.on` 的既有做法统一。
+已修（2026-11-05）：
+
+- **七个列表条目键盘不可达**——原为 `<div onclick>`，
+  键盘与开关控件用户无法打开任何一条法规原文（WCAG 2.1.1 / 4.1.2，A 级）。
+  现改原生 `<button>` 并补焦点去向，由 `TestListRowsKeyboardOperable` 与
+  接线冒烟锁住。审计中另发现「前景于强调色」在仓库里有两种做法
+  （`.fchip.on` 用 `var(--panel)` 正确，`.brand .mark` / `button.primary` 用 `#fff` 错误），
+  即对比度问题的根因，已统一为 `--on-acc` / `--on-ok`。
+- **深色主题对比度不足**（原 WARN 40）：`--acc` 深色下 `#6ba4ff`、`--ok` 深色下
+  `#4fb37c`，其上叠 `#fff` 只有 **2.51 / 2.60:1**。现由 `--on-acc` / `--on-ok`
+  随主题翻转（深色取 `#171e26`，可到 **6.70 / 6.46:1**），未把强调色调暗。
+- **浅色主题 `--muted` 系统性不达 AA**：`#67788c` 在 `--panel/--bg/--surface-2`
+  上为 4.52 / 4.22 / 4.10:1，而它用于至少 8 处 11–12.5px 小字。现 `#5b6b80`
+  → **5.44 / 5.08 / 4.93**。深色 `#94a5b8` 本就合格，未动。
+- **软底徽章同样不达 AA**（复算时新发现，工具未报）：浅色 `--ok` 在 `--ok-soft`
+  上 4.43、`--warn` 在 `--warn-soft` 上 4.30。现 `--ok: #187a48`（4.73，且白字
+  由 5.02 升到 5.36）、`--warn: #9d5c0a`（4.78，在 `--bg` 上由 4.44 升到 4.94）。
+- **「未标注」被进一步淡化**：`.item .miss` 的 `color-mix(... 78%, transparent)`
+  让承载补救入口的文字在浅色下只剩 2.89–3.02:1。现用满不透明 `var(--muted)`，
+  与 `.vlist li.miss` 同一处理——安静靠字号与措辞，不靠透明度。
+
+上述成对取值由 `TestTokenContrastAA` 按 WCAG 相对亮度**实算**把关（不是字符串
+断言）：它从 `:root` 与深色块读出令牌色值，逐对核对 11 组前景/底色 ≥ 4.5:1，
+并禁止前景写死 `#fff`/`white` 与用 `color-mix` 再调淡次要文字。改任何颜色令牌
+都会当场重算。
 
 **工具与本项目规范冲突的三条，立场已定，不得被工具驱动着改**：
 
@@ -272,7 +280,7 @@
 - 文案改动同步本文件与 CHANGELOG.md；阶段进展同步 docs/tasks-opencourt-bridge.md。
 - 前端契约测试必须仍绿（`go test ./desktop/`）：新增 `$("#id")` 必须在 index.html 声明；
   `app().Method(...)` 实参个数必须与 `main.App` 方法签名一致——一处不符即整块面板空白。
-- 界面结构门禁（`desktop/ui_contract_test.go`）十二条：HTML/JS 用到的类名必须在 style.css
+- 界面结构门禁（`desktop/ui_contract_test.go`）十三条：HTML/JS 用到的类名必须在 style.css
   有规则；每个面板必须有页头（`.page-head` 或首页 `.hero`）；技术字样（schema_version、
   环境变量、URL、LIKE 通配符等）不得出现在 `<details>` 之外；样式层必须给出深色令牌
   与前端 `data-theme` 切换；三栏结构必须齐备（左列导航 + 筛选栏、中列面板、右列共享
@@ -289,7 +297,10 @@
   取列必须有进行状态与 `lawsSeq` 序号守卫，导入按钮必须默认锁定并在校验通过且
   来源受信后才解锁，定位流程进行中必须锁定按钮防重入；条目行键盘可达门禁
   （`TestListRowsKeyboardOperable`）：条目类名只允许出现在原生交互元素上、七个列表必须
-  各产出一处按钮、`#detail` 必须 `tabindex="-1"`、关闭详情必须把焦点还回来路。
+  各产出一处按钮、`#detail` 必须 `tabindex="-1"`、关闭详情必须把焦点还回来路；
+  令牌对比度门禁（`TestTokenContrastAA`）从 `:root` 与深色块读出令牌实际色值，
+  按 WCAG 相对亮度公式实算 11 组「前景/底色」必须 ≥ 4.5:1，并禁止前景写死
+  `#fff`/`white` 与用 `color-mix` 把次要文字再调淡。
 - 前端接线冒烟（`desktop/frontend/wiring_smoke.mjs`，由 `TestFrontendWiringSmoke` 调用）必须仍
   打印 `SMOKE_OK`：它桩化 DOM 与 Go 绑定，把 api.js + app.js 真实执行一遍（切面板、检索、
   载入队列、渲染任务、切外观），核对侧栏计数、构成占比条、任务状态、分面计数随筛选变化

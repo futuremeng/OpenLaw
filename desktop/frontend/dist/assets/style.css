@@ -5,11 +5,14 @@
 
 :root {
   --bg: #f6f7f9; --panel: #fff; --surface: #fbfcfd; --surface-2: #f1f4f8;
-  --ink: #17212c; --muted: #67788c; --line: #e2e7ee; --line-2: #eef1f5;
+  --ink: #17212c; --muted: #5b6b80; --line: #e2e7ee; --line-2: #eef1f5;
   --acc: #1f5eff; --acc-soft: #eaf1ff;
-  --ok: #1a7f4b; --ok-soft: #e6f4ec;
-  --warn: #a8620b; --warn-soft: #fdf2e2;
+  --ok: #187a48; --ok-soft: #e6f4ec;
+  --warn: #9d5c0a; --warn-soft: #fdf2e2;
   --bad: #b3261e; --bad-soft: #fbeceb;
+  /* 强调色底上的前景：必须随主题翻转，不得写死 #fff（深色下白字叠亮蓝只有 2.5:1）。
+     成对取值由 ui_contract_test.go 的 TestTokenContrastAA 按 WCAG 相对亮度实算。 */
+  --on-acc: #fff; --on-ok: #fff;
   --side: #f4f6f9; --side-ink: #24313f; --side-line: #e2e7ee; --side-hover: #eaeef4; --side-acc: #eaf1ff;
   --r: 10px; --r-s: 7px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 6px 16px rgba(16, 24, 40, .05);
@@ -23,6 +26,7 @@
     --ink: #e6edf5; --muted: #94a5b8; --line: #2a3542; --line-2: #232d38;
     --acc: #6ba4ff; --acc-soft: #1b2a3f;
     --ok: #4fb37c; --ok-soft: #17301f;
+    --on-acc: #171e26; --on-ok: #171e26;
     --warn: #d99a4d; --warn-soft: #32240f;
     --bad: #e0776c; --bad-soft: #33191a;
     --side: #0f141a; --side-ink: #dfe7f0; --side-line: #212c38; --side-hover: #18212b; --side-acc: #1b2a3f;
@@ -34,6 +38,7 @@ html[data-theme="dark"] {
   --ink: #e6edf5; --muted: #94a5b8; --line: #2a3542; --line-2: #232d38;
   --acc: #6ba4ff; --acc-soft: #1b2a3f;
   --ok: #4fb37c; --ok-soft: #17301f;
+  --on-acc: #171e26; --on-ok: #171e26;
   --warn: #d99a4d; --warn-soft: #32240f;
   --bad: #e0776c; --bad-soft: #33191a;
   --side: #0f141a; --side-ink: #dfe7f0; --side-line: #212c38; --side-hover: #18212b; --side-acc: #1b2a3f;
@@ -68,7 +73,7 @@ body {
 .brand { display: flex; gap: 10px; align-items: center; padding: 2px 14px 12px; }
 .brand .mark {
   width: 30px; height: 30px; flex: none; border-radius: 8px; background: var(--acc);
-  color: #fff; display: grid; place-items: center; font: 700 13px/1 sans-serif;
+  color: var(--on-acc); display: grid; place-items: center; font: 700 13px/1 sans-serif;
 }
 .brand .txt { display: flex; flex-direction: column; line-height: 1.25; }
 .brand .txt b { font-size: 15px; color: var(--ink); }
@@ -150,8 +155,8 @@ button:hover { border-color: var(--acc); color: var(--acc); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--acc); outline-offset: 1px;
 }
-button.primary, button.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
-button.primary:hover, button.ok:hover { filter: brightness(1.06); color: #fff; }
+button.primary, button.ok { background: var(--ok); border-color: var(--ok); color: var(--on-ok); }
+button.primary:hover, button.ok:hover { filter: brightness(1.06); color: var(--on-ok); }
 button.warn { background: var(--panel); border-color: var(--warn); color: var(--warn); }
 button.ghost { background: none; border-color: transparent; color: var(--muted); }
 button.ghost:hover { background: var(--surface-2); color: var(--ink); border-color: transparent; }
@@ -323,7 +328,7 @@ button.jhead:hover b { text-decoration: underline; }
 .fchips { display: flex; flex-wrap: wrap; gap: 6px; }
 .fchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; font-size: 12.5px; cursor: pointer; }
 .fchip:hover { border-color: var(--acc); background: var(--acc-soft); }
-.fchip.on { background: var(--acc); border-color: var(--acc); color: var(--panel); }
+.fchip.on { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
 .fchip.on .fcount { background: transparent; color: var(--panel); opacity: .8; }
 .fchip[disabled] { opacity: .45; cursor: not-allowed; }
 .fchip.more { border-style: dashed; color: var(--muted); }
@@ -361,7 +366,9 @@ html[data-density="compact"] .filters { max-height: calc(100vh - 108px); }
 .item.pend::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--warn); }
 .item .t { font-weight: 600; }
 .item .m, .lawcard .m { margin-top: 3px; font-size: 12.5px; color: var(--muted); }
-.item .miss { color: color-mix(in srgb, var(--muted) 78%, transparent); }
+/* 「未标注」是补救入口，不得比同级次要文字更淡（原 color-mix 淡化到 2.89:1）；
+   与 .vlist li.miss 同一处理：安静靠字号与措辞，不靠透明度。 */
+.item .miss { color: var(--muted); }
 .item.art { padding-left: 14px; border-left: 2px solid var(--line); border-radius: 0 var(--r-s) var(--r-s) 0; }
 /* 条目行是真按钮（键盘可达是硬要求，见 docs/design-ui-language.md）：
    按钮复位只设不影响各自行外观的属性，背景仍由 .item / .lawcard 各自决定。 */
@@ -488,8 +495,8 @@ tbody tr:hover { background: var(--surface-2); }
    说明块必须与结果区分得出来（不是又一条结果），也不能长得像报错。 */
 .guide {
   margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line);
-  border-left: 3px solid var(--warn, #b8860b); border-radius: 8px;
-  background: var(--panel, rgba(128, 128, 128, .06)); font-size: 13px;
+  border-left: 3px solid var(--warn); border-radius: 8px;
+  background: var(--panel); font-size: 13px;
 }
 .guide .t { margin: 0 0 6px; font-weight: 600; }
 .guide .k { margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
@@ -497,9 +504,9 @@ tbody tr:hover { background: var(--surface-2); }
 .guide li { margin: 2px 0; }
 .verdict { margin-top: 12px; }
 .vresult { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; font-weight: 600; border: 1px solid var(--line); }
-.vresult.ok { border-color: var(--ok, #2e7d32); color: var(--ok, #2e7d32); }
-.vresult.warn { border-color: var(--warn, #b8860b); color: var(--warn, #b8860b); }
-.vresult.bad { border-color: var(--bad, #b3261e); color: var(--bad, #b3261e); }
+.vresult.ok { border-color: var(--ok); color: var(--ok); }
+.vresult.warn { border-color: var(--warn); color: var(--warn); }
+.vresult.bad { border-color: var(--bad); color: var(--bad); }
 .vlist, .vnext { margin: 6px 0; padding-left: 20px; font-size: 13px; }
 .vlist li { margin: 2px 0; }
 .vlist li.miss { color: var(--muted); }
