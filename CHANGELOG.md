@@ -17,6 +17,29 @@ US 基础包待官方批量包全文导入——空桶如实不产包。
 
 ## Unreleased（v0.2.0 开发中）
 
+- **分类模型 v11（docs/design-taxonomy.md 已批准 + store 层已实施）**：多维正交标引——law
+  +部门法标引 5 列（与 region_* 同构）+ doc_form；新表 dict_subject（CN7+EU12+US12 词表种子，
+  按法域全覆盖）/dict_doc_form/subject_log（批次可撤销审计）；时效状态不落列，经
+  `law_status` 视图派生五态（「已修改」按版本链判定，relation 不参与时效）。加法式迁移
+  v10→v11（纯 ALTER，迁移链前预清理视图）；只读消费 v10 语料按「未标注/未知」如实处理。
+  补标工具 `openlaw-subject` 已实施：默认 dry-run 出全量分类 CSV，`-apply` 部门法只写
+  名称规则命中（机器建议 · 待复核，署名留空）、文档形态全自动补判，逐笔 subject_log
+  审计，`-undo <batch_id>` 整批撤销且不回滚人工落判；**智能体自审扩展**已实施——
+  `agent_review.classify` JSON 增 `subject_code`/`subject_confidence`/`doc_form`，
+  达门槛（与自动确认同一 0.85）写 auto 建议（署名留空 = 待复核，永不代签人工），
+  与 confirm/escalate 裁决无关；词表外码 fail-closed 不写入并如实留痕；
+  审计署名 `agent:<model>` 可经 `-undo agent-<model>` 整批撤销。**桌面「部门法标引」面板已实施**
+  （维护工作区，复刻地域面板交互）：确认/改选/驳回/清除一律署名+结论依据、逐笔 `subject_log`；
+  批量先干跑计数再执行（数不符即中止，可按法域缩小范围）；文档形态只读展示（全自动、无人工
+  队列）；词表外码库层 fail-closed 拒判，见 `desktop/subjectreview.go`、`ingest/subjectreview.go`。
+  **浏览侧 v11 消费已实施**（docs/design-taxonomy.md §6）：筛选栏分面顺序固定为
+  法域→效力等级→部门法→地区→公布年代→时效状态→复核状态→来源（顺序由 ui_contract 门禁）；
+  部门法分面以词表标注、「未标注」如实成桶；时效分面唯一出口 `law_status` 视图，
+  只读消费 v10 语料（无视图）时分面与徽章如实缺席并说明原因，不渲染假「未知」；
+  条目页信息卡按 §6 字段序给出时效徽章（五态映射集中一处 `TIMELINESS_BADGE`）、
+  部门法（含机器建议/已复核标记）与文档形态，见 `LawMeta`。分类列表页头部折叠统计
+  未实施（当前浏览形态为分面平列，逐类折叠统计留待后续）。
+
 - **产品评审落地（引用核验 / 复核兑现 / 发行版分档 / 度量）**：
   - **粘贴即核验**（P0-2）：桌面端新增主工作区面板「核验引用」——把判决书、合同或
     备忘录里的一段引用原样贴进来，库层 `validate.VerifyCitationText` 认出法规名称

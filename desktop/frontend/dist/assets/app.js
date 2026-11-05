@@ -139,12 +139,12 @@ function toast(msg) {
 let ws = localStorage.getItem("ol-ws") === "maint" ? "maint" : "main";
 const MAIN_NAV = ["nav-group-main", "nav-home", "nav-browse", "nav-search", "nav-verify"];
 const MAINTAIN_NAV = ["nav-group-maintain", "nav-exit-maintain", "nav-overview",
-  "nav-review", "nav-region", "nav-collect", "nav-pack"];
+  "nav-review", "nav-region", "nav-subject", "nav-collect", "nav-pack"];
 // 顶栏面包屑：当前位置 + 当前生效的筛选摘要。用户随时能看到「自己在哪、看的是不是筛过的」。
 // 维护工作区内面包屑根改报「维护法规库」——位置如实反映工作区。
 const PANEL_TITLE = {
   home: "关键词检索", browse: "按条件筛选", search: "条文检索", verify: "核验引用", setup: "初始化法规库",
-  overview: "库总览", review: "智能审核", region: "地域标引", collect: "获取最新法规",
+  overview: "库总览", review: "智能审核", region: "地域标引", subject: "部门法标引", collect: "获取最新法规",
   pack: "离线更新包",
 };
 function setCrumb(p) {
@@ -169,6 +169,7 @@ function showPanel(p) {
   if (p === "overview") loadOverview();
   if (p === "review") loadReview();
   if (p === "region") { loadRegionStats(); loadRegionQueue(); rgBulkLock(); } // 回到面板，旧预览范围作废
+  if (p === "subject") { loadSubjectStats(); loadSubjectQueue(); sjBulkLock(); } // 同上：部门法标引
   if (p === "collect") { loadSources(); loadTasks(); loadTasksTick(); }
   if (p === "pack") loadPackPanel();
 }
@@ -187,7 +188,7 @@ function applyWorkspace() {
   // 只读查询版：不给写路径的入口（复核/标引/采集面板在维护组内，整组收起；
   // 取数与库总览仍可达——只读用户同样要能装包与查看本机数据状态）。
   if (edition === "reader") {
-    ["nav-review", "nav-region", "nav-collect"].forEach((id) => { const el = $("#" + id); if (el) el.hidden = true; });
+    ["nav-review", "nav-region", "nav-subject", "nav-collect"].forEach((id) => { const el = $("#" + id); if (el) el.hidden = true; });
   }
 }
 // 发行版档位（-edition reader|full）：reader 隐藏维护入口，full 全量。
@@ -499,19 +500,19 @@ $("#btn-region-trial").addEventListener("click", async () => {
 // browseFilter 是浏览页唯一的筛选状态。日常浏览常用「效力等级 + 地区」两个维度，
 // 需要时可再叠加复核状态、来源、公布年代——同一套条件、同一条 SQL 口径
 // （Go 侧 BrowseLawList 与 BrowseFacets 共用 browseWhere，计数与列表不会两说）。
-const browseFilter = { level: "", juris: "", confirm: "", source: "", year: "", region: "" };
+const browseFilter = { level: "", juris: "", confirm: "", source: "", year: "", region: "", subject: "", timeliness: "" };
 
 function browseArgs(limit, offset) {
   return {
     level: browseFilter.level, juris: browseFilter.juris, confirm: browseFilter.confirm, source: browseFilter.source,
-    year: browseFilter.year, region: browseFilter.region,
+    year: browseFilter.year, region: browseFilter.region, subject: browseFilter.subject, timeliness: browseFilter.timeliness,
     kw: $("#b-kw").value.trim(), limit: limit || 300, offset: offset || 0,
   };
 }
 
 // 分面组：可折叠。组头给出「本维度已选什么 / 共有多少可选值」，折叠状态记住——
 // 年代、来源这类长维度默认收起，常用的类别与地区默认展开（筛选栏不必长成一条竖河）。
-const GROUP_DEFAULT = { level: true, juris: true, confirm: true, year: false, source: false, region: true };
+const GROUP_DEFAULT = { level: true, juris: true, confirm: true, year: false, source: false, region: true, subject: true, timeliness: true };
 let groupOpen = {};
 try { groupOpen = JSON.parse(localStorage.getItem("ol-fgrp") || "{}") || {}; } catch (e) { groupOpen = {}; }
 const groupExpanded = {}; // 「显示全部」只在本次会话内展开，下次进来仍按默认收起
@@ -590,13 +591,24 @@ function facetAdorn(dim, usable, isOn) {
 
 function renderFacets(v) {
   lastFacets = v || {};
-  facetChips("#f-levels", "level", v.levels);
   facetChips("#f-juris", "juris", v.juris);
-  facetChips("#f-confirms", "confirm", v.confirms);
-  facetChips("#f-years", "year", v.years, 6);
-  facetChips("#f-sources", "source", v.sources, 5);
+  facetChips("#f-levels", "level", v.levels);
+  facetChips("#f-subjects", "subject", v.subjects, 10);
   facetChips("#f-regions", "region", v.regions, 6, (val) => (browseFilter.region || "").slice(0, 2) === val);
-  ["level", "juris", "confirm", "year", "source", "region"].forEach(facetGroup);
+  facetChips("#f-years", "year", v.years, 6);
+  // 时效分面（v11）：语料版本不含 law_status 视图（只读消费 v10 语料）时如实缺席——
+  // 收起可选值、脚注说明原因，不得渲染一列全「未知」的假分面。
+  const tg = $("#g-timeliness");
+  if (tg) tg.hidden = !v.has_timeliness;
+  const tnote = $("#f-timeliness-note");
+  if (tnote) {
+    tnote.textContent = v.has_timeliness ? "" : "语料版本不含时效视图，该维度暂不可筛。";
+    tnote.classList.toggle("hidden", !!v.has_timeliness);
+  }
+  if (v.has_timeliness) facetChips("#f-timeliness", "timeliness", v.timeliness);
+  facetChips("#f-confirms", "confirm", v.confirms);
+  facetChips("#f-sources", "source", v.sources, 5);
+  ["juris", "level", "subject", "region", "year", "timeliness", "confirm", "source"].forEach(facetGroup);
   const note = $("#f-region-note");
   if (note) {
     note.textContent = v.unlabeled
@@ -617,6 +629,11 @@ function activeFilterText() {
   if (browseFilter.confirm) parts.push("复核状态 " + { confirmed: "已复核确认", pending: "待复核", rejected: "已驳回" }[browseFilter.confirm]);
   if (browseFilter.year) parts.push("公布年代 " + (browseFilter.year === "none" ? "缺失" : browseFilter.year + " 年代"));
   if (browseFilter.source) parts.push("来源 " + browseFilter.source);
+  if (browseFilter.subject) {
+    const hit = ((lastFacets || {}).subjects || []).find((o) => o.value === browseFilter.subject);
+    parts.push("部门法 " + ((hit && hit.label) || browseFilter.subject));
+  }
+  if (browseFilter.timeliness) parts.push("时效状态 " + browseFilter.timeliness);
   if (browseFilter.region) parts.push("地区 " + (($("#region-city").selectedOptions[0] || {}).text || regionPathOf(browseFilter.region) || browseFilter.region));
   const kw = $("#b-kw").value.trim();
   if (kw) parts.push("名称含「" + kw + "」");
@@ -686,6 +703,7 @@ async function loadHome() {
     document.querySelectorAll("#h-cards .card[data-level]").forEach((el) => el.addEventListener("click", () => {
       browseFilter.level = el.dataset.level;
       browseFilter.juris = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
+      browseFilter.subject = browseFilter.timeliness = "";
       showPanel("browse");
     }));
   } catch (e) { /* 首页卡片失败不阻塞搜索 */ }
@@ -885,24 +903,64 @@ function rowMeta(r) {
   }
   return parts.join(" · ");
 }
-// openLaw 右列详情：修订沿革 + 条款列表（点条款看留证原文，可返回条款列表）。
+// openLaw 右列详情：法规信息卡（§6 字段序）+ 修订沿革 + 条款列表（点条款看留证原文，可返回条款列表）。
 async function openLaw(lawID, name) {
   document.querySelectorAll("#law-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.law === lawID));
-  const vs = (await app().LawVersions(lawID)) || [];
-  const arts = (await app().BrowseArticles(lawID)) || [];
+  const [vs, arts, meta] = await Promise.all([app().LawVersions(lawID), app().BrowseArticles(lawID), app().LawMeta(lawID)]);
   const tl = vs.map((x) => `<div class="tl-row"><b>${escapeHTML(x.version_no)}</b> ${escapeHTML(x.effective)} 起施行${x.expire ? "，" + escapeHTML(x.expire) + " 失效" : "，现行有效"} ${statusBadge(x.status)}</div>`).join("");
   const list = arts.map((x) => `<div class="item art" data-doc="${escapeHTML(x.doc_id)}" data-no="${escapeHTML(x.article_no)}"><div class="t">${escapeHTML(x.article_no)}</div><div class="m">${escapeHTML(x.snippet)}…</div></div>`).join("");
   const box = showDetail(name || "法规详情");
-  box.innerHTML = `<h3>${escapeHTML(name)}</h3>
+  box.innerHTML = `<h3>${escapeHTML(name)}</h3>${lawMetaCard(meta || {})}
     <h4>修订沿革</h4><div class="tl">${tl || '<p class="muted">暂无版本记录。</p>'}</div>
     <h4>条款（${arts.length} 条）</h4>${list || '<p class="muted">该法规暂未收录分条文本（可在「查法规」中全文检索）。</p>'}`;
   document.querySelectorAll("#detail-body .art").forEach((el) =>
     el.addEventListener("click", () => openPreview(el.dataset.doc, el.dataset.no, () => openLaw(lawID, name))));
+  // 信息卡「到部门法标引处理 →」必须可点（给出的每条出路都要能照做）。
+  const sj = box.querySelector('[data-jump="subject"]');
+  if (sj) sj.addEventListener("click", () => showPanel("subject"));
+}
+
+// 时效状态徽章——五态枚举集中一处（lawtext statusClassMap 的教训：别在多处映射）。
+// 语料版本不含时效视图时如实显示原因，不得当作「现行有效」或渲染假数据。
+const TIMELINESS_BADGE = {
+  现行有效: ["ok", "现行有效"],
+  已修改: ["na", "已修改（以新版本为准）"],
+  已废止: ["no", "已废止"],
+  尚未生效: ["pend", "尚未生效"],
+  未知: ["na", "时效未知"],
+};
+function timelinessBadge(t, has) {
+  if (!has) return '<span class="badge na" title="law_status 视图缺失，无法派生时效">未知（语料版本不含时效视图）</span>';
+  const b = TIMELINESS_BADGE[t] || TIMELINESS_BADGE.未知;
+  return `<span class="badge ${b[0]}">${b[1]}</span>`;
+}
+
+// lawMetaCard 条目页法规信息卡（docs/design-taxonomy.md §6 字段序）：制定机关｜公布日期｜
+// 施行日期｜时效状态徽章｜效力层级｜部门法（含机器建议/已复核标记）｜文档形态｜来源链接。
+// 缺失一律如实显示「未标注/缺失」并给补救去处，不渲染占位内容。
+function lawMetaCard(m) {
+  const kv = (k, v) => `<span><b>${k}</b>${v}</span>`;
+  const miss = '<span class="muted">缺失</span>';
+  const subj = !m.subject_name
+    ? '未标注 <a class="view" data-jump="subject">到部门法标引处理 →</a>'
+    : escapeHTML(m.subject_name) + (m.subject_state === "suggest" ? ' <span class="badge pend">机器建议 · 待复核</span>'
+      : m.subject_state === "reviewed" ? ' <span class="badge ok">已人工复核</span>' : "");
+  return '<div class="kv">' +
+    kv("制定机关", m.issuer ? escapeHTML(m.issuer) : miss) +
+    kv("公布日期", m.publish_date ? escapeHTML(m.publish_date) : miss) +
+    kv("施行日期", m.effective_date ? escapeHTML(m.effective_date) : miss) +
+    kv("时效状态", timelinessBadge(m.timeliness, m.has_timeliness)) +
+    kv("效力层级", m.level ? escapeHTML(m.level) : miss) +
+    kv("部门法", subj) +
+    kv("文档形态", m.doc_form_name ? escapeHTML(m.doc_form_name) : "形态未判定") +
+    kv("来源链接", m.source_url ? `<a href="${escapeHTML(m.source_url)}" rel="noreferrer">官方原文</a>` : "来源链接缺失") +
+    "</div>";
 }
 $("#b-refresh").addEventListener("click", loadLaws);
 // 清空筛选：维度一律复位；地区是全局偏好，一并取消，避免下一次浏览又被悄悄筛掉。
 $("#btn-filter-clear").addEventListener("click", () => {
   browseFilter.level = browseFilter.juris = browseFilter.confirm = browseFilter.source = browseFilter.year = "";
+  browseFilter.subject = browseFilter.timeliness = "";
   if (browseFilter.region) { applyRegion(""); return; }
   loadLaws();
 });
@@ -1600,6 +1658,159 @@ $("#rg-b-apply").addEventListener("click", rgBulkApply);
 ["rg-b-prov", "rg-b-verdict"].forEach((id) =>
   $("#" + id).addEventListener("change", () => rgBulkLock("条件已改动，请重新查看范围后再执行。")));
 
+/* ---------- 维护 · 部门法标引（机器建议 → 人工落判；文档形态全自动只读） ---------- */
+const SJ_CONF_TEXT = {
+  high: "高置信（名称规则命中）",
+  none: "无法判定（转智能体/人工队列）",
+  marked: "已有标注",
+  rejected: "人工已复核并留空",
+};
+// 标注来源文案：pack = 随更新包携带（本库未复核），不得显示成已复核；
+// auto = 本库机器判定；manual = 人工落判；trial = 试判定。
+const SJ_SRC_TEXT = {
+  auto: "本库机器判定",
+  manual: "人工确认",
+  trial: "试判定",
+  pack: "随更新包携带（本库未复核）",
+};
+const SJ_JUR_TEXT = { CN: "中国", EU: "欧盟", US: "美国" };
+function sjStateBadge(s, src) {
+  if (s === "suggest") {
+    return '<span class="badge pend">' + (src === "pack" ? "随包携带 · 待复核" : "机器建议 · 待复核") + "</span>";
+  }
+  if (s === "reviewed") return '<span class="badge ok">已人工复核</span>';
+  return '<span class="badge na">部门法未标注</span>';
+}
+let sjQueue = [];
+let sjSelected = "";
+let sjBulkN = -1; // 最近一次干跑计数；执行时带回核对
+let subjectOpts = []; // app().SubjectOptions()
+
+function fillSubjectSelects() {
+  const all = subjectOpts || [];
+  const sel = $("#sj-subject");
+  if (!all.length) { // 词表缺失如实说明，不得渲染空下拉当已覆盖（诚实展示纪律）
+    sel.innerHTML = '<option value="">（词表缺失：语料版本不含部门法词表，请更新数据）</option>';
+    return;
+  }
+  const groups = ["CN", "EU", "US"].map((j) => {
+    const items = all.filter((o) => o.jurisdiction === j);
+    if (!items.length) return "";
+    return `<optgroup label="${escapeHTML(SJ_JUR_TEXT[j] || j)}">` + items.map((o) =>
+      `<option value="${escapeHTML(o.code)}">${escapeHTML(o.name)}</option>`).join("") + "</optgroup>";
+  }).join("");
+  sel.innerHTML = '<option value="">（沿用机器建议；无建议时请选部门法）</option>' + groups;
+}
+
+async function loadSubjectOptions() {
+  try { subjectOpts = (await app().SubjectOptions()) || []; } catch (e) { subjectOpts = []; }
+  fillSubjectSelects();
+}
+
+async function loadSubjectStats() {
+  try {
+    const st = await app().SubjectReviewStats();
+    $("#sj-stats").innerHTML = `<span>法规总数 <b>${num(st.total)}</b></span>` +
+      `<span>机器建议 · 待复核 <b>${num(st.suggest_pending)}</b></span>` +
+      `<span>已人工确认 <b>${num(st.confirmed)}</b></span>` +
+      `<span>已人工驳回/清除 <b>${num(st.left_blank)}</b></span>` +
+      `<span>部门法未标注 <b>${num(st.unmarked)}</b></span>`;
+    setNavCount("#cnt-subject", st.suggest_pending, false);
+  } catch (e) { $("#sj-stats").textContent = "统计读取失败：" + (e.message || e); }
+}
+
+async function loadSubjectQueue() {
+  if (!subjectOpts.length) await loadSubjectOptions(); else fillSubjectSelects();
+  try {
+    sjQueue = (await app().SubjectReviewList($("#sj-filter").value.trim(), $("#sj-state").value, 300, 0)) || [];
+    $("#sj-info").textContent = `队列 ${sjQueue.length} 条（最多显示 300）`;
+    $("#sj-list").innerHTML = sjQueue.map((r) => `
+      <div class="item ${r.law_id === sjSelected ? "sel" : ""}" data-law="${escapeHTML(r.law_id)}">
+        <div class="t">${escapeHTML(r.name || r.law_id)} ${sjStateBadge(r.state, r.subject_source)}</div>
+        <div class="m">${escapeHTML(r.law_id)}${r.effect_level ? " · " + escapeHTML(r.effect_level) : ""}${r.issuer ? " · " + escapeHTML(r.issuer) : ""}</div>
+        <div class="m">${r.subject_name ? "部门法：" + escapeHTML(r.subject_name) : "部门法未标注"}${r.doc_form_name ? " · 形态：" + escapeHTML(r.doc_form_name) : ""}</div>
+      </div>`).join("") || '<p class="muted">没有符合条件的条目。</p>';
+    document.querySelectorAll("#sj-list .item").forEach((el) => el.addEventListener("click", () => showSubjectReview(el.dataset.law)));
+  } catch (e) { $("#sj-list").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
+}
+async function showSubjectReview(lawID) {
+  sjSelected = lawID;
+  document.querySelectorAll("#sj-list .item").forEach((x) => x.classList.toggle("sel", x.dataset.law === lawID));
+  try {
+    const d = await app().SubjectReviewDetail(lawID);
+    const row = d.row || {}, s = d.suggest || {};
+    $("#sj-preview").innerHTML = `<h3>${escapeHTML(row.name || lawID)}</h3>
+      <p class="muted">${escapeHTML(lawID)}${row.effect_level ? " · " + escapeHTML(row.effect_level) : ""}${row.issuer ? " · 制定机关：" + escapeHTML(row.issuer) : ""}</p>
+      <p><b>当前部门法：</b>${row.subject_name ? escapeHTML(row.subject_name) + "（" + escapeHTML(row.subject_code) + "）" : "缺失/未知——可用「部门法标引」补标"} ${sjStateBadge(row.state, row.subject_source)}</p>
+      ${row.subject_code ? '<p class="muted">标注来源：' + escapeHTML(SJ_SRC_TEXT[row.subject_source] || ("未知来源 " + (row.subject_source || ""))) + "</p>" : ""}
+      <p><b>文档形态：</b>${row.doc_form_name ? escapeHTML(row.doc_form_name) : "形态未判定（机器按文种自动判定，无需人工确认）"}</p>
+      <p><b>机器判定：</b>${escapeHTML(SJ_CONF_TEXT[s.confidence] || s.confidence || "无")}${s.subject_name ? " → " + escapeHTML(s.subject_name) : ""}${s.doc_form_name && !row.doc_form ? " · 形态建议：" + escapeHTML(s.doc_form_name) : ""}</p>
+      <p class="muted">判定依据：${escapeHTML(s.note || "无")}${row.subject_rule ? " · 现值依据：" + escapeHTML(row.subject_rule) : ""}${row.subject_reviewer ? " · 复核人：" + escapeHTML(row.subject_reviewer) : ""}</p>
+      ${row.state === "suggest" ? '<p class="muted">' + (row.subject_source === "pack" ? "随更新包携带的部门法未经本库人工确认前不算已复核。" : "机器建议未经人工确认前不算已复核。") + "</p>" : ""}
+      <h4>复核记录</h4><ul class="log">${(d.log || []).map((x) => "<li>" + escapeHTML(x) + "</li>").join("") || '<li class="muted">暂无</li>'}</ul>`;
+    if (row.subject_code) $("#sj-subject").value = row.subject_code;
+  } catch (e) { $("#sj-preview").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
+}
+
+async function judgeSubject(action) {
+  if (!sjSelected) return toast("请先在左侧点选条目");
+  const reviewer = "本机用户", reason = $("#sj-reason").value.trim();
+  if (!reason) return toast("确认或驳回须填写结论依据（复核人自动记为本机用户）");
+  const cur = sjQueue.find((x) => x.law_id === sjSelected) || {};
+  const code = action === "confirm" ? ($("#sj-subject").value || cur.subject_code || "") : "";
+  if (action === "confirm" && !code) return toast("该条目无机器建议，请在部门法下拉中选择部门法");
+  try {
+    const sum = await app().JudgeSubject([sjSelected], code, action, reviewer, reason);
+    toast(`已处理：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除标注 ${num(sum.cleared)}`);
+    loadSubjectStats(); loadSubjectQueue(); showSubjectReview(sjSelected);
+  } catch (e) { toast("处理失败：" + (e.message || e)); }
+}
+$("#sj-load").addEventListener("click", () => { loadSubjectStats(); loadSubjectQueue(); });
+$("#sj-state").addEventListener("change", loadSubjectQueue);
+$("#sj-confirm").addEventListener("click", () => judgeSubject("confirm"));
+$("#sj-reject").addEventListener("click", () => judgeSubject("reject"));
+$("#sj-clear").addEventListener("click", () => judgeSubject("clear"));
+
+// 批量流程锁定：与地域面板同一纪律——「先干跑再执行」如实反映在按钮状态上，
+// 预览条件一改动即失效重锁（AGENTS.md 人工复核纪律）。
+function sjBulkLock(note) {
+  sjBulkN = -1;
+  const b = $("#sj-b-apply");
+  if (b) b.disabled = true;
+  if (note) $("#sj-b-info").textContent = note;
+}
+async function sjBulkPreview() {
+  sjBulkLock("");
+  try {
+    const n = await app().SubjectBulkPreview($("#sj-b-jur").value, $("#sj-b-verdict").value);
+    sjBulkN = n;
+    const btn = $("#sj-b-apply");
+    if (btn) btn.disabled = !(n > 0); // 0 条可处理时执行没有意义，保持锁定并如实说明
+    $("#sj-b-info").textContent = n > 0
+      ? `会影响 ${num(n)} 条。核对无误后再点「执行批量处理」。`
+      : "按所选条件没有可处理的条目，无需执行。";
+  } catch (e) { $("#sj-b-info").textContent = "读取失败：" + (e.message || e); }
+}
+async function sjBulkApply() {
+  if (sjBulkN < 0) return toast("请先点「先看看会影响多少条」，确认范围后再执行");
+  const reviewer = "本机用户", reason = $("#sj-reason").value.trim();
+  if (!reason) return toast("批量处理须填写结论依据（复核人自动记为本机用户）");
+  try {
+    const sum = await app().SubjectBulkApply($("#sj-b-jur").value, $("#sj-b-verdict").value, reviewer, reason, sjBulkN);
+    toast(`批量完成：确认 ${num(sum.confirmed)} · 驳回 ${num(sum.rejected)} · 清除标注 ${num(sum.cleared)}`);
+    sjBulkLock("已执行；若要再处理一批，请重新查看范围。");
+    loadSubjectStats(); loadSubjectQueue();
+  } catch (e) {
+    sjBulkLock("已中止：条目有变动或条件不符，请重新查看范围。");
+    toast("批量失败：" + (e.message || e));
+  }
+}
+$("#sj-b-preview").addEventListener("click", sjBulkPreview);
+$("#sj-b-apply").addEventListener("click", sjBulkApply);
+["sj-b-jur", "sj-b-verdict"].forEach((id) =>
+  $("#" + id).addEventListener("change", () => sjBulkLock("条件已改动，请重新查看范围后再执行。")));
+
+
 /* ---------- 维护 · 获取最新法规（状态 → 常用参数 → 高级参数 → 高级设置） ---------- */
 async function loadSources() {
   try {
@@ -1788,7 +1999,7 @@ document.addEventListener("DOMContentLoaded", () => {
   waitBindings(async () => {
     await applyEdition();
     applyWorkspace();
-    loadRegion(); loadSideFoot(); loadRegionStats();
+    loadRegion(); loadSideFoot(); loadRegionStats(); loadSubjectStats();
     // 空库启动（新装用户）：如实落到「初始化法规库」面板，不装作浏览态正常。
     // 读不到状态时不判定为空库（未知 ≠ 0），按当前工作区进入常规面板。
     let v = null;

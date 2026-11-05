@@ -8,7 +8,9 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/futuremeng/OpenLaw/geo"
@@ -28,7 +30,14 @@ type LawRow struct {
 	Expire       string `json:"expire_date"` // 空 = 仍现行有效
 	Publish      string `json:"publish_date"`
 	Status       string `json:"confirm_status"`
-	ConfirmSrc   string `json:"confirm_source"` // agent=智能体确认 / human=人工确认 / 空=历史或未经复核
+	ConfirmSrc   string `json:"confirm_source"`   // agent=智能体确认 / human=人工确认 / 空=历史或未经复核
+	SubjectCode  string `json:"subject_code"`     // 部门法码；空 = 部门法未标注
+	SubjectName  string `json:"subject_name"`     // 词表展示名；空 = 未标注或码不在词表（如实分开）
+	SubjectSrc   string `json:"subject_source"`   // auto/manual/pack；空 = 有码但来源未记录（按机器建议处理）
+	SubjectRev   string `json:"subject_reviewer"` // 空 = 仅机器建议 · 待复核；非空 = 已人工复核
+	DocForm      string `json:"doc_form"`         // 文档形态码（全自动机器判定）；空 = 形态未判定
+	DocFormName  string `json:"doc_form_name"`    // 词表展示名；空 = 形态未判定
+	Timeliness   string `json:"timeliness"`       // law_status 派生五态；空 = 语料版本不含时效视图
 }
 
 // LawFilter 多维筛选条件（空 = 该维度不限）。公众模式常用其中一两个维度
@@ -40,9 +49,13 @@ type LawFilter struct {
 	Source  string `json:"source"`  // document.source_type 精确值（来自下拉，不是通配符）
 	Year    string `json:"year"`    // 公布年代桶（"2000" = 2000 年代）；"none" = 公布日期缺失
 	Region  string `json:"region"`  // 区划码（省级含下辖地级）
-	Kw      string `json:"kw"`      // 名称包含
-	Limit   int    `json:"limit"`
-	Offset  int    `json:"offset"`
+	// v11 多维标引（docs/design-taxonomy.md §6）：部门法与时效状态各为一维，
+	// 与其余维度同样「空 = 不限」，计数与列表同一条件。
+	Subject    string `json:"subject"`    // dict_subject.code；"none" = 部门法未标注
+	Timeliness string `json:"timeliness"` // law_status 派生五态（现行有效/已修改/已废止/尚未生效/未知）
+	Kw         string `json:"kw"`         // 名称包含
+	Limit      int    `json:"limit"`
+	Offset     int    `json:"offset"`
 }
 
 // browseFrom 法规行与其代表版本（施行日最晚的一条）及该版本的留证文档。
@@ -65,6 +78,22 @@ const yearBucketExpr = `CASE WHEN COALESCE(d.publish_date,'')='' THEN 'none'
 
 // jurisExpr 法域分组表达式（v7）：未标注单独成桶（"none"），不静默并入任何法域。
 const jurisExpr = `CASE WHEN COALESCE(l.jurisdiction,'')='' THEN 'none' ELSE l.jurisdiction END`
+
+// subjectExpr 部门法分组表达式（v11）：未标注单独成桶（"none"），不并入任何部门法
+// （docs/design-taxonomy.md §6：「未标注」是待办积压，N 必须如实显示）。
+const subjectExpr = `CASE WHEN COALESCE(l.subject_code,'')='' THEN 'none' ELSE l.subject_code END`
+
+// timelinessExpr 时效状态分组表达式（v11，拍板项 3：纯派生不落列）——唯一出口是
+// law_status 视图。v10 语料没有该视图：该维度只在视图存在时参与查询（见
+// hasTimelinessView），条件为空时 SQL 不引用视图，常规列表不受语料版本影响。
+const timelinessExpr = `(SELECT s.timeliness FROM law_status s WHERE s.law_id=l.law_id)`
+
+// hasTimelinessView 语料是否带 law_status 视图（v11 起有；只读消费 v10 语料没有）。
+// 缺失时界面按「未知（语料版本不含时效视图）」如实处理，不得当「现行有效」。
+func (a *App) hasTimelinessView() bool {
+	var one int
+	return a.db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='view' AND name='law_status'`).Scan(&one) == nil
+}
 
 // browseWhere 构造筛选子句与参数；skip 指名某维度时不计该维度条件——分面计数的
 // 标准口径：某维度各可选值的计数按「其他维度已生效、本维度不限」给出，
@@ -92,6 +121,16 @@ func browseWhere(f LawFilter, skip string) (string, []any) {
 		where += ` AND (?='' OR ` + yearBucketExpr + `=?)`
 		args = append(args, f.Year, f.Year)
 	}
+	if skip != "subject" {
+		where += ` AND (?='' OR ` + subjectExpr + `=?)`
+		args = append(args, f.Subject, f.Subject)
+	}
+	// 时效条件仅在该维度真正参与筛选时引用视图：v10 语料无视图而条件为空时，
+	// 常规列表必须照常工作（按「未知」如实显示，不是报错）。
+	if skip != "timeliness" && strings.TrimSpace(f.Timeliness) != "" {
+		where += ` AND l.law_id IN (SELECT law_id FROM law_status WHERE timeliness=?)`
+		args = append(args, f.Timeliness)
+	}
 	kw := strings.TrimSpace(f.Kw)
 	where += ` AND (?='' OR l.name LIKE '%'||?||'%')`
 	args = append(args, kw, kw)
@@ -114,11 +153,22 @@ func (a *App) BrowseLawList(f LawFilter) ([]LawRow, error) {
 	}
 	where, args := browseWhere(f, "")
 	args = append(args, f.Limit, f.Offset)
+	// 词表必须在外层游标打开前读完——sqlite 单连接下，游标迭代期间再发起查询会死锁。
+	subjects := a.dictNames("dict_subject")
+	docForms := a.dictNames("dict_doc_form")
+	// 时效列按视图存在与否动态拼装：v10 语料无视图时取空串（前端如实显示
+	// 「未知（语料版本不含时效视图）」），不得报错也不得假装有值。
+	tlCol := "''"
+	if a.hasTimelinessView() {
+		tlCol = timelinessExpr
+	}
 	rows, err := a.db.Query(`SELECT l.law_id, l.name, COALESCE(l.issuer,''),
 		COALESCE(l.effect_level,'效力等级未标注'), COALESCE(l.region_code,''), COALESCE(l.region_source,''),
 		COALESCE(v.version_no,''),
 		COALESCE(v.effective_date,''), COALESCE(v.expire_date,''),
-		COALESCE(d.publish_date,''), COALESCE(d.confirm_status,''), COALESCE(d.confirm_source,'')
+		COALESCE(d.publish_date,''), COALESCE(d.confirm_status,''), COALESCE(d.confirm_source,''),
+		COALESCE(l.subject_code,''), COALESCE(l.subject_source,''), COALESCE(l.subject_reviewer,''),
+		COALESCE(l.doc_form,''), COALESCE(`+tlCol+`,'')
 		`+browseFrom+where+`
 		`+browseOrder+` LIMIT ? OFFSET ?`, args...)
 	if err != nil {
@@ -129,10 +179,13 @@ func (a *App) BrowseLawList(f LawFilter) ([]LawRow, error) {
 	for rows.Next() {
 		var r LawRow
 		if err := rows.Scan(&r.LawID, &r.Name, &r.Issuer, &r.Level, &r.RegionCode, &r.RegionSource,
-			&r.VersionNo, &r.Effective, &r.Expire, &r.Publish, &r.Status, &r.ConfirmSrc); err != nil {
+			&r.VersionNo, &r.Effective, &r.Expire, &r.Publish, &r.Status, &r.ConfirmSrc,
+			&r.SubjectCode, &r.SubjectSrc, &r.SubjectRev, &r.DocForm, &r.Timeliness); err != nil {
 			return out, err
 		}
 		r.Region, r.RegionSource = displayRegion(r.RegionCode, r.RegionSource, r.Name)
+		r.SubjectName = subjects[r.SubjectCode]
+		r.DocFormName = docForms[r.DocForm]
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -159,10 +212,15 @@ type FacetView struct {
 	Unlabeled int           `json:"unlabeled"`
 	Levels    []FacetOption `json:"levels"`
 	Juris     []FacetOption `json:"juris"`
+	Subjects  []FacetOption `json:"subjects"`
 	Confirms  []FacetOption `json:"confirms"`
 	Sources   []FacetOption `json:"sources"`
 	Years     []FacetOption `json:"years"`
 	Regions   []FacetOption `json:"regions"`
+	// 时效分面（v11）：HasTimeliness=false 表示语料版本不含 law_status 视图
+	// （只读消费 v10 语料），前端须收起该分面组并如实说明，不得当作全「未知」。
+	Timeliness    []FacetOption `json:"timeliness"`
+	HasTimeliness bool          `json:"has_timeliness"`
 }
 
 // facetGroup 按表达式分组计数（skip 维度不计自身条件）。
@@ -204,6 +262,16 @@ func facetLabel(dim, v string) string {
 		default:
 			return "法域未标注"
 		}
+	case "subject":
+		if v == "none" {
+			return "部门法未标注"
+		}
+		return v // BrowseFacets 里以词表名覆盖；此处仅兜底
+	case "timeliness":
+		if v == "" {
+			return "未知" // 版本链不足以判定（law_status 视图口径），如实未知
+		}
+		return v
 	case "confirm":
 		switch v {
 		case "confirmed":
@@ -257,6 +325,7 @@ func (a *App) BrowseFacets(f LawFilter) (*FacetView, error) {
 	}{
 		{"level", `COALESCE(l.effect_level,'')`, &v.Levels},
 		{"juris", jurisExpr, &v.Juris},
+		{"subject", subjectExpr, &v.Subjects},
 		{"confirm", `COALESCE(d.confirm_status,'')`, &v.Confirms},
 		{"source", `COALESCE(d.source_type,'')`, &v.Sources},
 		{"year", yearBucketExpr, &v.Years},
@@ -269,6 +338,33 @@ func (a *App) BrowseFacets(f LawFilter) (*FacetView, error) {
 		for _, o := range opts {
 			o.Label = facetLabel(g.dim, o.Value)
 			*g.dst = append(*g.dst, o)
+		}
+	}
+	// 部门法标签以词表为准（受控词表纪律：界面不得出现裸码分类）；
+	// 码不在词表 = 保留原码并如实标注，属数据异常，不静默改名。
+	names := a.dictNames("dict_subject")
+	for i := range v.Subjects {
+		switch o := &v.Subjects[i]; o.Value {
+		case "none":
+			o.Label = "部门法未标注"
+		default:
+			if n := names[o.Value]; n != "" {
+				o.Label = n
+			} else {
+				o.Label = o.Value + "（词表外）"
+			}
+		}
+	}
+	// 时效分面：视图存在才给（v10 语料如实缺席，不渲染全「未知」的假分面）。
+	v.HasTimeliness = a.hasTimelinessView()
+	if v.HasTimeliness {
+		opts, err := a.facetGroup(f, "timeliness", timelinessExpr)
+		if err != nil {
+			return nil, err
+		}
+		for _, o := range opts {
+			o.Label = facetLabel("timeliness", o.Value)
+			v.Timeliness = append(v.Timeliness, o)
 		}
 	}
 	return v, nil
@@ -349,4 +445,64 @@ func (a *App) LawVersions(lawID string) ([]VersionRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// LawMeta 条目页法规信息卡（docs/design-taxonomy.md §6 字段序：制定机关｜公布日期｜
+// 施行日期｜时效状态徽章｜效力层级｜部门法（含机器建议/已复核标记）｜文档形态｜来源链接）。
+// 缺失字段如实给空值与「未标注」状态，由前端渲染「缺失/未知」+ 补救指引；
+// 时效来自 law_status 视图（唯一出口），v10 语料无视图时 HasTimeliness=false。
+type LawMeta struct {
+	Name          string `json:"name"`
+	Issuer        string `json:"issuer"`
+	Level         string `json:"level"`
+	Publish       string `json:"publish_date"`
+	Effective     string `json:"effective_date"`
+	Timeliness    string `json:"timeliness"`
+	HasTimeliness bool   `json:"has_timeliness"`
+	SubjectName   string `json:"subject_name"`  // 词表名；空 = 部门法未标注
+	SubjectState  string `json:"subject_state"` // reviewed / suggest / unmarked（与标引面板同一口径）
+	DocFormName   string `json:"doc_form_name"` // 空 = 形态未判定
+	SourceURL     string `json:"source_url"`    // 代表版本的留证来源；空 = 来源链接缺失
+}
+
+// LawMeta 单条法规的信息卡数据（只读，与列表同一代表版本口径）。
+func (a *App) LawMeta(lawID string) (*LawMeta, error) {
+	if a.db == nil {
+		return nil, errors.New(a.openErr)
+	}
+	tlCol := "''"
+	if a.hasTimelinessView() {
+		tlCol = `(SELECT s.timeliness FROM law_status s WHERE s.law_id=l.law_id)`
+	}
+	m := &LawMeta{}
+	err := a.db.QueryRow(`SELECT l.name, COALESCE(l.issuer,''), COALESCE(l.effect_level,''),
+		COALESCE(d.publish_date,''), COALESCE(v.effective_date,''),
+		COALESCE(l.subject_code,''), COALESCE(l.subject_reviewer,''), COALESCE(l.doc_form,''),
+		COALESCE(d.source_url,''), COALESCE(`+tlCol+`,'')
+		FROM law l
+		LEFT JOIN law_version v ON v.law_id=l.law_id
+			AND NOT EXISTS (SELECT 1 FROM law_version v2 WHERE v2.law_id=l.law_id AND v2.effective_date > v.effective_date)
+		LEFT JOIN document d ON d.doc_id=v.doc_id
+		WHERE l.law_id=?`, lawID).
+		Scan(&m.Name, &m.Issuer, &m.Level, &m.Publish, &m.Effective,
+			&m.SubjectName, &m.SubjectState, &m.DocFormName, &m.SourceURL, &m.Timeliness)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("法规 %s 不存在", lawID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	subjects := a.dictNames("dict_subject")
+	docForms := a.dictNames("dict_doc_form")
+	if code := m.SubjectName; code != "" { // Scan 暂存的是部门法码，此处换成词表名
+		if n := subjects[code]; n != "" {
+			m.SubjectName = n
+		} else {
+			m.SubjectName = code + "（词表外）" // 数据异常如实标注，不静默改名
+		}
+	}
+	m.DocFormName = docForms[m.DocFormName]
+	m.SubjectState = subjectState(m.SubjectName, m.SubjectState) // reviewed/suggest/unmarked 同一口径
+	m.HasTimeliness = a.hasTimelinessView()
+	return m, nil
 }

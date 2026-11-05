@@ -296,3 +296,96 @@ func TestBrowseLawListOrdersUnlabeledLast(t *testing.T) {
 		t.Errorf("等级过滤在新排序下失效: %+v", got)
 	}
 }
+
+// TestBrowseSubjectTimeliness v11 浏览侧（docs/design-taxonomy.md §6）：部门法与时效
+// 各为一维分面，标签以词表为准（未标注如实成桶），筛选与计数同源；时效唯一出口是
+// law_status 视图（L1 有版本链 → 已修改；单版本现行 → 现行有效）。
+func TestBrowseSubjectTimeliness(t *testing.T) {
+	a := newTestApp(t)
+	seedFacetLaws(t, a)
+	if _, err := a.db.Exec(`UPDATE law SET subject_code='CN-SOC', subject_source='auto' WHERE law_id='L1'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`UPDATE law SET subject_code='CN-ADM', subject_source='manual',
+		subject_reviewer='张三' WHERE law_id='L2'`); err != nil {
+		t.Fatal(err)
+	}
+	v, err := a.BrowseFacets(LawFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v.HasTimeliness {
+		t.Fatal("v11 语料应有时效视图")
+	}
+	if n, ok := facetCount(v.Subjects, "CN-SOC"); !ok || n != 1 {
+		t.Errorf("部门法分面缺 CN-SOC: %+v", v.Subjects)
+	}
+	for _, o := range v.Subjects {
+		if o.Value == "CN-SOC" && o.Label != "社会法" {
+			t.Errorf("部门法标签应以词表为准: %+v", o)
+		}
+		if o.Value == "none" && o.Label != "部门法未标注" {
+			t.Errorf("未标注应如实成桶: %+v", o)
+		}
+	}
+	if n, ok := facetCount(v.Timeliness, "已修改"); !ok || n != 1 {
+		t.Errorf("时效分面缺「已修改」（L1 有版本链）: %+v", v.Timeliness)
+	}
+	if n, ok := facetCount(v.Timeliness, "现行有效"); !ok || n != 3 {
+		t.Errorf("时效分面「现行有效」应为 3（L2/L3/L4 单版本现行）: %+v", v.Timeliness)
+	}
+	// 筛选与计数同源：部门法、时效各自收窄后总数跟着变
+	rows, err := a.BrowseLawList(LawFilter{Subject: "CN-SOC"})
+	if err != nil || len(rows) != 1 || rows[0].LawID != "L1" || rows[0].SubjectName != "社会法" {
+		t.Errorf("部门法过滤不符: %v %+v", err, rows)
+	}
+	if rows[0].SubjectRev != "" {
+		t.Errorf("机器建议行署名应为空（待复核）: %+v", rows[0])
+	}
+	rows, err = a.BrowseLawList(LawFilter{Timeliness: "已修改"})
+	if err != nil || len(rows) != 1 || rows[0].Timeliness != "已修改" {
+		t.Errorf("时效过滤不符: %v %+v", err, rows)
+	}
+	// 信息卡（§6 字段序数据源）：时效、部门法状态、形态、来源如实给出
+	m, err := a.LawMeta("L1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Timeliness != "已修改" || !m.HasTimeliness || m.SubjectName != "社会法" || m.SubjectState != "suggest" {
+		t.Errorf("信息卡不符: %+v", m)
+	}
+	if m, _ = a.LawMeta("L2"); m.SubjectState != "reviewed" || m.Timeliness != "现行有效" {
+		t.Errorf("已人工复核行信息卡不符: %+v", m)
+	}
+}
+
+// TestBrowseTimelinessViewMissing 只读消费 v10 语料（无 law_status 视图）：列表照常、
+// 时效分面如实缺席（HasTimeliness=false，不渲染全「未知」的假分面）、行内时效为空；
+// 显式按时效筛选必须显式失败而非静默给全量（诚实展示纪律）。
+func TestBrowseTimelinessViewMissing(t *testing.T) {
+	a := newTestApp(t)
+	if _, err := a.db.Exec(`DROP VIEW law_status`); err != nil {
+		t.Fatal(err)
+	}
+	v, err := a.BrowseFacets(LawFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.HasTimeliness || len(v.Timeliness) != 0 {
+		t.Errorf("无视图时时效分面应缺席: %+v", v.Timeliness)
+	}
+	if len(v.Subjects) == 0 {
+		t.Error("部门法分面不受视图缺失影响")
+	}
+	rows, err := a.BrowseLawList(LawFilter{})
+	if err != nil || len(rows) == 0 || rows[0].Timeliness != "" {
+		t.Errorf("无视图列表应照常且时效为空: %v %+v", err, rows)
+	}
+	if _, err := a.BrowseLawList(LawFilter{Timeliness: "现行有效"}); err == nil {
+		t.Error("无视图仍按时效筛选静默成功——必须显式失败")
+	}
+	m, err := a.LawMeta("L1")
+	if err != nil || m.HasTimeliness || m.Timeliness != "" {
+		t.Errorf("信息卡应如实报视图缺失: %v %+v", err, m)
+	}
+}

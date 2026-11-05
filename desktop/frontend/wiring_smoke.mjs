@@ -69,13 +69,20 @@ const document = {
 // L3 故意缺等级/机关/地域：条目行的缺失标记要在冒烟里可见。
 // 缺失的效力等级按 Go 侧真实形状给出（SQL 默认值「效力等级未标注」，不是空串）。
 const laws = [
-  { law_id: 'L1', name: '工伤保险条例', level: '行政法规', juris: 'CN', confirm_status: 'pending', confirm_source: '', region_source: 'none', region: '北京市', issuer: '国务院', effective_date: '2004-01-01' },
-  { law_id: 'L2', name: '北京市生活垃圾管理条例', level: '地方性法规', juris: 'CN', confirm_status: 'confirmed', confirm_source: 'agent', region_source: 'auto', region: '北京市', issuer: '北京市人大常委会', effective_date: '1996-06-01' },
-  { law_id: 'L3', name: '某市养犬管理办法', level: '效力等级未标注', juris: '', confirm_status: 'pending', confirm_source: '', region_source: '', region: '', issuer: '', effective_date: '' },
+  { law_id: 'L1', name: '工伤保险条例', level: '行政法规', juris: 'CN', confirm_status: 'pending', confirm_source: '', region_source: 'none', region: '北京市', issuer: '国务院', effective_date: '2004-01-01',
+    subject_code: 'CN-SOC', subject_name: '社会法', subject_source: 'auto', subject_reviewer: '', doc_form: 'regulation', doc_form_name: '行政法规', timeliness: '已修改' },
+  { law_id: 'L2', name: '北京市生活垃圾管理条例', level: '地方性法规', juris: 'CN', confirm_status: 'confirmed', confirm_source: 'agent', region_source: 'auto', region: '北京市', issuer: '北京市人大常委会', effective_date: '1996-06-01',
+    subject_code: 'CN-ADM', subject_name: '行政法', subject_source: 'manual', subject_reviewer: '张三', doc_form: 'regulation', doc_form_name: '地方性法规', timeliness: '现行有效' },
+  { law_id: 'L3', name: '某市养犬管理办法', level: '效力等级未标注', juris: '', confirm_status: 'pending', confirm_source: '', region_source: '', region: '', issuer: '', effective_date: '',
+    subject_code: '', subject_name: '', subject_source: '', subject_reviewer: '', doc_form: '', doc_form_name: '', timeliness: '现行有效' },
 ];
-const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) && (!a.juris || (r.juris || 'none') === a.juris) && (!a.kw || r.name.includes(a.kw)));
+const matchLaws = (a) => laws.filter((r) => (!a.level || r.level === a.level) && (!a.juris || (r.juris || 'none') === a.juris) && (!a.kw || r.name.includes(a.kw)) &&
+  (!a.subject || (r.subject_code || 'none') === a.subject) && (!a.timeliness || r.timeliness === a.timeliness));
 // 空库开关：初始化面板与启动落面板的诚实展示要在冒烟里可见（0 部就说 0 部）。
 let emptyLib = false;
+// 时效视图开关：false = 模拟只读消费 v10 语料（无 law_status 视图），
+// 时效分面与信息卡徽章都必须如实缺席，不得渲染全「未知」的假数据。
+let hasTL = true;
 const data = {
   Status: () => emptyLib
     ? ({ laws: 0, articles: 0, documents: 0, versions: 0, pending: 0, confirmed: 0, rejected: 0, by_level: [], juris: [{ code: 'CN', laws: 0, documents: 0, pending: 0 }, { code: 'EU', laws: 0, documents: 0, pending: 0 }, { code: 'US', laws: 0, documents: 0, pending: 0 }], last_fetch: {}, data_dir: 'data', schema_version: '7', schema_min: '3', schema_max: '7', producer_version: '无 manifest', open_err: '' })
@@ -98,6 +105,21 @@ const data = {
   CurrentRegion: () => ({ code: '', path: '', source: '', at: '', note: '' }),
   // 浏览：一份小语料，列表与分面计数都按同一条件计算——冒烟里也要能看出「筛选变了、计数跟着变」。
   BrowseLawList: (a) => matchLaws(a),
+  // v11 浏览侧：部门法与时效各为一维分面（计数与列表同条件）；has_timeliness
+  // 由开关控制，冒烟要能核出「语料无时效视图」时的如实缺席。
+  LawMeta: (id) => {
+    const r = laws.find((x) => x.law_id === id) || {};
+    return { name: r.name, issuer: r.issuer, level: r.level === '效力等级未标注' ? '' : r.level,
+      publish_date: '2003-04-16', effective_date: r.effective_date,
+      timeliness: hasTL ? r.timeliness : '', has_timeliness: hasTL,
+      subject_name: r.subject_name, subject_state: r.subject_reviewer ? 'reviewed' : (r.subject_code ? 'suggest' : 'unmarked'),
+      doc_form_name: r.doc_form_name, source_url: id === 'L3' ? '' : 'https://www.gov.cn/x/' + id };
+  },
+  LawVersions: () => [
+    { version_id: 'V0', version_no: '2003', effective: '1996-01-01', expire: '2004-01-01', publish: '1996-01-01', doc_id: 'D0', status: 'confirmed' },
+    { version_id: 'V1', version_no: '现行', effective: '2004-01-01', expire: '', publish: '2003-04-16', doc_id: 'D1', status: 'pending' },
+  ],
+  BrowseArticles: () => [{ article_id: 'A1', article_no: '第一条', snippet: '为了保障因工作遭受事故伤害的职工…', doc_id: 'D1' }],
   BrowseFacets: (a) => {
     const sub = matchLaws(a);
     const group = (key) => {
@@ -115,6 +137,10 @@ const data = {
       confirms: group((r) => r.confirm_status),
       sources: group(() => 'gov.cn 国家规章库'), years: group(() => '2000'),
       regions: group((r) => (r.region_source === 'none' ? '' : '11')),
+      subjects: group((r) => r.subject_code || 'none')
+        .map((o) => ({ ...o, label: o.value === 'none' ? '部门法未标注' : ((laws.find((r) => r.subject_code === o.value) || {}).subject_name || o.value) })),
+      timeliness: hasTL ? group((r) => r.timeliness) : [],
+      has_timeliness: hasTL,
     };
   },
   TaskList: () => [{ id: 7, kind: 'govcn-import', state: 'running', progress: '已获取 5 条', started_at: '2026-10-29T02:00:00Z' }],
@@ -198,7 +224,30 @@ const g = (id) => byId.get(id);
   await new Promise((r) => setTimeout(r, 60));
   const jurisFiltered = g('f-total').textContent;
   const jurisEcho = g('b-stats').textContent;
-  vm.runInContext('browseFilter.juris = "";', ctx);
+  vm.runInContext('browseFilter.juris = ""; loadLaws();', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+  // v11 部门法与时效分面：选中部门法后计数联动、回显成白话；条目页信息卡按 §6
+  // 字段序如实给出时效徽章与部门法状态；语料无时效视图时分面与徽章如实缺席。
+  const subjectChips = g('f-subjects').innerHTML;
+  vm.runInContext('browseFilter.subject = "CN-SOC"; loadLaws();', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+  const subjectFiltered = g('f-total').textContent;
+  const subjectEcho = g('b-stats').textContent;
+  vm.runInContext('browseFilter.subject = ""; browseFilter.timeliness = ""; loadLaws();', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+  await vm.runInContext('openLaw("L1", "工伤保险条例")', ctx);
+  const metaCard = g('detail-body').innerHTML;
+  hasTL = false;
+  vm.runInContext('loadLaws()', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+  const tlHidden = g('g-timeliness').hidden === true;
+  const tlNote = g('f-timeliness-note').textContent;
+  await vm.runInContext('openLaw("L1", "工伤保险条例")', ctx);
+  const metaNoTL = g('detail-body').innerHTML;
+  hasTL = true;
+  vm.runInContext('loadLaws()', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+
   // 进行状态就地给出：loadLaws 发起的一刻，面板头先如实报「正在取列…」，
   // 完成后才换成列出/共计——改条件后界面不得停在旧列表上让人以为筛选没生效。
   vm.runInContext('loadLaws()', ctx);
@@ -392,6 +441,13 @@ const g = (id) => byId.get(id);
     '库非空初始化如实报完成': setupDoneLine.includes('初始化已完成') && goEnabled,
     '数据包目录渲染基础包/增量包': catalogHTML.includes('基础包 · 全国') && catalogHTML.includes('增量包 · 2026-01-01 至 2026-03-31 公布'),
     '数据包目录如实报更新时间': catalogInfo.includes('目录已更新') && catalogInfo.includes('2 个包'),
+    '部门法分面以词表标注': subjectChips.includes('社会法') && subjectChips.includes('部门法未标注'),
+    '部门法筛选计数联动': subjectFiltered === '1' && subjectEcho.includes('部门法 社会法'),
+    '信息卡时效徽章如实': metaCard.includes('时效状态') && metaCard.includes('已修改（以新版本为准）'),
+    '信息卡部门法状态如实': metaCard.includes('社会法') && metaCard.includes('机器建议 · 待复核'),
+    '信息卡缺失如实给补救去处': metaCard.includes('来源链接缺失') || metaCard.includes('官方原文'),
+    '无时效视图时分面缺席': tlHidden && tlNote.includes('时效视图'),
+    '无时效视图时徽章如实说明': metaNoTL.includes('未知（语料版本不含时效视图）'),
   };
   const failed = Object.entries(report).filter(([, v]) => v === false).map(([k]) => k);
   console.log(JSON.stringify(report, null, 1));

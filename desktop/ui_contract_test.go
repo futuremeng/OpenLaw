@@ -119,10 +119,36 @@ func TestFilterRailLivesInLeftColumn(t *testing.T) {
 	}
 	side := html[start:end]
 	for _, want := range []string{`id="filters"`, `class="filters"`, `id="f-levels"`, `id="f-confirms"`,
-		`id="f-sources"`, `id="f-years"`, `id="f-regions"`, `id="btn-filter-clear"`} {
+		`id="f-sources"`, `id="f-years"`, `id="f-regions"`, `id="f-subjects"`, `id="f-timeliness"`, `id="btn-filter-clear"`} {
 		if !strings.Contains(side, want) {
 			t.Errorf("左列缺少 %q：多维筛选与分面计数是定位法规的手段，常驻左列", want)
 		}
+	}
+	// 分面顺序固定（docs/design-taxonomy.md §6）：法域 → 效力等级 → 部门法 → 地区 →
+	// 公布年代 → 时效状态 → 复核状态 → 来源。顺序打乱用户空间记忆，改动须过设计。
+	prev := -1
+	for _, want := range []string{`id="g-juris"`, `id="g-level"`, `id="g-subject"`, `id="g-region"`,
+		`id="g-year"`, `id="g-timeliness"`, `id="g-confirm"`, `id="g-source"`} {
+		at := strings.Index(side, want)
+		if at < 0 {
+			t.Fatalf("左列缺少 %s——§6 分面顺序契约要求该组存在", want)
+		}
+		if at < prev {
+			t.Errorf("%s 位置不符 §6 分面顺序（法域→效力等级→部门法→地区→年代→时效→复核→来源）", want)
+		}
+		prev = at
+	}
+	// 时效徽章五态映射集中一处（lawtext statusClassMap 的教训）；无时效视图的
+	// 如实兜底文案不得被「现行有效」等乐观默认替换。
+	jsAll := readFrontend(t, filepath.Join("assets", "app.js"))
+	if !strings.Contains(jsAll, "TIMELINESS_BADGE") || !strings.Contains(jsAll, "function timelinessBadge(") {
+		t.Errorf("时效徽章缺少集中映射——五态在多处映射必然出现口径漂移")
+	}
+	if !strings.Contains(jsAll, "未知（语料版本不含时效视图）") {
+		t.Errorf("缺少无时效视图的如实兜底——v10 语料被显示成假「未知」或假「现行有效」都属诚实缺陷")
+	}
+	if !strings.Contains(jsAll, "app().LawMeta(") || !strings.Contains(jsAll, "function lawMetaCard(") {
+		t.Errorf("条目页信息卡未接线——§6 字段序（时效徽章/部门法状态/文档形态/来源链接）必须走 LawMeta")
 	}
 	for _, banned := range []string{"theme-toggle", "t-lib", "t-pending", "schema-badge"} {
 		if strings.Contains(side, banned) {

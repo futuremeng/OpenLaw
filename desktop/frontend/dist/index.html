@@ -26,6 +26,7 @@
       <button class="nav" id="nav-overview" data-panel="overview" data-icon="chart" hidden>库总览</button>
       <button class="nav" id="nav-review" data-panel="review" data-icon="shield" hidden>智能审核<span class="cnt warn" id="cnt-review"></span></button>
       <button class="nav" id="nav-region" data-panel="region" data-icon="pin" hidden>地域标引<span class="cnt" id="cnt-region"></span></button>
+      <button class="nav" id="nav-subject" data-panel="subject" data-icon="rows" hidden>部门法标引<span class="cnt" id="cnt-subject"></span></button>
       <button class="nav" id="nav-collect" data-panel="collect" data-icon="download" hidden>获取最新法规<span class="dot" id="dot-collect" hidden></span></button>
       <button class="nav" id="nav-pack" data-panel="pack" data-icon="box" hidden>离线更新包</button>
     </nav>
@@ -37,13 +38,8 @@
           <span><b id="f-total" class="num">—</b> 部法规符合当前条件</span>
           <button id="btn-filter-clear">清空筛选</button>
         </div>
-        <div class="fgrp" id="g-level" data-open="true">
-          <button class="fhd" type="button" aria-expanded="true" aria-controls="f-levels">
-            <span class="chev" data-icon="chevron" aria-hidden="true"></span>
-            <span class="ft">效力等级</span><span class="fadorn" id="ad-level"></span>
-          </button>
-          <div class="fbody"><div id="f-levels" class="fchips"></div></div>
-        </div>
+        <!-- 分面顺序固定（docs/design-taxonomy.md §6）：法域 → 效力等级 → 部门法 →
+             地区 → 公布年代 → 时效状态 → 复核状态 → 来源。计数与列表同一条件。 -->
         <div class="fgrp" id="g-juris" data-open="true">
           <button class="fhd" type="button" aria-expanded="true" aria-controls="f-juris">
             <span class="chev" data-icon="chevron" aria-hidden="true"></span>
@@ -51,26 +47,19 @@
           </button>
           <div class="fbody"><div id="f-juris" class="fchips"></div></div>
         </div>
-        <div class="fgrp" id="g-confirm" data-open="true">
-          <button class="fhd" type="button" aria-expanded="true" aria-controls="f-confirms">
+        <div class="fgrp" id="g-level" data-open="true">
+          <button class="fhd" type="button" aria-expanded="true" aria-controls="f-levels">
             <span class="chev" data-icon="chevron" aria-hidden="true"></span>
-            <span class="ft">复核状态</span><span class="fadorn" id="ad-confirm"></span>
+            <span class="ft">效力等级</span><span class="fadorn" id="ad-level"></span>
           </button>
-          <div class="fbody"><div id="f-confirms" class="fchips"></div></div>
+          <div class="fbody"><div id="f-levels" class="fchips"></div></div>
         </div>
-        <div class="fgrp" id="g-year" data-open="false">
-          <button class="fhd" type="button" aria-expanded="false" aria-controls="f-years">
+        <div class="fgrp" id="g-subject" data-open="true">
+          <button class="fhd" type="button" aria-expanded="true" aria-controls="f-subjects">
             <span class="chev" data-icon="chevron" aria-hidden="true"></span>
-            <span class="ft">公布年代</span><span class="fadorn" id="ad-year"></span>
+            <span class="ft">部门法</span><span class="fadorn" id="ad-subject"></span>
           </button>
-          <div class="fbody"><div id="f-years" class="fchips"></div></div>
-        </div>
-        <div class="fgrp" id="g-source" data-open="false">
-          <button class="fhd" type="button" aria-expanded="false" aria-controls="f-sources">
-            <span class="chev" data-icon="chevron" aria-hidden="true"></span>
-            <span class="ft">来源</span><span class="fadorn" id="ad-source"></span>
-          </button>
-          <div class="fbody"><div id="f-sources" class="fchips"></div></div>
+          <div class="fbody"><div id="f-subjects" class="fchips"></div></div>
         </div>
         <div class="fgrp" id="g-region" data-open="true">
           <button class="fhd" type="button" aria-expanded="true" aria-controls="f-regions">
@@ -97,6 +86,37 @@
               <button id="btn-region-trial">按选定地点试判定</button>
             </details>
           </div>
+        </div>
+        <div class="fgrp" id="g-year" data-open="false">
+          <button class="fhd" type="button" aria-expanded="false" aria-controls="f-years">
+            <span class="chev" data-icon="chevron" aria-hidden="true"></span>
+            <span class="ft">公布年代</span><span class="fadorn" id="ad-year"></span>
+          </button>
+          <div class="fbody"><div id="f-years" class="fchips"></div></div>
+        </div>
+        <div class="fgrp" id="g-timeliness" data-open="true">
+          <button class="fhd" type="button" aria-expanded="true" aria-controls="f-timeliness">
+            <span class="chev" data-icon="chevron" aria-hidden="true"></span>
+            <span class="ft">时效状态</span><span class="fadorn" id="ad-timeliness"></span>
+          </button>
+          <div class="fbody">
+            <div id="f-timeliness" class="fchips"></div>
+            <p id="f-timeliness-note" class="fnote hidden"></p>
+          </div>
+        </div>
+        <div class="fgrp" id="g-confirm" data-open="true">
+          <button class="fhd" type="button" aria-expanded="true" aria-controls="f-confirms">
+            <span class="chev" data-icon="chevron" aria-hidden="true"></span>
+            <span class="ft">复核状态</span><span class="fadorn" id="ad-confirm"></span>
+          </button>
+          <div class="fbody"><div id="f-confirms" class="fchips"></div></div>
+        </div>
+        <div class="fgrp" id="g-source" data-open="false">
+          <button class="fhd" type="button" aria-expanded="false" aria-controls="f-sources">
+            <span class="chev" data-icon="chevron" aria-hidden="true"></span>
+            <span class="ft">来源</span><span class="fadorn" id="ad-source"></span>
+          </button>
+          <div class="fbody"><div id="f-sources" class="fchips"></div></div>
         </div>
         <p class="fnote">计数按其余条件统计（不含本项自身），选中后仍可改选；效力等级、来源未记录的条目不参与该维度筛选，仍会出现在结果中，但排在列表最后（只影响顺序，不影响可见性）。</p>
       </div>
@@ -366,6 +386,61 @@
             <button id="rg-b-apply" class="ok" disabled>执行批量处理</button>
           </div>
           <span id="rg-b-info" class="muted"></span>
+          <p class="muted small">一次最多处理 500 条；预览与执行之间条目有变动即中止，请重新预览。复核人自动记为本机用户。</p>
+        </div>
+      </details>
+    </section>
+
+
+    <!-- 维护 · 部门法标引（机器建议 → 人工纠正；文档形态为全自动机器判定，只读展示） -->
+    <section id="panel-subject" class="panel hidden">
+      <header class="page-head">
+        <h1>部门法标引</h1>
+        <p class="lead">机器只给建议、不替你决定：确认、驳回或清除须写明依据并留复核记录（复核人自动记为本机用户）。文档形态由机器按文种自动判定，无需人工确认。</p>
+      </header>
+      <div id="sj-stats" class="qstats"></div>
+      <div class="toolbar">
+        <input id="sj-filter" placeholder="按法规名称、条目编号或制定机关查找"/>
+        <select id="sj-state">
+          <option value="">全部（机器建议优先）</option>
+          <option value="suggest">机器建议 · 待复核</option>
+          <option value="unmarked">部门法未标注</option>
+          <option value="reviewed">已人工复核</option>
+        </select>
+        <button id="sj-load">载入待复核条目</button>
+        <span id="sj-info"></span>
+      </div>
+      <div class="split">
+        <div id="sj-list" class="list"></div>
+        <div id="sj-preview" class="preview"><p class="muted">点选左侧条目查看当前标注、机器判定依据与复核记录。机器建议未经人工确认前不算已复核。</p></div>
+      </div>
+      <h2 class="step"><span class="n">1</span>对这一条给出结论</h2>
+      <div class="toolbar">
+        <label>结论依据 <input id="sj-reason" placeholder="必填（一句话即可，进复核记录）"/></label>
+        <select id="sj-subject"></select>
+        <button id="sj-confirm" class="ok">确认（或改选部门法）</button>
+        <button id="sj-reject" class="warn">驳回</button>
+        <button id="sj-clear">清除标注</button>
+      </div>
+      <details class="disclose">
+        <summary>批量处理（按法域 · 须先看范围再执行）</summary>
+        <div class="form">
+          <label>法域 <select id="sj-b-jur">
+            <option value="">全部法域</option>
+            <option value="CN">中国</option>
+            <option value="EU">欧盟</option>
+            <option value="US">美国</option>
+          </select></label>
+          <label>结论 <select id="sj-b-verdict">
+            <option value="confirm">确认机器建议</option>
+            <option value="reject">驳回（留空但记复核）</option>
+            <option value="clear">清除标注</option>
+          </select></label>
+          <div class="rowbtns">
+            <button id="sj-b-preview">先看看会影响多少条</button>
+            <button id="sj-b-apply" class="ok" disabled>执行批量处理</button>
+          </div>
+          <span id="sj-b-info" class="muted"></span>
           <p class="muted small">一次最多处理 500 条；预览与执行之间条目有变动即中止，请重新预览。复核人自动记为本机用户。</p>
         </div>
       </details>
