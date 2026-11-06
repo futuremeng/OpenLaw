@@ -253,6 +253,20 @@ const g = (id) => byId.get(id);
   vm.runInContext('loadLaws()', ctx);
   const busyLine = g('b-pane-cnt').innerHTML;
   await new Promise((r) => setTimeout(r, 60));
+  // 取列失败的诚实态：进行态是承诺——面板头不得永远停在「正在取列…」、摘要句不得
+  // 留在「正在统计」，两处都必须改口并把去处指向下方列表。
+  const listStub = data.BrowseLawList;
+  data.BrowseLawList = () => Promise.reject(new Error('模拟：语料不可读'));
+  vm.runInContext('loadLaws()', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+  const failCnt = g('b-pane-cnt').innerHTML;
+  const failState = g('f-sum-state').textContent;
+  const failOkHidden = g('f-sum-ok').classList.contains('hidden');
+  data.BrowseLawList = listStub;
+  vm.runInContext('loadLaws()', ctx);
+  await new Promise((r) => setTimeout(r, 60));
+  const sumOkShown = !g('f-sum-ok').classList.contains('hidden');
+  const sumStateHidden = g('f-sum-state').classList.contains('hidden');
   // 首页搜索封顶出口：命中 20 条（首页上限）必须给「到条文检索查看全部」，
   // 不得长成死路（与初始化面板「只给去处」同一精神）。
   const homeStub = data.SearchGuided;
@@ -424,6 +438,8 @@ const g = (id) => byId.get(id);
     '缺失说明不藏在 title': !/class="miss"[^>]*title=/.test(rowHTML),
     '未封顶时不谎报上限': !paneCnt.includes('capnote'),
     '法域卡箭头是注入的 SVG': g('ov-juris').innerHTML.includes('class="ic ') && !g('ov-juris').innerHTML.includes('›'),
+    '取列失败时进行态改口': failCnt.includes('取列未完成') && failState.includes('计数未能读取') && failOkHidden,
+    '计数到手才交出句子': sumOkShown && sumStateHidden,
     '缺失不被当作已知值回显': !rowHTML.includes('效力等级未标注'),
     '待复核条目行有强调类': rowHTML.includes('item pend'),
     '条目徽章如实报智能体确认': rowHTML.includes('智能体确认'),

@@ -3,7 +3,7 @@
   "source": "sloplint.mjs（vendored，Nutlope/hallmark，MIT）",
   "target": "desktop/frontend/dist",
   "totals": {
-    "fail": 11,
+    "fail": 9,
     "reflex": 112,
     "warn": 9
   },
@@ -12,8 +12,6 @@
     "FAIL 63": 2,
     "WARN F23": 1,
     "FAIL 20": 1,
-    "FAIL 34": 1,
-    "FAIL 48": 1,
     "FAIL 56": 1,
     "FAIL 67": 4,
     "REFLEX 24b": 111,

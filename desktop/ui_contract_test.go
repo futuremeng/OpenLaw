@@ -290,6 +290,7 @@ func TestFrontendWiringSmoke(t *testing.T) {
 		"条目行是按钮（键盘可达）\": true",
 		"缺失项写明缺什么与去哪补\": true", "缺失说明不藏在 title\": true", "未封顶时不谎报上限\": true",
 		"法域卡箭头是注入的 SVG\": true",
+		"取列失败时进行态改口\": true", "计数到手才交出句子\": true",
 		"智能审核统计分开计数\": true", "例外队列给出没把握原因\": true", "智能审核通道回显\": true",
 		"条目徽章如实报智能体确认\": true",
 		"维护入口进入独立工作区\": true", "两套导航完整互斥切换\": true", "离线更新包在维护区可达\": true", "退出维护回主导航\": true",
@@ -628,6 +629,38 @@ func TestResponsiveTiers(t *testing.T) {
 	js := readFrontend(t, filepath.Join("assets", "app.js"))
 	if !strings.Contains(js, `"Escape"`) || !strings.Contains(js, "hideDetail()") {
 		t.Errorf("详情浮层缺少 Esc 出口——浮层不得只有 ✕ 一个关闭方式")
+	}
+}
+
+// TestCountStatesAreWordsNotPlaceholders 计数在取到之前与失败之后都必须是一句白话。
+//
+// 筛选栏摘要原写作「— 部法规符合当前条件」：那个破折号是未知计数的占位符。请求在途时
+// 它读起来像一个数，请求失败后它就永远留在屏上，而下方列表同一时刻写着「读取失败」——
+// 同一屏两处对同一件事两种说法。诚实展示纪律要求缺失写成话并给出去处，不是写成符号。
+// 顺带把两处令牌化收口：字体栈与向上投影都必须在令牌块里，深色主题才跟得上。
+func TestCountStatesAreWordsNotPlaceholders(t *testing.T) {
+	html := readFrontend(t, "index.html")
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	css := readFrontend(t, filepath.Join("assets", "style.css"))
+
+	if strings.Contains(html, `class="num">—`) || strings.Contains(html, `class="num">-<`) {
+		t.Error("计数槽位用占位符当初始值：进行中与失败必须各有一句白话（诚实展示纪律）")
+	}
+	if !strings.Contains(html, `id="f-sum-state">正在统计`) {
+		t.Error(`进行态必须写明「正在统计」，不得留空或留符号`)
+	}
+	for _, want := range []string{`$("#f-sum-ok")`, `$("#f-sum-state")`, "计数未能读取", "取列未完成"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("前端缺少 %s——计数交接或失败态缺失：数没到手之前不得把句子交出去", want)
+		}
+	}
+	if strings.Contains(css, `font: 700 13px/1 sans-serif`) {
+		t.Error("品牌字仍用 sans-serif 绕过字体栈：「法」字实际落在 UA 默认字体上，必须走 --font-ui")
+	}
+	for _, want := range []string{"--font-ui:", "overflow-x: clip", "box-shadow: var(--shadow-up)"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("样式缺少 %s——字体栈、横向裁剪与向上投影必须令牌化或成文", want)
+		}
 	}
 }
 

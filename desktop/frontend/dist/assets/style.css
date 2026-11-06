@@ -16,6 +16,8 @@
   --side: #f4f6f9; --side-ink: #24313f; --side-line: #e2e7ee; --side-hover: #eaeef4; --side-acc: #eaf1ff;
   --r: 10px; --r-s: 7px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 6px 16px rgba(16, 24, 40, .05);
+  --shadow-up: 0 -2px 8px rgba(16, 24, 40, .06);  /* 底部工具条向上投影（钉在面板底） */
+  --font-ui: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   --gap: 14px;
   --read-size: 15.5px;          /* 原文字号（阅读控制可调并持久化） */
   --row-pad: 11px;              /* 列表行内边距（紧凑模式收小） */
@@ -31,6 +33,7 @@
     --bad: #e0776c; --bad-soft: #33191a;
     --side: #0f141a; --side-ink: #dfe7f0; --side-line: #212c38; --side-hover: #18212b; --side-acc: #1b2a3f;
     --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 20px rgba(0, 0, 0, .28);
+    --shadow-up: 0 -2px 8px rgba(0, 0, 0, .35);
   }
 }
 html[data-theme="dark"] {
@@ -43,12 +46,19 @@ html[data-theme="dark"] {
   --bad: #e0776c; --bad-soft: #33191a;
   --side: #0f141a; --side-ink: #dfe7f0; --side-line: #212c38; --side-hover: #18212b; --side-acc: #1b2a3f;
   --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 20px rgba(0, 0, 0, .28);
+  --shadow-up: 0 -2px 8px rgba(0, 0, 0, .35);
 }
 
 * { box-sizing: border-box; }
+/* 横向溢出必须剪掉而不是滚出去：三栏 + 详情浮层在窄窗口下会顶出几像素，滚出去的那几
+   像素既看不见也回不来。html 与 body 都要写——只写一处时另一层照样滚。用 clip 不用
+   hidden：hidden 会把这里变成滚动容器，sticky 的三栏就不再贴顶（见 #topbar 的层序
+   声明）；clip 与 visible 的搭配是规范允许的组合，纵向滚动不受影响。 */
+html { overflow-x: clip; }
 body {
   margin: 0; color: var(--ink); background: var(--bg);
-  font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  overflow-x: clip;
+  font: 15px/1.6 var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
 #layout { display: flex; min-height: 100vh; }
@@ -73,7 +83,7 @@ body {
 .brand { display: flex; gap: 10px; align-items: center; padding: 2px 14px 12px; }
 .brand .mark {
   width: 30px; height: 30px; flex: none; border-radius: 8px; background: var(--acc);
-  color: var(--on-acc); display: grid; place-items: center; font: 700 13px/1 sans-serif;
+  color: var(--on-acc); display: grid; place-items: center; font: 700 13px/1 var(--font-ui);
 }
 .brand .txt { display: flex; flex-direction: column; line-height: 1.25; }
 .brand .txt b { font-size: 15px; color: var(--ink); }
@@ -109,6 +119,12 @@ nav#nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
 .ic.sm { width: 14px; height: 14px; }
 
 /* ---------- 顶栏：当前位置 + 本机状态 + 图标工具（状态从侧栏上移，侧栏只导航） ---------- */
+/* ---------- 顶栏：当前位置 + 本机状态 + 图标工具（状态从侧栏上移，侧栏只导航） ----------
+   sticky 层序声明（设计体检 FAIL 56 建议按横幅高度错开，此处刻意不采纳）：
+   #side（左列）与 #detail（右列）是 100vh 的独立列，#topbar 贴在中间滚动列的顶上，
+   三者横向各占一段、永不相叠，错开反而会把 100vh 的列顶出底边。
+   唯一会相叠的场合是 ≤1150 起详情改浮层（见下方 media 块），那时 #detail 是
+   position: fixed + z-index 40，压在 #topbar 的 z-index 30 之上——层序本来就是刻意排的。 */
 main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #topbar {
   position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 10px;
@@ -473,7 +489,7 @@ tbody tr:hover { background: var(--surface-2); }
 #fix-bar {
   display: flex; gap: 8px; align-items: center; padding: 10px 14px;
   background: var(--panel); border-top: 1px solid var(--line);
-  box-shadow: 0 -2px 8px rgba(16, 24, 40, .06);
+  box-shadow: var(--shadow-up);
 }
 #fix-bar input { flex: 1; min-width: 0; }
 

@@ -35,7 +35,10 @@
     <div id="filters" class="hidden">
       <div class="filters">
         <div class="fsum">
-          <span><b id="f-total" class="num">—</b> 部法规符合当前条件</span>
+          <span id="f-sum">
+            <span id="f-sum-state">正在统计符合当前条件的法规…</span>
+            <span id="f-sum-ok" class="hidden"><b id="f-total" class="num">0</b> 部法规符合当前条件</span>
+          </span>
           <button id="btn-filter-clear">清空筛选</button>
         </div>
         <!-- 分面顺序固定（docs/design-taxonomy.md §6）：法域 → 效力等级 → 部门法 →

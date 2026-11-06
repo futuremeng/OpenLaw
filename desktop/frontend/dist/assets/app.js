@@ -632,6 +632,11 @@ function renderFacets(v) {
       : "当前条件下的条目均已标注地区";
   }
   $("#f-total").textContent = num(v.total);
+  // 计数到手才把「多少部符合」这句话交出去：进行中与失败都不许留一个像数值的
+  // 占位符在句子里（诚实展示纪律——缺失要写成话，不是写成破折号）。
+  const fsumOk = $("#f-sum-ok"), fsumState = $("#f-sum-state");
+  if (fsumOk) fsumOk.classList.remove("hidden");
+  if (fsumState) fsumState.classList.add("hidden");
   $("#b-stats").textContent = activeFilterText();
   setCrumb("browse");
 }
@@ -698,6 +703,16 @@ async function loadLaws() {
   } catch (e) {
     if (seq !== lawsSeq) return; // 过期请求的失败同样不得覆盖新结果
     $("#law-list").innerHTML = '<p class="bad">读取失败：' + escapeHTML(e.message || e) + "</p>";
+    // 进行态是承诺：失败就必须改口，不得让面板头永远停在「正在取列…」。
+    const pcF = $("#b-pane-cnt");
+    if (pcF) pcF.innerHTML = "取列未完成，原因见下方列表";
+    // 计数句同样不得停在「正在统计」或留个占位符：失败要说失败，去处就在下方。
+    const fsumState = $("#f-sum-state"), fsumOk = $("#f-sum-ok");
+    if (fsumState) {
+      fsumState.textContent = "计数未能读取，失败原因见下方列表";
+      fsumState.classList.remove("hidden");
+    }
+    if (fsumOk) fsumOk.classList.add("hidden");
   }
 }
 
