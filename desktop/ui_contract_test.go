@@ -108,6 +108,30 @@ func TestTechnicalTermsOnlyInDisclosure(t *testing.T) {
 	}
 }
 
+// TestVisibleTextNoInternalJargon 上面那道技术字样门禁只扫静态 HTML，JS 渲染的文案
+// 是盲区——「语料」与 ISO UTC 时间戳正是从这条缝里漏进主视图的（2026-11-08 评审）。
+// 数据层内部词「语料」不得出现在用户可见文案里（AGENTS.md：语料→法规库数据；
+// 代码注释不算）；目录与完整性档案的 generated_at 必经 fmtWhen——主视图禁止裸渲染
+// ISO UTC 时间戳，显示本机时间、原始串留 title（docs/design-ui-language.md
+// 「主视图禁止出现」）。
+func TestVisibleTextNoInternalJargon(t *testing.T) {
+	html := regexp.MustCompile(`(?s)<!--.*?-->`).ReplaceAllString(readFrontend(t, "index.html"), "")
+	if strings.Contains(html, "语料") {
+		t.Errorf("index.html 可见文案出现「语料」——数据层内部词，界面一律说「法规库数据」")
+	}
+	js := readFrontend(t, filepath.Join("assets", "app.js"))
+	js = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(js, "")
+	js = regexp.MustCompile(`//[^\n]*`).ReplaceAllString(js, "")
+	if strings.Contains(js, "语料") {
+		t.Errorf("app.js 可见文案出现「语料」——数据层内部词，界面一律说「法规库数据」")
+	}
+	for _, want := range []string{"fmtWhen(c.generated_at)", "fmtWhen(m.generated_at)"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("generated_at 未经 %s 渲染——主视图禁止原始 ISO UTC，须显示本机时间、UTC 原串留 title", want)
+		}
+	}
+}
+
 // TestFilterRailLivesInLeftColumn 三栏布局契约：左列 = 导航 + 筛选栏（仅「按条件筛选」
 // 展开）、中列 = 面板列表、右列 = 共享详情。筛选是「定位法规」的手段，常驻左列；
 // 左列不得携带状态与外观工具（那些在顶栏）。计数与列表必须同源
@@ -146,8 +170,8 @@ func TestFilterRailLivesInLeftColumn(t *testing.T) {
 	if !strings.Contains(jsAll, "TIMELINESS_BADGE") || !strings.Contains(jsAll, "function timelinessBadge(") {
 		t.Errorf("时效徽章缺少集中映射——五态在多处映射必然出现口径漂移")
 	}
-	if !strings.Contains(jsAll, "未知（语料版本不含时效视图）") {
-		t.Errorf("缺少无时效视图的如实兜底——v10 语料被显示成假「未知」或假「现行有效」都属诚实缺陷")
+	if !strings.Contains(jsAll, "未知（法规库数据版本不含时效信息）") {
+		t.Errorf("缺少无时效视图的如实兜底——v10 数据被显示成假「未知」或假「现行有效」都属诚实缺陷")
 	}
 	if !strings.Contains(jsAll, "app().LawMeta(") || !strings.Contains(jsAll, "function lawMetaCard(") {
 		t.Errorf("条目页信息卡未接线——§6 字段序（时效徽章/部门法状态/文档形态/来源链接）必须走 LawMeta")

@@ -618,7 +618,7 @@ function renderFacets(v) {
   if (tg) tg.hidden = !v.has_timeliness;
   const tnote = $("#f-timeliness-note");
   if (tnote) {
-    tnote.textContent = v.has_timeliness ? "" : "语料版本不含时效视图，该维度暂不可筛。";
+    tnote.textContent = v.has_timeliness ? "" : "法规库数据版本不含时效信息，该维度暂不可筛。";
     tnote.classList.toggle("hidden", !!v.has_timeliness);
   }
   if (v.has_timeliness) facetChips("#f-timeliness", "timeliness", v.timeliness);
@@ -729,7 +729,7 @@ async function loadHome() {
       const r = (v.by_level || []).reduce((acc, x) => (x && x.level === lv)
         ? { pending: acc.pending + (x.pending || 0), confirmed: acc.confirmed + (x.confirmed || 0), rejected: acc.rejected + (x.rejected || 0) }
         : acc, { pending: 0, confirmed: 0, rejected: 0 });
-      return `<button class="card big" data-level="${lv}" title="按该类别浏览"><b>${num(r.pending + r.confirmed + r.rejected)}</b><span>${lv}</span><span class="muted">已复核 ${num(r.confirmed)}</span></button>`;
+      return `<button class="card big" data-level="${lv}"><b>${num(r.pending + r.confirmed + r.rejected)}</b><span>${lv}</span><span class="muted">已复核 ${num(r.confirmed)}</span></button>`;
     }).join("");
     const lf = Object.values(v.last_fetch || {}).sort().reverse()[0];
     if (lf) html += `<div class="card big"><b>${escapeHTML(lf.slice(0, 10))}</b><span>数据最近更新</span></div>`;
@@ -844,8 +844,10 @@ async function loadPackCatalog() {
       return;
     }
     suCatalog = c;
-    info.textContent = "目录已更新（" + (c.generated_at || "时间未知") + " · " +
-      packs.length + " 个包）。勾选需要的包再安装。";
+    // 主视图禁止原始 ISO UTC（docs/design-ui-language.md）：显示本机时间，UTC 原串留 title。
+    const when = c.generated_at ? fmtWhen(c.generated_at) : "时间未知";
+    info.textContent = "目录已更新（" + when + " · " + num(packs.length) + " 个包）。勾选需要的包再安装。";
+    info.title = c.generated_at ? "原始时间（UTC）：" + c.generated_at : "";
     renderSuCatalog();
   } catch (e) {
     suCatalog = null;
@@ -968,7 +970,7 @@ const TIMELINESS_BADGE = {
   未知: ["na", "时效未知"],
 };
 function timelinessBadge(t, has) {
-  if (!has) return '<span class="badge na" title="law_status 视图缺失，无法派生时效">未知（语料版本不含时效视图）</span>';
+  if (!has) return '<span class="badge na" title="law_status 视图缺失，无法派生时效">未知（法规库数据版本不含时效信息）</span>';
   const b = TIMELINESS_BADGE[t] || TIMELINESS_BADGE.未知;
   return `<span class="badge ${b[0]}">${b[1]}</span>`;
 }
@@ -1057,7 +1059,7 @@ function renderJuris(rows, byLevel, reps, revs) {
       const stat = docs > 0
         ? ((r.pending || 0) > 0 ? `待复核 ${num(r.pending)} 条` : "均已复核")
         : "尚无留证条文";
-      head = `<button class="jhead" data-juris="${c}" title="浏览该法域全部法规">` +
+      head = `<button class="jhead" data-juris="${c}">` +
         `<b>${JURIS_TEXT[c]}</b>${expTag}<span class="num">${num(laws)} 部</span>` +
         `<span class="muted">${stat} · 点击查看全部 ${icon("chevron-right")}</span></button>`;
     } else {
@@ -1287,7 +1289,7 @@ function renderHits() {
   const pc = $("#s-pane-cnt");
   if (pc) {
     pc.innerHTML = `显示 <b>${num(rows.length)}</b> / 命中 <b>${num(lastHits.length)}</b> 条`;
-    pc.title = "全文检索按语料原样给出，不重排序；就地收窄只筛本次命中，不重新查库";
+    pc.title = "全文检索按法规库数据原样给出，不重排序；就地收窄只筛本次命中，不重新查库";
   }
   $("#search-list").innerHTML = rows.map((r) => `
     <button type="button" class="item${r.confirm_status === "confirmed" ? "" : " pend"}" data-doc="${escapeHTML(r.doc_id)}" data-no="${escapeHTML(r.article_no)}" data-law="${escapeHTML(r.law_name)}">
@@ -1728,7 +1730,7 @@ function fillSubjectSelects() {
   const all = subjectOpts || [];
   const sel = $("#sj-subject");
   if (!all.length) { // 词表缺失如实说明，不得渲染空下拉当已覆盖（诚实展示纪律）
-    sel.innerHTML = '<option value="">（词表缺失：语料版本不含部门法词表，请更新数据）</option>';
+    sel.innerHTML = '<option value="">（词表缺失：法规库数据不含部门法词表，请更新数据）</option>';
     return;
   }
   const groups = ["CN", "EU", "US"].map((j) => {
@@ -1944,8 +1946,8 @@ async function loadManifest() {
     const m = await app().ManifestStatus();
     $("#manifest-box").innerHTML = m.exists
       ? `<span>完整性档案：${m.verify_err ? "校验未通过 — " + escapeHTML(m.verify_err) : "校验通过 ✓"}</span>
-         <span>生成时间 ${escapeHTML(m.generated_at)} · 文件 ${num(m.files)} 个</span>
-         <span>来源版本 ${escapeHTML(m.producer_version || "未知")} · 数据格式版本 ${escapeHTML(m.schema_version || "?")} · 许可 ${escapeHTML(m.license || "—")}</span>`
+         <span${utcTitle(m.generated_at)}>生成时间 ${escapeHTML(fmtWhen(m.generated_at) || "未知")} · 文件 ${num(m.files)} 个</span>
+         <span>来源版本 ${escapeHTML(m.producer_version || "未知")} · 许可 ${escapeHTML(m.license || "未记录")}</span>`
       : '<span class="bad">完整性档案缺失</span><span>尚未生成离线数据包（CLI：openlaw-pack build），数据自检仅做留证完整性扫描。</span>';
   } catch (e) { $("#manifest-box").innerHTML = '<p class="bad">' + escapeHTML(e.message || e) + "</p>"; }
 }
@@ -1954,7 +1956,8 @@ $("#btn-check").addEventListener("click", async () => {
   try {
     const c = await app().CorpusCheck();
     loadManifest();
-    const rows = (c.broken || []).map((b) => `<div class="rep bad">${escapeHTML(b.doc_id || "")} ${escapeHTML(b.file_path || "")} ${escapeHTML(b.reason || "")}</div>`).join("");
+    // 留证文件路径属数据目录路径——可见文字只留条目编号与原因，路径收进 title 供核对。
+    const rows = (c.broken || []).map((b) => `<div class="rep bad"${b.file_path ? ' title="留证文件：' + escapeHTML(b.file_path) + '"' : ""}>${escapeHTML(b.doc_id || "")} ${escapeHTML(b.reason || "")}</div>`).join("");
     $("#check-out").innerHTML = `<div class="rep">${c.broken_count ? "留证完整性问题 " + num(c.broken_count) + " 条" : "留证文件全部完整 ✓"}${c.truncated ? "（明细仅显示前 100 条）" : ""}</div>` + rows;
     $("#check-info").textContent = "自检完成";
   } catch (e) { $("#check-info").textContent = "自检失败：" + (e.message || e); }

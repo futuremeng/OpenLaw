@@ -463,13 +463,15 @@ const g = (id) => byId.get(id);
     '库非空初始化如实报完成': setupDoneLine.includes('初始化已完成') && goEnabled,
     '数据包目录渲染基础包/增量包': catalogHTML.includes('基础包 · 全国') && catalogHTML.includes('增量包 · 2026-01-01 至 2026-03-31 公布'),
     '数据包目录如实报更新时间': catalogInfo.includes('目录已更新') && catalogInfo.includes('2 个包'),
+    '目录时间为本机时间': !catalogInfo.includes('T00:00:00Z') &&
+      g('su-catalog-info').title.includes('原始时间（UTC）'),
     '部门法分面以词表标注': subjectChips.includes('社会法') && subjectChips.includes('部门法未标注'),
     '部门法筛选计数联动': subjectFiltered === '1' && subjectEcho.includes('部门法 社会法'),
     '信息卡时效徽章如实': metaCard.includes('时效状态') && metaCard.includes('已修改（以新版本为准）'),
     '信息卡部门法状态如实': metaCard.includes('社会法') && metaCard.includes('机器建议 · 待复核'),
     '信息卡缺失如实给补救去处': metaCard.includes('来源链接缺失') || metaCard.includes('官方原文'),
-    '无时效视图时分面缺席': tlHidden && tlNote.includes('时效视图'),
-    '无时效视图时徽章如实说明': metaNoTL.includes('未知（语料版本不含时效视图）'),
+    '无时效视图时分面缺席': tlHidden && tlNote.includes('暂不可筛'),
+    '无时效视图时徽章如实说明': metaNoTL.includes('未知（法规库数据版本不含时效信息）'),
   };
   const failed = Object.entries(report).filter(([, v]) => v === false).map(([k]) => k);
   console.log(JSON.stringify(report, null, 1));
