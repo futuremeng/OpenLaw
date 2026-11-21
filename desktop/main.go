@@ -14,15 +14,6 @@
 //	packaging/macos/build-app.sh        # 产出 dist/OpenLaw.app（含定位用途声明）
 package main
 
-// wails v2.17 darwin 生产构建引用 UTType（拖拽支持）但未链接 UniformTypeIdentifiers
-// 框架——在本桌面壳内补齐链接指令，构建不依赖外部环境变量。
-// cgo 仅桌面壳需要；OpenLaw 核心库保持纯 Go。
-
-/*
-#cgo darwin LDFLAGS: -framework UniformTypeIdentifiers
-*/
-import "C"
-
 import (
 	"embed"
 	"flag"
