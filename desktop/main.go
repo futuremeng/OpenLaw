@@ -33,6 +33,13 @@ var assets embed.FS
 // 见 docs/design-ui-language.md「产品自称」条。
 const AppTitle = "开源法律法规数据库"
 
+// version 程序版本（Semantic Versioning，与 OpenCourt 的同构纪律）。
+// var 而非 const：发布流水线经 -ldflags "-X main.version=<tag 去 v>" 注入；
+// 本文件的字面值是发布时树上声明的版本，release 作业拿它与 tag 互检，
+// 不一致拒发。本地构建如实报此值（即最近一次发布的号），
+// 界面「库总览 · 技术信息」折叠展示同一值——版本缺失必须显示「未知」。
+var version = "0.2.0"
+
 func main() {
 	dataDir := flag.String("data", "data", "数据目录（db/、md/、incoming/、manifest/）")
 	edition := flag.String("edition", EditionFull, "发行版：full=数据维护版（含复核/标引/采集）；reader=只读查询版（不给写路径入口）")
@@ -54,6 +61,7 @@ func main() {
 	app.dataSrc = src
 	app.SetEdition(*edition)
 	log.Printf("发行版：%s", *edition)
+	log.Printf("程序版本：%s", version)
 	if err := app.Open(); err != nil {
 		// 启动失败也开窗：错误在界面内如实显示（fail-visible，不静默）
 		log.Printf("打开法规库失败: %v", err)

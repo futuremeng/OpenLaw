@@ -17,6 +17,13 @@ US 基础包待官方批量包全文导入——空桶如实不产包。
 
 ## Unreleased
 
+- **修复：二进制无版本注入**（v0.2.0 发布时桌面端二进制不知道自己的版本）。
+  `desktop/main.go` 新增 `var version` 单一来源（同 OpenCourt 纪律）；发布流水线在
+  tag 事件下经 `-ldflags -X main.version` 注入 Linux/Windows 直构与 macOS
+  build-app.sh（`VERSION` 环境变量，与既有 Info.plist 注入并存）；release 作业新增
+  tag↔`desktop/main.go` 互检，不一致拒发。界面「库总览·技术信息」与「设置」
+  折叠新增「程序版本 vX.Y.Z」行（本地构建如实报树上声明的最近发布号）。
+
 - **发版自动化**：新增 `.github/workflows/release.yml`（tag 触发）——三平台
   production 桌面构建 + 五平台 CLI 交叉编译 + GitHub Release 发布（含
   SHA256SUMS；tag↔CHANGELOG 互检门禁；同 tag 重跑幂等）；ci.yml 新增

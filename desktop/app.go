@@ -126,6 +126,7 @@ type StatusView struct {
 	SchemaVersion   string            `json:"schema_version"`
 	SchemaMin       string            `json:"schema_min"`
 	SchemaMax       string            `json:"schema_max"`
+	AppVersion      string            `json:"app_version,omitempty"` // 程序版本（发布流水线注入；见 main.go var version）
 	ProducerVersion string            `json:"producer_version"`
 	License         string            `json:"license,omitempty"`
 	ManifestAt      string            `json:"manifest_at,omitempty"`
@@ -161,7 +162,8 @@ func (a *App) count(q string, args ...any) int {
 
 // Status 法规库状态汇总（计数/来源版本/schema/许可）。
 func (a *App) Status() (StatusView, error) {
-	v := StatusView{DataDir: a.dataDir, DataSrc: a.dataSrc, OpenErr: a.openErr, SchemaMin: store.SchemaMin, SchemaMax: store.SchemaMax}
+	// 程序版本与数据状态无关：即使库没打开成功也必须如实报出（诚实展示）。
+	v := StatusView{DataDir: a.dataDir, DataSrc: a.dataSrc, OpenErr: a.openErr, SchemaMin: store.SchemaMin, SchemaMax: store.SchemaMax, AppVersion: version}
 	if a.db == nil {
 		return v, errors.New(a.openErr)
 	}

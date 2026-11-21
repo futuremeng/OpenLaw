@@ -18,7 +18,14 @@ TAGS="${TAGS:-desktop,production}"
 BUNDLE_ID="${BUNDLE_ID:-com.github.futuremeng.openlaw}"
 
 echo "==> 构建二进制（标签：${TAGS}，必须含 desktop,production，否则链接的是 stub 绑定）"
-go build -tags "$TAGS" -o "$BIN" ./desktop
+# 发布构建经 VERSION 环境变量注入 main.version（release.yml 在 tag 事件下导出）；
+# 本地不设 VERSION 时保持树值，不静默丢注入。
+if [ -n "${VERSION:-}" ]; then
+	echo "==> 版本注入：${VERSION}"
+	go build -tags "$TAGS" -ldflags "-X main.version=${VERSION}" -o "$BIN" ./desktop
+else
+	go build -tags "$TAGS" -o "$BIN" ./desktop
+fi
 
 echo "==> 组装 bundle：${OUT}"
 rm -rf "$OUT"

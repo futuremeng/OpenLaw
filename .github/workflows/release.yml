@@ -45,7 +45,11 @@ jobs:
           [ "${{ matrix.os }}" = "ubuntu-latest" ] && TAGS=$TAGS,webkit2_41
           EXT=""
           [ "${{ matrix.os }}" = "windows-latest" ] && EXT=.exe
-          go build -tags "$TAGS" -trimpath -ldflags "-s -w" -o "dist/openlaw-desktop$EXT" ./desktop
+          # 版本单一来源在 desktop/main.go；发布 tag 注入 main.version（去 v），
+          # 与 release 作业的 tag↔main.go 互检配套；workflow_dispatch 无 tag，不注入。
+          LDF="-s -w"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then LDF="-s -w -X main.version=${GITHUB_REF_NAME#v}"; fi
+          go build -tags "$TAGS" -trimpath -ldflags "$LDF" -o "dist/openlaw-desktop$EXT" ./desktop
 
       # macOS 必须经 build-app.sh 产出 .app：TCC 只认带 bundle 身份且已签名的应用，
       # 裸二进制的 webview 定位一律被拒（脚本内注释有实测记录）。
@@ -59,7 +63,9 @@ jobs:
             ver="${GITHUB_REF_NAME#v}"
             plutil -replace CFBundleShortVersionString -string "$ver" packaging/macos/Info.plist
             plutil -replace CFBundleVersion -string "$ver" packaging/macos/Info.plist
-            echo "Info.plist 版本注入为 $ver"
+            # Info.plist 之外，二进制本体也要带版本（build-app.sh 据此注入 main.version）。
+            export VERSION="$ver"
+            echo "版本注入为 $ver（Info.plist + main.version）"
           fi
           packaging/macos/build-app.sh dist/OpenLaw.app
 
@@ -128,6 +134,17 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      # 与 OpenCourt 同构：tag 必须等于 desktop/main.go 声明的版本，
+      # 否则注入后的二进制「关于/技术信息」报的版本就是假的。
+      - name: the tag is the version
+        run: |
+          src=$(sed -n 's/^var version = "\([^"]*\)"/\1/p' desktop/main.go | head -1)
+          if [ "v$src" != "$GITHUB_REF_NAME" ]; then
+            echo "tag ${GITHUB_REF_NAME} ≠ desktop/main.go 声明的 v$src；发布提交需同步 bump 版本并归档 CHANGELOG" >&2
+            exit 1
+          fi
+          echo "OpenLaw ${GITHUB_REF_NAME}（二进制注入值 ${src}）"
 
       # tag 是版本声明，必须与 CHANGELOG 的发布节互检：在没有归档发布记录的
       # 树上发版 = 16.3「只写结果不写原因的记录等于没记」的反例。

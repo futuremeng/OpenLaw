@@ -1197,6 +1197,7 @@ async function loadOverview() {
     }
     // 技术信息：路径、启动参数、数据格式版本一律收在折叠里，不占主视图。
     $("#ov-tech").innerHTML = `<span>数据存放位置：${escapeHTML(v.data_dir || "未知")}${v.data_src ? "（由启动参数指定：" + escapeHTML(v.data_src) + "）" : ""}</span>
+      <span>程序版本 ${v.app_version ? "v" + escapeHTML(v.app_version) : "未知"}（发布构建由流水线注入；本地构建报树上声明的最近发布号）</span>
       <span>数据格式版本 ${escapeHTML(v.schema_version || "?")}（本程序支持 ${escapeHTML(v.schema_min)}–${escapeHTML(v.schema_max)}）</span>
       <span>版本记录 ${num(v.versions)} 条 · 文档 ${num(v.documents)} 份 · 条文 ${num(v.articles)} 条</span>`;
   } catch (e) {
@@ -2028,6 +2029,7 @@ async function loadSettings() {
   try {
     const v = await app().Status();
     $("#settings-box").innerHTML = `<span>数据存放位置：${escapeHTML(v.data_dir)}</span>
+      <span>程序版本 ${v.app_version ? "v" + escapeHTML(v.app_version) : "未知"}（发布构建由流水线注入；本地构建报树上声明的最近发布号）</span>
       <span>数据格式版本 ${escapeHTML(v.schema_version || "?")}（本程序支持 ${escapeHTML(v.schema_min)}–${escapeHTML(v.schema_max)}）</span>
       <span>数据来源版本：${escapeHTML(v.producer_version || "未知")}</span>`;
   } catch (e) { /* 已在别处报错 */ }

@@ -61,7 +61,10 @@ regions / since / until / doc_count`（随签名保护；缺字段 = 旧整包�
 tag 推送后三平台 production 桌面构建（macOS 走 `packaging/macos/build-app.sh`
 出 .app，Info.plist 版本在签名前由 tag 注入）+ 五平台 CLI 交叉编译，随后
 创建 GitHub Release（制品重命名标架构 + SHA256SUMS；tag 必须在 CHANGELOG
-有对应发布节，否则拒发）。语料基础包/增量包仍按上述流水线以独立 tag 走
+有对应发布节，且等于 `desktop/main.go` 的 `var version` 声明，否则拒发）。
+版本单一来源即 `desktop/main.go` 的 `var version`：发布提交 bump 它并归档
+CHANGELOG；发版流水线在 tag 事件下经 `-ldflags -X main.version=<tag 去 v>`
+注入桌面二进制（macOS 另注 Info.plist），界面技术信息折叠展示同一值。语料基础包/增量包仍按上述流水线以独立 tag 走
 同一分发渠道，不随二进制 tag 发布。
 
 桌面端「初始化法规库」经同一通道刷新目录、勾选安装（基础包在前、增量包按日期，
