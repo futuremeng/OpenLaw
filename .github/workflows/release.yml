@@ -32,15 +32,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxss1
 
-      # production tag 必须带：不带 desktop,production 链接的是 stub 绑定（AGENTS.md
-      # 验证门禁；assetdir 由 desktop/main.go 的 //go:embed all:frontend/dist 直接内联，
-      # 不经 wails CLI）。Linux 额外带 webkit2_41：runner 装的是 4.1，wails 默认找 4.0。
+      # 必须显式 bash：windows 默认 shell 是 pwsh，-tags "a,b" 会被原样传成
+      # 含逗号的单标签名（linux 默认 bash 才一直没暴露）。Linux 额外带 webkit2_41：
+      # runner 装的是 4.1，wails 默认找 4.0。
       - name: Build (linux/windows)
         if: matrix.os != 'macos-latest'
+        shell: bash
         env:
-          TAGS: ${{ matrix.os == 'ubuntu-latest' && 'desktop,production,webkit2_41' || 'desktop,production' }}
           CGO_ENABLED: ${{ matrix.os == 'windows-latest' && '0' || '1' }}
-        run: go build -tags "$TAGS" -trimpath -ldflags "-s -w" -o dist/openlaw-desktop${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./desktop
+        run: |
+          TAGS=desktop,production
+          [ "${{ matrix.os }}" = "ubuntu-latest" ] && TAGS=$TAGS,webkit2_41
+          EXT=""
+          [ "${{ matrix.os }}" = "windows-latest" ] && EXT=.exe
+          go build -tags "$TAGS" -trimpath -ldflags "-s -w" -o "dist/openlaw-desktop$EXT" ./desktop
 
       # macOS 必须经 build-app.sh 产出 .app：TCC 只认带 bundle 身份且已签名的应用，
       # 裸二进制的 webview 定位一律被拒（脚本内注释有实测记录）。
@@ -98,9 +103,10 @@ jobs:
         shell: bash
         run: |
           set -e
+          # 在仓库根打 zip（曾短写一层相对路径，zip 落进 dist/ 而根目录 ls 落空）
           for p in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
             os="${p%/*}"; arch="${p#*/}"
-            (cd "dist/$p" && zip -q "../../openlaw-cli-$os-$arch.zip" *)
+            zip -q -j "openlaw-cli-$os-$arch.zip" dist/"$p"/*
           done
           ls -la openlaw-cli-*.zip
 
