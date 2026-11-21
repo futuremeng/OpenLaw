@@ -24,3 +24,30 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+  # AGENTS.md 验证门禁的 CI 镜像：production 构建不跑，stub 绑定链接错误在
+  # 纯 go test 里毫无征兆（desktop 包默认编译的是 stub 变体）。
+  # webkit2_41 标签：runner 装的是 webkit2gtk-4.1，wails 默认找 4.0。
+  production-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install system deps (webkit/gtk)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxss1
+
+      - name: Frontend syntax gate
+        run: node --check desktop/frontend/dist/assets/app.js
+
+      - name: Production desktop build
+        run: go build -tags desktop,production,webkit2_41 -o dist/openlaw-desktop ./desktop
+
+      - name: Production devtools variant build
+        run: go build -tags desktop,production,devtools,webkit2_41 -o dist/openlaw-desktop-devtools ./desktop

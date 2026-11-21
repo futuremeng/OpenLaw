@@ -1,0 +1,185 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: openlaw-desktop-linux
+          - os: windows-latest
+            artifact: openlaw-desktop-windows
+          - os: macos-latest
+            artifact: openlaw-desktop-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Linux system deps (webkit/gtk)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxss1
+
+      # production tag 必须带：不带 desktop,production 链接的是 stub 绑定（AGENTS.md
+      # 验证门禁；assetdir 由 desktop/main.go 的 //go:embed all:frontend/dist 直接内联，
+      # 不经 wails CLI）。Linux 额外带 webkit2_41：runner 装的是 4.1，wails 默认找 4.0。
+      - name: Build (linux/windows)
+        if: matrix.os != 'macos-latest'
+        env:
+          TAGS: ${{ matrix.os == 'ubuntu-latest' && 'desktop,production,webkit2_41' || 'desktop,production' }}
+          CGO_ENABLED: ${{ matrix.os == 'windows-latest' && '0' || '1' }}
+        run: go build -tags "$TAGS" -trimpath -ldflags "-s -w" -o dist/openlaw-desktop${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./desktop
+
+      # macOS 必须经 build-app.sh 产出 .app：TCC 只认带 bundle 身份且已签名的应用，
+      # 裸二进制的 webview 定位一律被拒（脚本内注释有实测记录）。
+      # 版本注入必须落在签名前的 Info.plist 上：发布 tag 写进
+      # CFBundleShortVersionString/CFBundleVersion，否则「关于」版本停在文件默认值。
+      - name: Build .app bundle (macos)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            ver="${GITHUB_REF_NAME#v}"
+            plutil -replace CFBundleShortVersionString -string "$ver" packaging/macos/Info.plist
+            plutil -replace CFBundleVersion -string "$ver" packaging/macos/Info.plist
+            echo "Info.plist 版本注入为 $ver"
+          fi
+          packaging/macos/build-app.sh dist/OpenLaw.app
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -e
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            ditto -c -k --keepParent dist/OpenLaw.app OpenLaw.app.zip
+          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp dist/openlaw-desktop.exe openlaw-desktop-windows.exe
+          else
+            zip -j openlaw-desktop-linux.zip dist/openlaw-desktop
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            OpenLaw.app.zip
+            openlaw-desktop-windows.exe
+            openlaw-desktop-linux.zip
+          if-no-files-found: error
+
+  cli:
+    name: cli (all platforms)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # 纯 Go（modernc.org/sqlite，无 CGO）→ 交叉编译即开即用（Makefile build-all）。
+      - name: Build all CLIs
+        run: make build-all
+
+      - name: Package per-platform bundles
+        shell: bash
+        run: |
+          set -e
+          for p in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
+            os="${p%/*}"; arch="${p#*/}"
+            (cd "dist/$p" && zip -q "../../openlaw-cli-$os-$arch.zip" *)
+          done
+          ls -la openlaw-cli-*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openlaw-cli
+          path: openlaw-cli-*.zip
+          if-no-files-found: error
+
+  # tag 推上去必须创建 GitHub Release（AGENTS.md 信任与签名纪律把 Releases 定为
+  # 官方分发渠道；此前只发 tag 不发资产，等于渠道承诺落空）。重复跑同一 tag
+  # 时替换旧资产而非报错。
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # tag 是版本声明，必须与 CHANGELOG 的发布节互检：在没有归档发布记录的
+      # 树上发版 = 16.3「只写结果不写原因的记录等于没记」的反例。
+      - name: the tag is in the changelog
+        run: |
+          if ! grep -q "^## ${GITHUB_REF_NAME}（" CHANGELOG.md; then
+            echo "CHANGELOG.md 没有 ${GITHUB_REF_NAME} 的发布节，先把 Unreleased 归档为本版本" >&2
+            exit 1
+          fi
+          echo "OpenLaw ${GITHUB_REF_NAME}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          first=$(find bundles -type f | head -1)
+          if [ -z "$first" ]; then
+            echo "build 作业没有产出任何制品" >&2
+            exit 1
+          fi
+
+          # 名字带版本与架构；macOS 包架构即 runner 架构（Apple Silicon，非 universal）。
+          version=${GITHUB_REF_NAME#v}
+          mkdir -p dist
+          for f in $(find bundles -type f | sort); do
+            case "$f" in
+              *OpenLaw.app.zip)            cp "$f" "dist/OpenLaw-$version-macos-arm64.app.zip" ;;
+              *openlaw-desktop-windows.exe) cp "$f" "dist/OpenLaw-$version-desktop-windows-amd64.exe" ;;
+              *openlaw-desktop-linux.zip)  cp "$f" "dist/OpenLaw-$version-desktop-linux-amd64.zip" ;;
+              *openlaw-cli-*)              cp "$f" "dist/OpenLaw-$version-cli-$(basename "$f" | sed 's/^openlaw-cli-//')" ;;
+              *) echo "预期外的制品: $f" >&2; exit 1 ;;
+            esac
+          done
+          (cd dist && sha256sum *) > SHA256SUMS
+          cat SHA256SUMS
+
+          cat > notes.md <<'MD'
+          开源法律法规数据库二进制与 CLI 发布。桌面端为 production 构建（内嵌前端资源）；
+          macOS 包为 .app bundle（TCC 需要 bundle 身份），ad-hoc 签名、未公证，首次打开
+          可能需右键「打开」；系统可能要求重新授予定位权限。
+
+          语料基础包/增量包不随本二进制发布——按 docs/release-process.md 的发布流水线
+          （openlaw-pack build/archive/index）以独立 tag 走同一 GitHub Releases 渠道分发。
+
+          `SHA256SUMS` 覆盖全部制品：`sha256sum -c SHA256SUMS`。
+          版本语义与迁移说明见 CHANGELOG 对应发布节。
+          MD
+
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber dist/* SHA256SUMS
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "OpenLaw $GITHUB_REF_NAME" \
+              --notes-file notes.md \
+              dist/* SHA256SUMS
+          fi

@@ -57,6 +57,13 @@ regions / since / until / doc_count`（随签名保护；缺字段 = 旧整包�
 5. 自检       openlaw-pack index-verify -index dist/index
 ```
 
+二进制与 CLI 发布（v0.2.0 起）由 `.github/workflows/release.yml` 自动执行：
+tag 推送后三平台 production 桌面构建（macOS 走 `packaging/macos/build-app.sh`
+出 .app，Info.plist 版本在签名前由 tag 注入）+ 五平台 CLI 交叉编译，随后
+创建 GitHub Release（制品重命名标架构 + SHA256SUMS；tag 必须在 CHANGELOG
+有对应发布节，否则拒发）。语料基础包/增量包仍按上述流水线以独立 tag 走
+同一分发渠道，不随二进制 tag 发布。
+
 桌面端「初始化法规库」经同一通道刷新目录、勾选安装（基础包在前、增量包按日期，
 串行；每包过目录验签 + 归档哈希 + 包级 VerifyTrusted 三道闸）。名单外公钥一律拒收
 （`ImportAllowUntrusted` 仅限本地自验）。

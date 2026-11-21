@@ -15,7 +15,16 @@ US 基础包待官方批量包全文导入——空桶如实不产包。
 `openlaw-pack verify` 对包执行；数据目录 manifest 由语料生产者经
 `openlaw-check -build-manifest` 生成，属后续版本项）。
 
-## Unreleased（v0.2.0 开发中）
+## Unreleased
+
+- **发版自动化**：新增 `.github/workflows/release.yml`（tag 触发）——三平台
+  production 桌面构建 + 五平台 CLI 交叉编译 + GitHub Release 发布（含
+  SHA256SUMS；tag↔CHANGELOG 互检门禁；同 tag 重跑幂等）；ci.yml 新增
+  production 构建门禁（AGENTS.md 既有门禁首次进 CI）。macOS 经
+  build-app.sh 出 .app（TCC bundle 身份），Info.plist 版本在签名前由 tag
+  注入；语料包仍按 docs/release-process.md 流水线另行发布。
+
+## v0.2.0（2026-11-21）
 
 - **修复：JS 渲染文案穿透设计门禁（「语料」5 处 + 主视图 ISO UTC 时间戳 2 处）**。
   数据层内部词「语料」曾出现在条文检索页头、时效分面脚注与徽章、部门法词表缺失说明
