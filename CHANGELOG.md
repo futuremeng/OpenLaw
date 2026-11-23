@@ -15,7 +15,10 @@ US 基础包待官方批量包全文导入——空桶如实不产包。
 `openlaw-pack verify` 对包执行；数据目录 manifest 由语料生产者经
 `openlaw-check -build-manifest` 生成，属后续版本项）。
 
-## Unreleased
+## v0.2.1（2026-11-23）
+
+发布四数：新增代码改动 2 项（修复 1 + 发版自动化 1）；无数据模型变更，
+schema 不变（免迁移）；待人工复核口径不变；回滚方式：revert 本发布提交即回到 v0.2.0 行为。
 
 - **修复：二进制无版本注入**（v0.2.0 发布时桌面端二进制不知道自己的版本）。
   `desktop/main.go` 新增 `var version` 单一来源（同 OpenCourt 纪律）；发布流水线在
