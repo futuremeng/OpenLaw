@@ -189,7 +189,11 @@ jobs:
           cat > notes.md <<'MD'
           开源法律法规数据库二进制与 CLI 发布。桌面端为 production 构建（内嵌前端资源）；
           macOS 包为 .app bundle（TCC 需要 bundle 身份），ad-hoc 签名、未公证，首次打开
-          可能需右键「打开」；系统可能要求重新授予定位权限。
+          可能需右键「打开」；系统可能要求重新授予定位权限。Windows exe 未签名，
+          SmartScreen 拦截时选「更多信息 → 仍要运行」。
+
+          窗口打不开时查崩溃留痕：数据目录（库总览·技术信息面板里标明位置）的
+          crash.log；数据目录写不进时落在系统临时目录的 openlaw-crash.log。
 
           语料基础包/增量包不随本二进制发布——按 docs/release-process.md 的发布流水线
           （openlaw-pack build/archive/index）以独立 tag 走同一 GitHub Releases 渠道分发。

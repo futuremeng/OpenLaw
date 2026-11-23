@@ -57,6 +57,9 @@ func main() {
 	dir, src := resolveDataDir(*dataDir, flagSet, exe, fileIsDir, os.Getenv)
 	log.Printf("法规库数据位置：%s（来源：%s）", dir, src)
 
+	// panic 不得静默：窗口主链路的 panic 先落 crash.log 再按原样退出（见 crashlog.go）。
+	defer crashOnPanic(dir)
+
 	app := NewApp(dir)
 	app.dataSrc = src
 	app.SetEdition(*edition)

@@ -2,6 +2,15 @@
 
 本项目遵循 Semantic Versioning：主版本=数据模型或 SDK 接口不兼容变更（必须附迁移脚本，迁移前自动备份）；次版本=新增能力；修订版本=修复。详见 docs/release-process.md。
 
+## Unreleased
+
+- fix(desktop): panic 不再静默——窗口主链路的 panic 先把报告（UTC 时间、程序
+  版本、panic 值、堆栈）追加进数据目录的 crash.log，数据目录写不进时落在系统
+  临时目录的 openlaw-crash.log；写完原样 re-panic，退出码与 stderr 行为不变。
+  后台 goroutine 的 panic 不经此路径，照旧只上 stderr，已如实写明。
+- ci(release): 发布说明补 Windows SmartScreen（未签名 exe：更多信息→仍要运行）
+  与 crash.log 位置段，与既有 macOS 右键段共同构成首启指引。
+
 ## v0.1.0（2026-11-03）
 
 首发。发布说明（16.3 要求四数）：新增法规 28,952 部 / 文档 36,109 件；
