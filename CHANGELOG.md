@@ -2,7 +2,7 @@
 
 本项目遵循 Semantic Versioning：主版本=数据模型或 SDK 接口不兼容变更（必须附迁移脚本，迁移前自动备份）；次版本=新增能力；修订版本=修复。详见 docs/release-process.md。
 
-## Unreleased
+## v0.2.2（2026-11-23）
 
 - fix(desktop): panic 不再静默——窗口主链路的 panic 先把报告（UTC 时间、程序
   版本、panic 值、堆栈）追加进数据目录的 crash.log，数据目录写不进时落在系统

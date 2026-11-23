@@ -38,7 +38,7 @@ const AppTitle = "开源法律法规数据库"
 // 本文件的字面值是发布时树上声明的版本，release 作业拿它与 tag 互检，
 // 不一致拒发。本地构建如实报此值（即最近一次发布的号），
 // 界面「库总览 · 技术信息」折叠展示同一值——版本缺失必须显示「未知」。
-var version = "0.2.1"
+var version = "0.2.2"
 
 func main() {
 	dataDir := flag.String("data", "data", "数据目录（db/、md/、incoming/、manifest/）")
